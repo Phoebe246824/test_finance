@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pika
+python-dotenv
+pydantic
+crewai
+graphiti-core
+neo4j
+jinja2
+ulid-py
+httpx
