@@ -228,7 +228,7 @@ def classify_event(config: dict, normalized_event: dict) -> dict:
     Returns:
         dict: 包含 event_type, key_entities, summary 的字典
     """
-    from providers.llm_provider import get_llm
+    from providers.llm_provider import get_llm, close_all_llms
 
     llm = get_llm(temperature=0.3)
 
@@ -370,7 +370,20 @@ def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) ->
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",        
         verbose=True,
     )
-    related_events = '\n'.join(e.content for e in results['episodes'])
+    reranked_edges = results.get("reranked_edges", []) if results else []
+    reranked_episodes = results.get("reranked_episodes", []) if results else []
+
+    related_events_parts = []
+    for item in reranked_edges:
+        text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+        if text:
+            related_events_parts.append(f"[edge] {text}")
+    for item in reranked_episodes:
+        text = item.get("text") if isinstance(item, dict) else getattr(item, "content", None)
+        if text:
+            related_events_parts.append(f"[episode] {text}")
+
+    related_events = "\n".join(related_events_parts)
     risk_task = Task(
         description="基于事件信息从人物、组织、地点、事件、重要时间等各角度，进行风险评估。"                    
                     "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
@@ -388,6 +401,7 @@ def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) ->
         verbose=True,
     )
 
+    print("开始第二次风险评估")
     result = crew.kickoff(inputs={
         "event_type": event.event_type,
         "summary": event.summary,
@@ -405,11 +419,13 @@ def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) ->
         if isinstance(risk_score, str):
             risk_score = float(risk_score)
 
-        return {
+        final_result = {
             "risk_level": result_dict.get("risk_level", "medium"),
             "risk_score": risk_score,
             "reasoning": result_dict.get("reasoning", ""),
         }
+        print(f"第二次风险评估完成: risk_level=\"{final_result['risk_level']}\", risk_score={final_result['risk_score']}")
+        return final_result
     except Exception as e:
         print(f"              解析风险评估结果失败: {e}")
         return {
@@ -461,7 +477,7 @@ async def get_graphiti_client(config: dict):
     return await init_graph_client(config)
 
 
-def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
+async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
     """
     知识图谱构建：Graphiti Episode 写入 + 实体/关系提取
 
@@ -472,114 +488,141 @@ def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
     Returns:
         list[dict]: GraphBuildResult 列表
     """
-    import asyncio
-
     print("\n" + "=" * 70)
     print("  Stage 3: Graph — Graphiti 知识图谱构图")
     print("=" * 70)
+    from graphiti.graphiti_workflow import add_event_to_graph
 
-    async def _build_graph():
-        from graphiti.graphiti_workflow import add_event_to_graph
+    graphiti = await get_graphiti_client(config)
 
-        graphiti = await get_graphiti_client(config)
-        
-        print("\n[graph] 初始化 Graphiti 客户端...")
-        print(f"         Neo4j:     {config['neo4j']['uri']}")
-        print(f"         LLM:       {config['llm']['model']} (实体/关系提取)")
-        print(f"         Embedder:  {config['embedder']['model']} (向量检索)")
-        print("         初始化完成 ✓")
+    print("\n[graph] 初始化 Graphiti 客户端...")
+    print(f"         Neo4j:     {config['neo4j']['uri']}")
+    print(f"         LLM:       {config['llm']['model']} (实体/关系提取)")
+    print(f"         Embedder:  {config['embedder']['model']} (向量检索)")
+    print("         初始化完成 ✓")
 
-        build_results = []
+    build_results = []
 
-        print(f"\n[graph] 写入 event_id={event.event_id}")
+    print(f"\n[graph] 写入 event_id={event.event_id}")
 
-        timestamp = event.timestamp    
+    timestamp = event.timestamp
 
-        try:
-            result = await add_event_to_graph(
-                    graphiti=graphiti,
-                    event_text=event.raw_content,
-                    reference_time=timestamp,
-                    source_description=f"{event.source}:{event.event_type}",
-            )
+    try:
+        result = await add_event_to_graph(
+            graphiti=graphiti,
+            event_text=event.raw_content,
+            reference_time=timestamp,
+            source_description=f"{event.source}:{event.event_type}",
+        )
 
-            print(f"         写入成功 ✓")
-            print(f"             entities_extracted: {result.get('entities_extracted', 0)}")
-            print(f"             relations_created: {result.get('relations_created', 0)}")
+        print(f"         写入成功 ✓")
+        print(f"             entities_extracted: {result.get('entities_extracted', 0)}")
+        print(f"             relations_created: {result.get('relations_created', 0)}")
 
-            build_results.append({
-                    "event_id": event.event_id,
-                    "success": True,
-                    "entities_extracted": result.get("entities_extracted", 0),
-                    "relations_created": result.get("relations_created", 0),
-            })
+        build_results.append({
+            "event_id": event.event_id,
+            "success": True,
+            "entities_extracted": result.get("entities_extracted", 0),
+            "relations_created": result.get("relations_created", 0),
+        })
 
-        except Exception as e:
-            print(f"         写入失败: {e}")
-            build_results.append({
-                    "event_id": event["event_id"],
-                    "success": False,
-                    "error": str(e),
-            })
-
+    except Exception as e:
+        print(f"         写入失败: {e}")
+        build_results.append({
+            "event_id": event.event_id,
+            "success": False,
+            "error": str(e),
+        })
+    finally:
         total_nodes = sum(r.get("entities_extracted", 0) for r in build_results)
         total_edges = sum(r.get("relations_created", 0) for r in build_results)
         print(f"\n[graph] 构图完成: {len(build_results)} 条 Episode 写入成功")
         print(f"         累计: {total_nodes} 个实体节点, {total_edges} 条关系边")
 
         await graphiti.close()
-        return build_results
 
-    return asyncio.run(_build_graph())
+    return build_results
 
 
 # ============================================================
 #  Stage 4: Search — 混合搜索演示
 # ============================================================
 
-def simulate_search(config: dict, event: NormalizedEvent) -> None:
+async def simulate_search(config: dict, event: NormalizedEvent, num_results: int = 10) -> None:
     """
     Graphiti 混合搜索：使用 Graphiti 客户端进行搜索
     """
-    import asyncio
-
     print("\n" + "=" * 70)
     print("  Stage 4: Search — Graphiti 混合搜索演示")
     print("=" * 70)
+    from graphiti.graphiti_workflow import hybrid_search, init_graph_client
 
-    async def _search():
-        from graphiti.graphiti_workflow import hybrid_search, init_graph_client
-
+    result = {}
+    graphiti = None
+    try:
+        print("[search] 正在初始化 Graphiti 搜索客户端...")
         graphiti = await init_graph_client(config)
+        print("[search] 初始化 Graphiti 搜索客户端 ✓")
 
-        print("\n[search] 初始化 Graphiti 搜索客户端 ✓")
-
-        
         print(f"\n[search] hybrid_search()")
         print(f"         query=\"{event.raw_content}\"")
         print(f"         group_id=sentinel")
-        print(f"         num_results=5")
+        print(f"         num_results={num_results}")
 
-        try:
-            result = await hybrid_search(
+        print("[search] 开始执行 hybrid_search...")
+        result = await asyncio.wait_for(
+            hybrid_search(
                 graphiti=graphiti,
                 query=event.raw_content,
-                num_results=10,
-            )
+                num_results=num_results,
+            ),
+            timeout=20,
+        )
 
-            print(f"         搜索成功 ✓")
-            print(f"             nodes: {len(result.get('nodes', []))} 个")
-            print(f"             edges: {len(result.get('edges', []))} 条")
-            print(f"             episodes: {len(result.get('episodes', []))} 条")
+        print(f"         搜索成功 ✓")
 
-        except Exception as e:
-            print(f"         搜索失败: {e}")
+        # 使用 graphiti_workflow.hybrid_search 的全局重排结果（results）
+        # results 内每条形如: {"type": "edge|episode|node", "text": ..., "score": ...}
+        reranked_items = result.get("results", []) if result else []
 
-        await graphiti.close()
-        print(f"\n[search] 搜索完成")
-        return result
+        reranked_nodes = [item for item in reranked_items if item.get("type") == "node"]
+        reranked_edges = [item for item in reranked_items if item.get("type") == "edge"]
+        reranked_episodes = [item for item in reranked_items if item.get("type") == "episode"]
 
-    return asyncio.run(_search())
+        print(f"             [global_rerank_topk] total: {len(reranked_items)}")
+        print(f"             [global_rerank_topk] nodes: {len(reranked_nodes)} 个")
+        print(f"             [global_rerank_topk] edges: {len(reranked_edges)} 条")
+        print(f"             [global_rerank_topk] episodes: {len(reranked_episodes)} 条")
+
+        # 为下游保留按全局重排划分后的结果
+        if result is None:
+            result = {}
+        result["reranked_nodes"] = reranked_nodes
+        result["reranked_edges"] = reranked_edges
+        result["reranked_episodes"] = reranked_episodes
+
+    except asyncio.TimeoutError:
+        print("         搜索超时: hybrid_search 超过 20 秒，跳过检索并继续第二次风险评估")
+        # 保证下游第二次风险评估可继续执行
+        result = result or {}
+        result.setdefault("reranked_nodes", [])
+        result.setdefault("reranked_edges", [])
+        result.setdefault("reranked_episodes", [])
+    except Exception as e:
+        print(f"         搜索失败: {e}")
+        # 保证下游第二次风险评估可继续执行
+        result = result or {}
+        result.setdefault("reranked_nodes", [])
+        result.setdefault("reranked_edges", [])
+        result.setdefault("reranked_episodes", [])
+
+    finally:
+        if graphiti is not None:
+            await graphiti.close()
+            print("[search] Graphiti 客户端已关闭")
+
+    print(f"\n[search] 搜索完成")
+    return result
 
 
 # ============================================================
@@ -637,10 +680,22 @@ def simulate_dashboard(config: dict, normalized_event: NormalizedEvent, results:
     )
     
     event = normalized_event
+    reranked_edges = results.get("reranked_edges", []) if results else []
+    reranked_episodes = results.get("reranked_episodes", []) if results else []
+    context_parts = []
+    for item in reranked_edges:
+        text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+        if text:
+            context_parts.append(f"[edge] {text}")
+    for item in reranked_episodes:
+        text = item.get("text") if isinstance(item, dict) else getattr(item, "content", None)
+        if text:
+            context_parts.append(f"[episode] {text}")
+    episode_context = "\n".join(context_parts)
     event_description = f"""
 事件类型: {event.event_type}
 风险等级: {event.risk_level} (分数: {event.risk_score})
-上下文信息: {'\n'.join(e.content for e in results['episodes'])}
+上下文信息: {episode_context}
 事件描述: {event.raw_content}
 """
     intent_task = Task(
@@ -857,15 +912,15 @@ class SentinelPipelineFlow(Flow):
         self.normalized_event = simulate_classification(self.config, event) if event else None
 
     @listen(classification)
-    def graph_build(self):
+    async def graph_build(self):
         """Stage 3: 图谱构建"""
         print(f"\n[Flow] Stage 3: Graph Build")
-        results = simulate_graph_build(self.config, self.normalized_event)
+        results = await simulate_graph_build(self.config, self.normalized_event)
         result = results[0] if results else None
         self.state["graph_result"] = result
 
     @listen(graph_build)
-    def risk_evaluation(self, result):
+    async def risk_evaluation(self, result):
         """Stage 4: 风险评估"""
         print(f"\n[Flow] Stage 4: Risk Evaluation")
         classified_event = self.normalized_event
@@ -876,12 +931,15 @@ class SentinelPipelineFlow(Flow):
             self.normalized_event.reasoning = risk_result["reasoning"]
             print(f"第一次风险评估: risk_level=\"{risk_result['risk_level']}\", risk_score={risk_result['risk_score']}")
             if risk_result["risk_score"] > 0.2: #人工调整阈值
+                print(f"[risk] risk_score={risk_result['risk_score']} > 0.2，进入第二次风险评估")
                 print(f"==========================进行第二次风险评估，获取主体关联事件==========================")
-                results = simulate_search(self.config, self.normalized_event)
+                results = await simulate_search(self.config, self.normalized_event, num_results=10)
                 risk_result = second_evaluate_risk(self.config, classified_event,results)
                 self.normalized_event.risk_level = risk_result["risk_level"]
                 self.normalized_event.risk_score = risk_result["risk_score"]
                 self.normalized_event.reasoning = risk_result["reasoning"]
+            else:
+                print(f"[risk] risk_score={risk_result['risk_score']} <= 0.2，跳过第二次风险评估")
 
         return result
 
@@ -900,10 +958,10 @@ class SentinelPipelineFlow(Flow):
             return "check_risk"
 
     @listen("check_risk")
-    def search(self, result):
+    async def search(self, result):
         """Stage 5: 搜索服务（非低风险事件）"""
         print(f"\n[Flow] Stage 5: Search")
-        results = simulate_search(self.config, self.normalized_event)
+        results = await simulate_search(self.config, self.normalized_event)
         return results
 
     @listen(search)
@@ -920,7 +978,7 @@ class SentinelPipelineFlow(Flow):
         print("============================================ 消息处理完成 =============================================")
 
 
-def run_flow(config: dict):
+async def run_flow(config: dict):
     """
     使用 CrewAI Flow 运行完整 Pipeline
     从终端输入消息进行处理
@@ -933,7 +991,7 @@ def run_flow(config: dict):
     while True:
         try:
             print("\n请输入消息内容:")
-            user_input = input("> ").strip()
+            user_input = (await asyncio.to_thread(input, "> ")).strip()
             
             if not user_input:
                 print("消息不能为空，请重新输入")
@@ -977,7 +1035,7 @@ async def start_service(config: dict) -> None:
     """
 
     print(f"\n[main] 启动完整 Pipeline (使用 CrewAI Flow): Ingestion → Classification → Graph → Search → Dashboard")
-    run_flow(config)
+    await run_flow(config)
 
 
 
@@ -1013,7 +1071,8 @@ async def shutdown_all() -> None:
 start_time = 0.0
 
 
-if __name__ == "__main__":
+async def main() -> None:
+    global start_time
     parser = argparse.ArgumentParser(description="Sentinel 舆情分析系统 — Phase 1 模拟运行")
     
     start_time = time.time()
@@ -1027,7 +1086,12 @@ if __name__ == "__main__":
 
     config = load_config()
 
-    asyncio.run(start_service(config))
-    asyncio.run(shutdown_all())
+    await start_service(config)
+    await shutdown_all()
+    await close_all_llms()
 
     print("\n✓ Pipeline 模拟完成")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
