@@ -15,10 +15,9 @@ from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.llm_client import LLMConfig
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.cross_encoder.bge_reranker_client import BGERerankerClient
+from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from graphiti_core.prompts import Message
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_CROSS_ENCODER, COMBINED_HYBRID_SEARCH_RRF
-from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
-
 
 load_dotenv()
 
@@ -30,7 +29,7 @@ load_dotenv()
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password")
-OPENAI_API_KEY = os.environ.get("LLM_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 if not NEO4J_URI or not NEO4J_USER or not NEO4J_PASSWORD:
     raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set")
@@ -53,12 +52,43 @@ class Event(BaseModel):
     source: Optional[str] = Field(None, description="信息来源机构")
 
 
+class Person(BaseModel):
+    id_number: Optional[str] = Field(None,description="唯一标识ID（如 P014），用于与同名实体区分;身份证号、护照号等证件信息（建议脱敏存储）")
+    full_name: Optional[str] = Field(None,description="人物姓名，仅填写姓名本身，不包含编号")
+    alias: Optional[List[str]] = Field(None,description="人物别名、昵称、英文名或曾用名")
+    gender: Optional[str] = Field(None,description="性别")
+    nationality: Optional[str] = Field(None,description="国籍或所属国家/地区")
+    birth_date: Optional[str] = Field(None,description="出生日期")
+    age: Optional[int] = Field(None,description="年龄")
+    occupation: Optional[str] = Field(None,description="职业或岗位")
+    affiliated_organization: Optional[str] = Field(None,description="所属组织、单位或机构")
+    phone: Optional[str] = Field(None,description="联系电话")
+    email: Optional[str] = Field(None,description="电子邮箱")
+    address: Optional[str] = Field(None,description="居住地址或工作地址")
+
+    social_identity: Optional[str] = Field( None,description="社会身份，例如专家、记者、群众、员工、负责人等")
+    role: Optional[str] = Field(None,description="在当前事件中的角色，例如目击者、受害者、责任人、救援人员、调查人员等")
+    impact: Optional[str] = Field(None,description="该人物在事件中的影响、伤亡情况或作用描述")
+    involvement_level: Optional[str] = Field(None,description="参与事件的程度，例如核心相关、间接关联、旁观者等")
+
 class Organization(BaseModel):
     org_name: Optional[str] = Field(None, description="组织全称")
-    org_type: Optional[str] = Field(None, description="组织类型")
     country: Optional[str] = Field(None, description="所属国家或地区")
     role: Optional[str] = Field(None, description="在本事件中的角色")
-    impact: Optional[str] = Field(None, description="影响描述")
+    id_number: Optional[str] = Field(None, description="组织特征ID（唯一标识符），用于唯一标识一个组织实体")
+    org_alias: Optional[List[str]] = Field(None, description="组织别名、简称或历史名称")
+    org_type: Optional[str] = Field(None, description="组织类型，例如政府机构、企业、媒体、学校、国际组织、科研机构、NGO等")
+    parent_org: Optional[str] = Field(None, description="上级组织或母公司名称")
+    industry: Optional[str] = Field(None, description="所属行业或领域，例如化工、能源、金融、互联网、医疗等")
+    city: Optional[str] = Field(None, description="所在城市")
+    address: Optional[str] = Field(None, description="组织地址或办公地点")
+    founded_time: Optional[str] = Field(None, description="组织成立时间")
+    legal_representative: Optional[str] = Field(None, description="法人代表、负责人或主要管理者")
+    impact: Optional[str] = Field(None, description="该组织在事件中的影响、损失或作用描述")
+    involvement_level: Optional[str] = Field(None, description="组织参与事件的程度，例如直接参与、间接关联、核心参与等")
+    contact_info: Optional[str] = Field(None, description="联系电话、邮箱或其他联系方式")
+    official_website: Optional[str] = Field(None, description="官方网站链接")
+    description: Optional[str] = Field(None, description="组织简介或背景信息")
 
 
 class Commodity(BaseModel):
@@ -78,8 +108,7 @@ class Technology(BaseModel):
     energy_density: Optional[str] = Field(None, description="能量密度")
     key_parameter: Optional[str] = Field(None, description="关键参数")
     is_disruptive: Optional[bool] = Field(None, description="是否为颠覆性技术")
-
-
+    
 class Policy(BaseModel):
     policy_name: Optional[str] = Field(None, description="政策名称")
     policy_type: Optional[str] = Field(None, description="政策类型")
@@ -100,16 +129,17 @@ class Involves(BaseModel):
     role: Optional[str] = Field(None, description="实体角色")
     involvement_type: Optional[str] = Field(None, description="参与类型")
     importance: Optional[str] = Field(None, description="重要程度")
-
 # ========================
 # Client factory / workflow helpers
 # ========================
 
-async def init_graph_client(config: dict) -> Graphiti:
+async def init_graph_client(config: dict | None = None) -> Graphiti:
     llm_client = OpenAIGenericClient(
         config=LLMConfig(
             api_key=OPENAI_API_KEY,
+            #model="Qwen/Qwen3-8B",
             model="deepseek-ai/DeepSeek-V3.2",
+            #model="Pro/deepseek-ai/DeepSeek-V3.2",
             base_url="https://api.siliconflow.cn/v1",
         )
     )
@@ -121,13 +151,7 @@ async def init_graph_client(config: dict) -> Graphiti:
             base_url="https://api.siliconflow.cn/v1",
         )
     )
-    cross_encoder=OpenAIRerankerClient(
-        config=LLMConfig(
-            api_key=os.environ.get('OPENAI_API_KEY'),
-            base_url='https://api.siliconflow.cn/v1',
-            model="Pro/BAAI/bge-reranker-v2-m3"
-        )
-    )
+    cross_encoder = BGERerankerClient()
     graphiti = Graphiti(
         NEO4J_URI,
         NEO4J_USER,
@@ -135,6 +159,12 @@ async def init_graph_client(config: dict) -> Graphiti:
         llm_client=llm_client,
         embedder=embedder,
         cross_encoder=cross_encoder,
+        graph_driver=Neo4jDriver(
+            NEO4J_URI,
+            NEO4J_USER,
+            NEO4J_PASSWORD,
+            database="neo4j",
+        ),
     )
 
     await graphiti.build_indices_and_constraints()
@@ -142,7 +172,12 @@ async def init_graph_client(config: dict) -> Graphiti:
 
 
 async def close_graph_client(graphiti: Graphiti) -> None:
-    await graphiti.close()
+    try:
+        await graphiti.close()
+    except RuntimeError as e:
+        if "Event loop is closed" in str(e):
+            return
+        raise
 
 
 async def _summarize_for_extraction(
@@ -165,8 +200,9 @@ async def add_event_to_graph(
     summarize_before_extract: bool = False, #是否先摘要再抽取
 ) -> Any:
     effective_reference_time = reference_time or datetime.now()
-    effective_source = source_description or "工作流输入"
+    effective_source = source_description
     entity_types = {
+        "Person":Person,
         "Event": Event,
         "Organization": Organization,
         "Commodity": Commodity,
@@ -182,6 +218,8 @@ async def add_event_to_graph(
     edge_type_map = {
         ("Event", "Event"): ["Causes"],
         ("Event", "Organization"): ["Involves"],
+        ("Event", "Person"): ["Involves"],
+        ("Person", "Organization"): ["Involves"],
         ("Event", "Commodity"): ["Involves"],
         ("Event", "Technology"): ["Involves"],
         ("Event", "Policy"): ["Involves"],
@@ -191,8 +229,14 @@ async def add_event_to_graph(
         ("Entity", "Entity"): ["Involves"],
     }
     default_custom_instructions = (
-        "请优先基于输入摘要抽取清晰、规范的事件节点，事件名必须尽量是“主体+动作/结果”的形式。"
-        "用户输入原文只作为补充证据，不要优先围绕碎片抽取。"
+        "请优先基于输入抽取清晰、规范的事件节点，事件名必须尽量是“主体+动作/结果”的形式。"
+        "如果人物/组织带有显式编号（如 P014#、C009#），必须将编号写入对应实体的id_number属性字段；即便姓名相同，id_number不同也不得合并。示例1：输入‘【P014# 张女士】发现机构闭店’，抽取 Person: {name: 张女士, id_number: P014}；示例2：输入‘【P017# 张女士】在超市购买熟食’，抽取 Person: {name: 张女士, id_number: P017}，与 P014实体不合并。"
+        "人物实体的name只写姓名本身（如‘张女士’），不要包含编号。组织实体的name只写组织名称本身，不要包含编号。"
+        
+        # "。"
+        # ""
+        # "示例：输入‘【C009# 启航少儿艺术中心】闭店’，抽取 Organization: {name: 启航少儿艺术中心, id_number: C009}。"
+        "只抽取文本中明确出现的实体与关系，不要做跨段推断或补全未出现的人物。"
         "只有在事件节点已明确抽出后，才抽取因果边 Causes。"
         "如果一段输入里隐含多个事件，请拆成多个事件节点再建立因果链。"
         "自定义关系抽取逻辑保持不变，仍然优先抽取事件间因果与参与关系。"
@@ -242,25 +286,91 @@ async def hybrid_search(
     graphiti: Graphiti,
     query: str,
     group_id: str | None = None,
-    num_results: int = 10,
-    recipe: Any = COMBINED_HYBRID_SEARCH_RRF,#默认
+    recipe: Any = COMBINED_HYBRID_SEARCH_CROSS_ENCODER,#默认
     filters: Any | None = None,
+    num_results: int = 10 ,
+    candidate_limit: int | None = None,#候选集数量 默认按 num_results * 2（至少 10）
 ) -> Any:
     group_ids = [group_id] if group_id else None
+    search_config = recipe
+    if candidate_limit is None:
+        candidate_limit = max(num_results * 2, 10) if num_results else 10
+    if hasattr(recipe, "model_copy"):
+        search_config = recipe.model_copy(update={"limit": candidate_limit})
+    elif hasattr(recipe, "copy"):
+        search_config = recipe.copy(update={"limit": candidate_limit})
+    elif isinstance(recipe, dict):
+        search_config = {**recipe, "limit": candidate_limit}
     result = await graphiti.search_(
         query,
-        config=recipe,
+        config=search_config,
         group_ids=group_ids,
         search_filter=filters,
     )
+    global_ranked = None
+    if num_results is not None:
+        global_ranked = await _global_merge_rerank_top_k(
+            graphiti=graphiti,
+            query=query,
+            edges=result.edges,
+            nodes=result.nodes,
+            episodes=result.episodes,
+            communities=result.communities,
+            top_k=num_results,
+        )
     return {
         "query": query,
-        "edges": result.edges,
+        "results": global_ranked,
+        "num_results_count": len(global_ranked) if global_ranked else 0,
+        "num_results_limit": num_results,
+        "group_id": group_id,
         "nodes": result.nodes,
+        "edges": result.edges,
         "episodes": result.episodes,
         "communities": result.communities,
-        "total": len(result.edges) + len(result.nodes) + len(result.episodes) + len(result.communities)
     }
+
+
+async def _global_merge_rerank_top_k(
+    graphiti: Graphiti,
+    query: str,
+    edges: list[Any],
+    nodes: list[Any],
+    episodes: list[Any],
+    communities: list[Any],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, str]] = []
+    for edge in edges:
+        if getattr(edge, "fact", None):
+            candidates.append({"type": "edge", "text": edge.fact})
+    for episode in episodes:
+        if getattr(episode, "content", None):
+            candidates.append({"type": "episode", "text": episode.content})
+
+    if not candidates or top_k <= 0:
+        return []
+
+    text_to_type: dict[str, str] = {}
+    unique_texts: list[str] = []
+    for item in candidates:
+        text = item["text"]
+        if text not in text_to_type:
+            text_to_type[text] = item["type"]
+            unique_texts.append(text)
+
+    reranked = await graphiti.cross_encoder.rank(query, unique_texts)
+    top_ranked: list[dict[str, Any]] = []
+    for text, score in reranked:
+        if len(top_ranked) >= top_k:
+            break
+        top_ranked.append({
+            "type": text_to_type.get(text, "unknown"),
+            "text": text,
+            "score": score,
+        })
+
+    return top_ranked
 
 
 
