@@ -29,13 +29,13 @@ load_dotenv()
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_KEY = os.environ.get("LLM_API_KEY")
 
 if not NEO4J_URI or not NEO4J_USER or not NEO4J_PASSWORD:
     raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set")
 
 if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY must be set")
+    raise ValueError("LLM_API_KEY must be set")
 
 
 # ========================
@@ -134,35 +134,47 @@ class Involves(BaseModel):
 # ========================
 
 async def init_graph_client(config: dict | None = None) -> Graphiti:
+    config = config or {}
+    neo4j_config = config.get("neo4j", {})
+    llm_config = config.get("llm", {})
+    embedder_config = config.get("embedder", {})
+
+    neo4j_uri = neo4j_config.get("uri", NEO4J_URI)
+    neo4j_user = neo4j_config.get("user", NEO4J_USER)
+    neo4j_password = neo4j_config.get("password", NEO4J_PASSWORD)
+    llm_api_key = llm_config.get("api_key", OPENAI_API_KEY)
+    llm_base_url = llm_config.get("base_url", "https://api.siliconflow.cn/v1")
+    llm_model = llm_config.get("model", "deepseek-ai/DeepSeek-V3.2")
+    embedder_model = embedder_config.get("model", "BAAI/bge-m3")
+    embedder_api_base = embedder_config.get("api_base", "https://api.siliconflow.cn/v1")
+
     llm_client = OpenAIGenericClient(
         config=LLMConfig(
-            api_key=OPENAI_API_KEY,
-            #model="Qwen/Qwen3-8B",
-            model="deepseek-ai/DeepSeek-V3.2",
-            #model="Pro/deepseek-ai/DeepSeek-V3.2",
-            base_url="https://api.siliconflow.cn/v1",
+            api_key=llm_api_key,
+            model=llm_model,
+            base_url=llm_base_url,
         )
     )
 
     embedder = OpenAIEmbedder(
         config=OpenAIEmbedderConfig(
-            embedding_model="BAAI/bge-m3",
-            api_key=OPENAI_API_KEY,
-            base_url="https://api.siliconflow.cn/v1",
+            embedding_model=embedder_model,
+            api_key=llm_api_key,
+            base_url=embedder_api_base,
         )
     )
     cross_encoder = BGERerankerClient()
     graphiti = Graphiti(
-        NEO4J_URI,
-        NEO4J_USER,
-        NEO4J_PASSWORD,
+        neo4j_uri,
+        neo4j_user,
+        neo4j_password,
         llm_client=llm_client,
         embedder=embedder,
         cross_encoder=cross_encoder,
         graph_driver=Neo4jDriver(
-            NEO4J_URI,
-            NEO4J_USER,
-            NEO4J_PASSWORD,
+            neo4j_uri,
+            neo4j_user,
+            neo4j_password,
             database="neo4j",
         ),
     )

@@ -14,7 +14,7 @@ load_dotenv()
 _ACTIVE_LLMS: list[Any] = []
 
 
-def get_siliconflow_llm(model=None, temperature=0.7):
+def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None):
     """获取硅基流动LLM实例"""
     # 确保模型名称不为空
     if not model:
@@ -24,8 +24,8 @@ def get_siliconflow_llm(model=None, temperature=0.7):
         # max_tokens=5120,
         max_completion_tokens=8192,
         top_p=0.85,
-        api_key=os.getenv("LLM_API_KEY"),
-        base_url=os.getenv("LLM_BASE_URL"),
+        api_key=api_key or os.getenv("LLM_API_KEY"),
+        base_url=base_url or os.getenv("LLM_BASE_URL"),
         temperature=temperature,
         provider="openai"
     )
@@ -33,11 +33,11 @@ def get_siliconflow_llm(model=None, temperature=0.7):
     return llm
 
 
-def get_llm(model=None, temperature=0.7):
-    provider = os.getenv("LLM_PROVIDER", "siliconflow")
+def get_llm(model=None, temperature=0.7, provider=None, api_key=None, base_url=None):
+    provider = provider or os.getenv("LLM_PROVIDER", "siliconflow")
     """根据提供商获取LLM实例"""
     if provider == "siliconflow":
-        return get_siliconflow_llm(model=model, temperature=temperature)
+        return get_siliconflow_llm(model=model, temperature=temperature, api_key=api_key, base_url=base_url)
     else:
         raise ValueError(f"不支持的LLM提供商: {provider}")
 

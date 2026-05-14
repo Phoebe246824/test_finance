@@ -69,7 +69,7 @@ def load_config() -> dict:
             "episode_source_name": "sentinel",
         },
         "classification": {
-            "risk_threshold": float(os.getenv("RISK_THRESHOLD", "0.7")),
+            "risk_threshold": float(os.getenv("RISK_THRESHOLD", "0.2")),
         },
     }
     print("[config] 配置加载完成 (env > .env > defaults)")
@@ -230,7 +230,12 @@ def classify_event(config: dict, normalized_event: dict) -> dict:
     """
     from providers.llm_provider import get_llm, close_all_llms
 
-    llm = get_llm(temperature=0.3)
+    llm = get_llm(
+        model=config["llm"]["model"],
+        api_key=config["llm"]["api_key"],
+        base_url=config["llm"]["base_url"],
+        temperature=0.3,
+    )
 
     type_classifier = Agent(
         llm=llm,
@@ -293,7 +298,12 @@ def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
     """
     from providers.llm_provider import get_llm
 
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(
+        model=config["llm"]["model"],
+        api_key=config["llm"]["api_key"],
+        base_url=config["llm"]["base_url"],
+        temperature=0.1,
+    )
 
     risk_evaluator = Agent(
         llm=llm,
@@ -930,8 +940,9 @@ class SentinelPipelineFlow(Flow):
             self.normalized_event.risk_score = risk_result["risk_score"]
             self.normalized_event.reasoning = risk_result["reasoning"]
             print(f"第一次风险评估: risk_level=\"{risk_result['risk_level']}\", risk_score={risk_result['risk_score']}")
-            if risk_result["risk_score"] > 0.2: #人工调整阈值
-                print(f"[risk] risk_score={risk_result['risk_score']} > 0.2，进入第二次风险评估")
+            risk_threshold = self.config["classification"]["risk_threshold"]
+            if risk_result["risk_score"] > risk_threshold: # 人工调整阈值（配置化）
+                print(f"[risk] risk_score={risk_result['risk_score']} > {risk_threshold}，进入第二次风险评估")
                 print(f"==========================进行第二次风险评估，获取主体关联事件==========================")
                 results = await simulate_search(self.config, self.normalized_event, num_results=10)
                 risk_result = second_evaluate_risk(self.config, classified_event,results)
@@ -939,7 +950,7 @@ class SentinelPipelineFlow(Flow):
                 self.normalized_event.risk_score = risk_result["risk_score"]
                 self.normalized_event.reasoning = risk_result["reasoning"]
             else:
-                print(f"[risk] risk_score={risk_result['risk_score']} <= 0.2，跳过第二次风险评估")
+                print(f"[risk] risk_score={risk_result['risk_score']} <= {risk_threshold}，跳过第二次风险评估")
 
         return result
 
