@@ -515,6 +515,9 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
 
     print(f"\n[graph] 写入 event_id={event.event_id}")
 
+    group_id = config.get("graphiti", {}).get("episode_source_name", "sentinel")
+    print(f"         group_id={group_id}")
+
     timestamp = event.timestamp
 
     try:
@@ -523,6 +526,7 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
             event_text=event.raw_content,
             reference_time=timestamp,
             source_description=f"{event.source}:{event.event_type}",
+            group_id=group_id,
         )
 
         print(f"         写入成功 ✓")
@@ -558,7 +562,7 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
 #  Stage 4: Search — 混合搜索演示
 # ============================================================
 
-async def simulate_search(config: dict, event: NormalizedEvent, num_results: int = 10) -> None:
+async def simulate_search(config: dict, event: NormalizedEvent, num_results: int = 10, group_id: str = "sentinel") -> None:
     """
     Graphiti 混合搜索：使用 Graphiti 客户端进行搜索
     """
@@ -576,7 +580,7 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
 
         print(f"\n[search] hybrid_search()")
         print(f"         query=\"{event.raw_content}\"")
-        print(f"         group_id=sentinel")
+        print(f"         group_id={group_id}")
         print(f"         num_results={num_results}")
 
         print("[search] 开始执行 hybrid_search...")
@@ -584,6 +588,7 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
             hybrid_search(
                 graphiti=graphiti,
                 query=event.raw_content,
+                group_id=group_id,
                 num_results=num_results,
             ),
             timeout=20,
@@ -1059,18 +1064,19 @@ async def shutdown_all() -> None:
     print("=" * 70)
     print("\n[shutdown] 收到 SIGINT 信号，开始优雅关闭...")
     print("[shutdown] 1/4 停止 RabbitMQ 消费者 (等待当前消息处理完毕)...")
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
     print("[shutdown]    消费者已停止 ✓")
     print("[shutdown] 2/4 关闭 Graphiti 客户端...")
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
     print("[shutdown]    Graphiti 已关闭 ✓")
     print("[shutdown] 3/4 关闭 Neo4j 连接...")
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
     print("[shutdown]    Neo4j 已断开 ✓")
     print("[shutdown] 4/4 关闭 FastAPI 服务...")
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
     print("[shutdown]    FastAPI 已关闭 ✓")
     print("\n[shutdown] 所有服务已优雅关闭")
+    await asyncio.sleep(0)
     elapsed = time.time() - start_time
     print(f"[shutdown] 总运行时间: {elapsed:.1f}s")
 
@@ -1080,6 +1086,17 @@ async def shutdown_all() -> None:
 # ============================================================
 
 start_time = 0.0
+
+
+async def _drain_pending_asyncio_tasks() -> None:
+    """等待并清理当前 loop 中尚未完成的任务，避免 loop 关闭时报错。"""
+    current = asyncio.current_task()
+    pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+    if not pending:
+        return
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def main() -> None:
@@ -1097,9 +1114,13 @@ async def main() -> None:
 
     config = load_config()
 
-    await start_service(config)
-    await shutdown_all()
-    await close_all_llms()
+    try:
+        await start_service(config)
+    finally:
+        await shutdown_all()
+        await close_all_llms()
+        await asyncio.sleep(0.05)
+        await _drain_pending_asyncio_tasks()
 
     print("\n✓ Pipeline 模拟完成")
 

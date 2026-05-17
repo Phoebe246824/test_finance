@@ -15,6 +15,7 @@ limitations under the License.
 """
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from time import time
 from typing import Any
@@ -57,6 +58,8 @@ from graphiti_core.utils.text_utils import (
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.propagate = True
 
 # Maximum number of nodes to summarize in a single LLM call
 MAX_NODES = 30
@@ -64,6 +67,97 @@ NODE_DEDUP_CANDIDATE_LIMIT = 15
 NODE_DEDUP_COSINE_MIN_SCORE = 0.6
 
 NodeSummaryFilter = Callable[[EntityNode], Awaitable[bool]]
+
+_EXPLICIT_ID_PATTERN = re.compile(
+    r'(?:\bID\s*[:：]\s*)?([A-Za-z]\d{2,})\s*#?', re.IGNORECASE
+)
+_BRACKETED_ID_NAME_PATTERN = re.compile(
+    r'[\[【]\s*([A-Za-z]\d{2,})\s*#\s*([^\]】]+?)\s*[\]】]', re.IGNORECASE
+)
+_BRACKETED_ID_FOLLOWED_NAME_PATTERN = re.compile(
+    r'[\[【]\s*([A-Za-z]\d{2,})\s*[\]】]\s*([\u4e00-\u9fffA-Za-z0-9_·•\-]{1,40})', re.IGNORECASE
+)
+
+
+def _normalize_id_number(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    text = re.sub(r'\s+', '', text)
+    text = text.rstrip('#')
+    return text or None
+
+
+def _sanitize_entity_name(name: str) -> str:
+    """Best-effort cleanup for noisy LLM outputs in entity names."""
+    cleaned = name.strip()
+
+    # Drop common explanation / translation tails.
+    cleaned = re.split(
+        r'[,，。;；]|\b(?:format|placeholder|confirm|extract|translation|entity|output|instruction|as per)\b',
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+
+    # If mixed Chinese + English translation tail, keep Chinese segment.
+    if re.search(r'[\u4e00-\u9fff]', cleaned) and re.search(r'[A-Za-z]', cleaned):
+        first_latin = re.search(r'[A-Za-z]', cleaned)
+        if first_latin is not None:
+            cleaned = cleaned[: first_latin.start()].strip(' -:：,，;；')
+
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
+def _parse_explicit_id_from_name(name: str) -> tuple[str, str | None]:
+    """Parse explicit id marker like `P014#` from a name and return (clean_name, id_number)."""
+    if not name:
+        return name, None
+
+    match = _EXPLICIT_ID_PATTERN.search(name)
+    id_number = _normalize_id_number(match.group(1) if match else None)
+
+    cleaned = re.sub(r'[\[\]【】()（）]', ' ', name)
+    cleaned = _EXPLICIT_ID_PATTERN.sub(' ', cleaned)
+
+    # Truncate common LLM explanation tails and keep the left-most entity phrase.
+    cleaned = re.split(
+        r'[,，。;；]|\b(?:format|placeholder|confirm|extract|translation|entity|output|instruction|as per)\b',
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+
+    # Remove obvious key-value or templating remnants.
+    cleaned = re.sub(r'\b(?:id_number|name|organization|person)\b\s*[:：]?\s*', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[{}\"']", ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    # Collapse accidental immediate duplication like "张女士 张女士" -> "张女士"
+    parts = [part for part in cleaned.split(' ') if part]
+    deduped_parts: list[str] = []
+    for part in parts:
+        if deduped_parts and deduped_parts[-1] == part:
+            continue
+        deduped_parts.append(part)
+    cleaned = ' '.join(deduped_parts).strip()
+    cleaned = _sanitize_entity_name(cleaned)
+
+    return cleaned or name.strip(), id_number
+
+
+def _get_node_id_number(node: EntityNode) -> str | None:
+    attributes = node.attributes if node.attributes is not None else {}
+
+    # Only trust canonical id_number for identity. Do not read aliases like person_id here,
+    # otherwise LLM may turn a single entity into a multi-id aggregate.
+    value = attributes.get('id_number')
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    text = text.rstrip('#')
+    return text or None
 
 
 async def extract_nodes(
@@ -145,6 +239,7 @@ async def extract_nodes(
     )
 
     logger.debug(f'Extracted nodes: {[n.uuid for n in extracted_nodes]}')
+
     return extracted_nodes, node_episode_index_map
 
 
@@ -251,6 +346,16 @@ async def _extract_nodes_single(
     return response_object.extracted_entities
 
 
+def _render_prompt_messages(prompt: list[Any]) -> str:
+    """Format prompt messages for logging."""
+    rendered: list[str] = []
+    for msg in prompt:
+        role = getattr(msg, "role", "unknown")
+        content = getattr(msg, "content", "")
+        rendered.append(f"[{role}]\n{content}")
+    return "\n\n".join(rendered)
+
+
 async def _call_extraction_llm(
     llm_client: LLMClient,
     episode: EpisodicNode,
@@ -271,12 +376,108 @@ async def _call_extraction_llm(
         prompt = prompt_library.extract_nodes.extract_text(context)
         prompt_name = 'extract_nodes.extract_text'
 
+    # logger.info("[node_ops] 使用 prompt: %s", prompt_name)
+    # logger.info("[node_ops] prompt 内容:\n%s", _render_prompt_messages(prompt))
+
     return await llm_client.generate_response(
         prompt,
         response_model=ExtractedEntities,
         group_id=episode.group_id,
         prompt_name=prompt_name,
     )
+
+
+def _infer_explicit_ids_from_episodes(
+    episodes: list[EpisodicNode],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Build fallback mappings from bracketed patterns in source text.
+
+    Returns
+    -------
+    tuple[dict[str, str], dict[str, str]]
+        (name_to_id, id_to_name)
+    """
+
+    def _name_specificity_score(name: str) -> tuple[int, int]:
+        """Higher is better: prefer concrete names over pronoun/placeholder names."""
+        generic_tokens = {
+            '该机构', '该公司', '该企业', '该组织', '该单位', '该平台', '该部门', '该校区',
+            '该学校', '该医院', '该中心', '该品牌', '该项目', '该团队',
+            '机构', '公司', '企业', '组织', '单位', '平台', '部门', '学校', '医院', '中心',
+            '其', '其机构', '其公司', '相关机构', '涉事机构', '涉事公司',
+        }
+        normalized = re.sub(r'\s+', '', name)
+        generic_penalty = 1 if normalized in generic_tokens else 0
+        # Prefer longer concrete names when generic penalty is equal.
+        return (-generic_penalty, len(normalized))
+
+    name_to_id: dict[str, str] = {}
+    id_to_name: dict[str, str] = {}
+    for ep in episodes:
+        content = ep.content or ''
+        for match in _BRACKETED_ID_NAME_PATTERN.finditer(content):
+            raw_id = (match.group(1) or '').strip().upper()
+            raw_name = (match.group(2) or '').strip()
+            cleaned_name, _ = _parse_explicit_id_from_name(raw_name)
+            if cleaned_name and raw_id:
+                if cleaned_name not in name_to_id:
+                    name_to_id[cleaned_name] = raw_id
+
+                existing_name = id_to_name.get(raw_id)
+                if existing_name is None:
+                    id_to_name[raw_id] = cleaned_name
+                else:
+                    if _name_specificity_score(cleaned_name) > _name_specificity_score(existing_name):
+                        id_to_name[raw_id] = cleaned_name
+
+        for match in _BRACKETED_ID_FOLLOWED_NAME_PATTERN.finditer(content):
+            raw_id = (match.group(1) or '').strip().upper()
+            raw_name = (match.group(2) or '').strip()
+            cleaned_name, _ = _parse_explicit_id_from_name(raw_name)
+            if cleaned_name and raw_id:
+                if cleaned_name not in name_to_id:
+                    name_to_id[cleaned_name] = raw_id
+
+                existing_name = id_to_name.get(raw_id)
+                if existing_name is None:
+                    id_to_name[raw_id] = cleaned_name
+                else:
+                    if _name_specificity_score(cleaned_name) > _name_specificity_score(existing_name):
+                        id_to_name[raw_id] = cleaned_name
+    return name_to_id, id_to_name
+
+
+def _resolve_fallback_id_for_name(
+    cleaned_name: str,
+    inferred_ids_by_name: dict[str, str],
+) -> str | None:
+    """Resolve fallback id by exact match first, then safe suffix/contains heuristics."""
+    if cleaned_name in inferred_ids_by_name:
+        return inferred_ids_by_name[cleaned_name]
+
+    compact = re.sub(r'\s+', '', cleaned_name)
+    if not compact:
+        return None
+
+    for candidate_name, candidate_id in inferred_ids_by_name.items():
+        c = re.sub(r'\s+', '', candidate_name)
+        if not c:
+            continue
+        if c.endswith(compact) or compact.endswith(c):
+            return candidate_id
+    return None
+
+
+def _name_overlap_score(a: str, b: str) -> int:
+    """Rough overlap score for validating id-to-name consistency."""
+    a_clean = re.sub(r'\s+', '', a)
+    b_clean = re.sub(r'\s+', '', b)
+    if not a_clean or not b_clean:
+        return 0
+    if a_clean in b_clean or b_clean in a_clean:
+        return min(len(a_clean), len(b_clean))
+    overlap = set(a_clean) & set(b_clean)
+    return len(overlap)
 
 
 def _create_entity_nodes(
@@ -296,6 +497,9 @@ def _create_entity_nodes(
     primary_episode = episodes[0]
     extracted_nodes = []
     node_episode_index_map: dict[str, list[int]] = {}
+    inferred_ids_by_name, inferred_names_by_id = _infer_explicit_ids_from_episodes(episodes)
+
+    seen_ids: set[str] = set()
 
     for extracted_entity in extracted_entities:
         type_id = extracted_entity.entity_type_id
@@ -311,14 +515,31 @@ def _create_entity_nodes(
 
         labels: list[str] = list({'Entity', str(entity_type_name)})
 
+        cleaned_name, explicit_id_number = _parse_explicit_id_from_name(extracted_entity.name)
+
         new_node = EntityNode(
-            name=extracted_entity.name,
+            name=cleaned_name,
             group_id=primary_episode.group_id,
             labels=labels,
             summary='',
             created_at=utc_now(),
         )
+        fallback_id_number = _resolve_fallback_id_for_name(cleaned_name, inferred_ids_by_name)
+        final_id_number = explicit_id_number or fallback_id_number
+        if final_id_number:
+            # Only keep id_number when the current name and canonical name are actually aligned.
+            canonical_name = inferred_names_by_id.get(final_id_number)
+            if canonical_name and _name_overlap_score(cleaned_name, canonical_name) >= 1:
+                new_node.attributes['id_number'] = final_id_number
+                cleaned_name = canonical_name
+                new_node.name = canonical_name
+            elif explicit_id_number:
+                # Explicit id came from extracted name itself; keep it.
+                new_node.attributes['id_number'] = final_id_number
+
         extracted_nodes.append(new_node)
+        if final_id_number:
+            seen_ids.add(final_id_number)
 
         # Map node to 0-indexed episode positions (LLM returns 0-indexed).
         # Clamp to valid range; fall back to all episodes if empty.
@@ -328,6 +549,30 @@ def _create_entity_nodes(
         node_episode_index_map[new_node.uuid] = indices
 
         logger.debug(f'Created new node: {new_node.uuid}')
+
+    # Add missed explicit-id entities from source text, independent of LLM extraction coverage.
+    existing_ids = {
+        _get_node_id_number(node)
+        for node in extracted_nodes
+        if _get_node_id_number(node) is not None
+    }
+    for explicit_id, explicit_name in inferred_names_by_id.items():
+        if explicit_id in existing_ids:
+            for node in extracted_nodes:
+                if _get_node_id_number(node) == explicit_id and len(node.name) < len(explicit_name):
+                    node.name = explicit_name
+            continue
+
+        new_node = EntityNode(
+            name=explicit_name,
+            group_id=primary_episode.group_id,
+            labels=['Entity'],
+            summary='',
+            created_at=utc_now(),
+        )
+        new_node.attributes['id_number'] = explicit_id
+        extracted_nodes.append(new_node)
+        node_episode_index_map[new_node.uuid] = list(range(len(episodes))) or [0]
 
     return extracted_nodes, node_episode_index_map
 
@@ -353,10 +598,12 @@ def _collapse_exact_duplicate_extracted_nodes(
 
     for node in extracted_nodes:
         normalized_name = _normalize_string_exact(node.name)
-        existing = canonical_by_name.get(normalized_name)
+        node_id_number = _get_node_id_number(node)
+        dedupe_key = f"{normalized_name}||{node_id_number or '__NONE__'}"
+        existing = canonical_by_name.get(dedupe_key)
         if existing is None:
-            canonical_by_name[normalized_name] = node
-            ordered_names.append(normalized_name)
+            canonical_by_name[dedupe_key] = node
+            ordered_names.append(dedupe_key)
             continue
 
         existing_specific_labels = {label for label in existing.labels if label != 'Entity'}
@@ -366,7 +613,7 @@ def _collapse_exact_duplicate_extracted_nodes(
             and len(node.name.strip()) > len(existing.name.strip())
         ):
             old_canonical = existing
-            canonical_by_name[normalized_name] = node
+            canonical_by_name[dedupe_key] = node
             # Merge episode indices: old canonical -> new canonical
             if node_episode_index_map is not None:
                 old_indices = node_episode_index_map.pop(old_canonical.uuid, [])
@@ -645,9 +892,26 @@ async def resolve_extracted_nodes(
         unresolved_indices=[],
     )
 
+    filtered_candidate_nodes_by_extracted: list[list[EntityNode]] = []
+
     for idx, (node, candidates) in enumerate(
         zip(extracted_nodes, candidate_nodes_by_extracted, strict=True)
     ):
+        node_id_number = _get_node_id_number(node)
+        if node_id_number:
+            # If extracted node has explicit id_number, only exact same id_number can dedupe.
+            # Different id_number must never merge, and missing id_number should not merge with explicit IDs.
+            candidates = [
+                candidate
+                for candidate in candidates
+                if _get_node_id_number(candidate) == node_id_number
+            ]
+        else:
+            # If extracted node has no id_number, avoid merging into candidates that already have explicit IDs.
+            candidates = [
+                candidate for candidate in candidates if _get_node_id_number(candidate) is None
+            ]
+        filtered_candidate_nodes_by_extracted.append(candidates)
         if not candidates:
             continue
 
@@ -673,7 +937,7 @@ async def resolve_extracted_nodes(
             [
                 candidate
                 for idx in state.unresolved_indices
-                for candidate in candidate_nodes_by_extracted[idx]
+                for candidate in filtered_candidate_nodes_by_extracted[idx]
             ],
             None,
         )
@@ -691,6 +955,15 @@ async def resolve_extracted_nodes(
         logger.debug('No semantic dedup candidates found; keeping all extracted nodes as new')
 
     for idx, node in enumerate(extracted_nodes):
+        resolved = state.resolved_nodes[idx]
+        node_id_number = _get_node_id_number(node)
+        resolved_id_number = _get_node_id_number(resolved) if resolved is not None else None
+        if node_id_number and resolved is not None and resolved_id_number != node_id_number:
+            # Final hard guard: never resolve an explicit-id node to a different-id node.
+            state.resolved_nodes[idx] = node
+            state.uuid_map[node.uuid] = node.uuid
+            continue
+
         if state.resolved_nodes[idx] is None:
             state.resolved_nodes[idx] = node
             state.uuid_map[node.uuid] = node.uuid
@@ -759,7 +1032,18 @@ async def extract_attributes_from_nodes(
 
     # Apply attributes to nodes
     for node, attributes in zip(nodes, attribute_results, strict=True):
-        node.attributes.update(attributes)
+        # Guardrail: explicit id_number from source text is immutable during attribute extraction.
+        existing_id_number = _get_node_id_number(node)
+        sanitized_attributes = dict(attributes)
+        if existing_id_number:
+            sanitized_attributes.pop('id_number', None)
+            sanitized_attributes.pop('ID', None)
+            sanitized_attributes.pop('id', None)
+            sanitized_attributes.pop('person_id', None)
+            sanitized_attributes.pop('org_id', None)
+        node.attributes.update(sanitized_attributes)
+        if existing_id_number:
+            node.attributes['id_number'] = existing_id_number
 
     # Extract summaries in batch
     await _extract_entity_summaries_batch(

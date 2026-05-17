@@ -170,6 +170,13 @@ class Neo4jDriver(GraphDriver):
 
         try:
             result = await self.client.execute_query(cypher_query_, parameters_=params, **kwargs)
+        except ClientError as e:
+            # Avoid noisy error logs for benign concurrent index creation races.
+            if 'EquivalentSchemaRuleAlreadyExists' in str(e):
+                logger.debug(f'Equivalent index already exists: {cypher_query_}\n{params}')
+            else:
+                logger.error(f'Error executing Neo4j query: {e}\n{cypher_query_}\n{params}')
+            raise
         except Exception as e:
             logger.error(f'Error executing Neo4j query: {e}\n{cypher_query_}\n{params}')
             raise

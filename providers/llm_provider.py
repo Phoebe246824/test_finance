@@ -56,7 +56,12 @@ async def close_all_llms() -> None:
         try:
             async_client = llm._get_async_client()
             if async_client is not None and not getattr(async_client, "is_closed", True):
-                await async_client.close()
+                if hasattr(async_client, "aclose"):
+                    await async_client.aclose()
+                else:
+                    close_result = async_client.close()
+                    if asyncio.iscoroutine(close_result):
+                        await close_result
         except RuntimeError as e:
             if "Event loop is closed" not in str(e):
                 raise

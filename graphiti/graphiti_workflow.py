@@ -19,7 +19,8 @@ from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerCli
 from graphiti_core.prompts import Message
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_CROSS_ENCODER, COMBINED_HYBRID_SEARCH_RRF
 
-load_dotenv()
+ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
 
 # ========================
@@ -143,8 +144,8 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     neo4j_user = neo4j_config.get("user", NEO4J_USER)
     neo4j_password = neo4j_config.get("password", NEO4J_PASSWORD)
     llm_api_key = llm_config.get("api_key", OPENAI_API_KEY)
-    llm_base_url = llm_config.get("base_url", "https://api.siliconflow.cn/v1")
-    llm_model = llm_config.get("model", "deepseek-ai/DeepSeek-V3.2")
+    llm_base_url = llm_config.get("base_url", os.environ.get("LLM_BASE_URL", "https://api.siliconflow.cn/v1"))
+    llm_model = llm_config.get("model", os.environ.get("LLM_MODEL", "deepseek-ai/DeepSeek-V3.2"))
     embedder_model = embedder_config.get("model", "BAAI/bge-m3")
     embedder_api_base = embedder_config.get("api_base", "https://api.siliconflow.cn/v1")
 
@@ -183,7 +184,31 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     return graphiti
 
 
+async def _safe_close_client(client: Any) -> None:
+    if client is None:
+        return
+
+    close_fn = getattr(client, "aclose", None) or getattr(client, "close", None)
+    if close_fn is None:
+        return
+
+    result = close_fn()
+    if hasattr(result, "__await__"):
+        await result
+
+
 async def close_graph_client(graphiti: Graphiti) -> None:
+    for client in (
+        getattr(graphiti, "llm_client", None),
+        getattr(graphiti, "embedder", None),
+        getattr(graphiti, "cross_encoder", None),
+    ):
+        try:
+            await _safe_close_client(client)
+        except RuntimeError as e:
+            if "Event loop is closed" not in str(e):
+                raise
+
     try:
         await graphiti.close()
     except RuntimeError as e:
@@ -206,7 +231,7 @@ async def add_event_to_graph(
     event_text: str,
     reference_time: datetime | None = None,
     source_description: str | None = None,
-    group_id: str = "message_record",
+    group_id: str | None = None,
     custom_extraction_instructions: str | None = None,
     update_communities: bool = False,
     summarize_before_extract: bool = False, #是否先摘要再抽取
@@ -242,12 +267,13 @@ async def add_event_to_graph(
     }
     default_custom_instructions = (
         "请优先基于输入抽取清晰、规范的事件节点，事件名必须尽量是“主体+动作/结果”的形式。"
-        "如果人物/组织带有显式编号（如 P014#、C009#），必须将编号写入对应实体的id_number属性字段；即便姓名相同，id_number不同也不得合并。示例1：输入‘【P014# 张女士】发现机构闭店’，抽取 Person: {name: 张女士, id_number: P014}；示例2：输入‘【P017# 张女士】在超市购买熟食’，抽取 Person: {name: 张女士, id_number: P017}，与 P014实体不合并。"
-        "人物实体的name只写姓名本身（如‘张女士’），不要包含编号。组织实体的name只写组织名称本身，不要包含编号。"
-        
-        # "。"
-        # ""
-        # "示例：输入‘【C009# 启航少儿艺术中心】闭店’，抽取 Organization: {name: 启航少儿艺术中心, id_number: C009}。"
+        "如果人物/组织带有显式编号（如 P014#、C009#，或 ID: P017），必须将编号写入对应实体的id_number属性字段；即便姓名相同，id_number不同也不得合并。"
+        "对于【编号# 名称】格式，必须把方括号内实体逐一抽取出来，不得漏抽。"
+        "示例1：输入‘【P014# 张女士】发现机构闭店’，抽取 Person: {name: 张女士, id_number: P014}。"
+        "示例2：输入‘【P017# 张女士】在超市购买熟食’，抽取 Person: {name: 张女士, id_number: P017}，与 P014实体不合并。"
+        "示例3：输入‘【C009# 启航少儿艺术中心】闭店’，抽取 Organization: {name: 启航少儿艺术中心, id_number: C009}。"
+        "示例4：输入‘【P015# 校区负责人李某】’，抽取 Person: {name: 李某, id_number: P015}。"
+        "人物实体的name只写姓名本身，不要包含编号，也不要包含“ID:”。组织实体的name只写组织名称本身，不要包含编号。"
         "只抽取文本中明确出现的实体与关系，不要做跨段推断或补全未出现的人物。"
         "只有在事件节点已明确抽出后，才抽取因果边 Causes。"
         "如果一段输入里隐含多个事件，请拆成多个事件节点再建立因果链。"
