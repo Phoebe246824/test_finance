@@ -6,31 +6,42 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        用户输入 (终端)                           │
+│                     用户输入 (终端 / Web 看板)                    │
 └────┬────────────────────────────────────────────────────────────┘
      │
      ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Stage 1  事件标准化 (normalize_payload_to_event)               │
-│  CrewAI Agent 将原始消息转换为 NormalizedEvent                   │
+│  Stage 1  事件标准化 (CrewAI Agent)                              │
+│  Normalizer Agent → 原始消息 → NormalizedEvent                   │
 └────────────────────────────┬───────────────────────────────────┘
                              │
                              ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Stage 2  Classification (CrewAI Agent)                         │
+│  Stage 2  事件分类 (CrewAI Agent)                                │
 │  TypeClassifier Agent → 事件类型 + 关键实体提取                   │
+│                        ↓                                        │
+│              ┌─────────────────────┐                            │
+│              │ 人物提取 → 关系型数据库 │  ← 所有事件的人物提取      │
+│              │ (人物库/关键词库)      │                            │
+│              └──────────┬──────────┘                            │
+│                         │                                       │
+│                         ▼                                       │
+│              ┌─────────────────────┐                            │
+│              │  监控匹配引擎        │  ← 人物/关键词/相似事件监控  │
+│              │ 人物 + 关键词 + 相似  │                            │
+│              └──────────┬──────────┘                            │
+└─────────────────────────┼───────────────────────────────────────┘
+                          │
+                          ▼
+┌────────────────────────────────────────────────────────────────┐
+│  Stage 3  知识图谱构建 (Graphiti + Neo4j)                        │
+│  监控事件 → Episode 写入 → LLM 实体/关系提取 → 去重合并 → 向量    │
 └────────────────────────────┬───────────────────────────────────┘
                              │
                              ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Stage 3  Graph Build (Graphiti + Neo4j)                        │
-│  Episode 写入 → LLM 实体/关系提取 → 去重合并 → 向量嵌入            │
-└────────────────────────────┬───────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 4  Risk Evaluation (CrewAI Agent)                        │
-│  RiskEvaluator Agent → 风险等级(high/medium/low) + 风险分数       │
+│  Stage 4  风险评估 (CrewAI Agent)                                │
+│  RiskEvaluator Agent → 风险等级 + 风险分数                        │
 └────────────────────────────┬───────────────────────────────────┘
                              │
               ┌──────────────┴──────────────┐
@@ -38,18 +49,49 @@
               ▼                             ▼
         low risk                      high/medium risk
               │                             │
+              │                          ┌──┴────────────────────────────────────────────────────┐
+              │                          │  Stage 4-1  二次分析评估 (CrewAI Agent)                │
+              │                          │  ① 从关系型数据库召回关联事件                           │
+              │                          │  ② RiskEvaluator Agent → 风险等级 + 风险分数            │
+              │                          └──┬────────────────────────────────────────────────────┘
+              │                             │
               ▼                             ▼
-        流程结束                    ┌────────────────────────────────┐
-                                   │  Stage 5  Search (Graphiti)    │
-                                   │  混合检索: 语义向量 + BM25      │
-                                   └────────────┬───────────────────┘
-                                                │
-                                                ▼
-                                   ┌────────────────────────────────┐
-                                   │  Stage 6  Dashboard            │
-                                   │  意图分析 + 趋势预测 (CrewAI)   │
-                                   └────────────────────────────────┘
+           流程结束                         ┌────────────────────────────────┐
+                                          │  Stage 5  混合检索 (Graphiti)  │
+                                          │  语义向量 + BM25 + 图遍历       │
+                                          └────────────┬─────────────────┘
+                                                       │
+                                                       ▼
+                                          ┌────────────────────────────────┐
+                                          │  Stage 6  消息推送              │
+                                          │  按事件类型 → 不同消息通道       │
+                                          │  突发事件→短信/邮件              │
+                                          │  负面舆情→企业微信/钉钉          │
+                                          │  商业动态→内部系统              │
+                                          └────────────┬─────────────────┘
+                                                       │
+                                                       ▼
+                                          ┌────────────────────────────────┐
+                                          │  Stage 7  Dashboard            │
+                                          │  意图分析 + 趋势预测 (CrewAI)   │
+                                          └────────────────────────────────┘
 ```
+
+**数据流说明**:
+1. 用户通过终端或 Web 看板输入消息
+2. Stage 1-2: 标准化 → 分类，同时提取人物存入关系型数据库
+3. 监控匹配引擎检查人物/关键词/相似事件，决定是否构图
+4. Stage 3: 监控事件写入知识图谱
+5. Stage 4: 风险评估，低风险结束，高/中风险进入 Stage 4-1
+6. Stage 4-1: 从关系型数据库召回关联事件，进行二次分析
+7. Stage 5: 混合检索
+8. Stage 6: 按事件类型推送到不同消息通道
+9. Stage 7: Dashboard 意图分析和趋势预测
+
+**核心组件**:
+- **关系型数据库**: 存储人物库、关键词库、事件索引
+- **监控匹配引擎**: 人物监控 + 关键词监控 + 相似事件监控
+- **消息推送网关**: 短信/邮件/企业微信/钉钉/内部系统
 
 ## 项目结构
 
@@ -59,11 +101,14 @@ case_analysis/
 ├── models.py                # 共享 Pydantic 数据模型
 ├── consumer.py              # 事件标准化服务
 ├── classifier.py            # 事件分类服务 (CrewAI)
+├── dashboard.py             # Web 看板服务 (FastAPI)
+├── graph_service.py         # 知识图谱服务 (Graphiti)
 ├── graphiti/
 │   └── graphiti_workflow.py # Graphiti 知识图谱操作
 ├── providers/
 │   ├── __init__.py          # LLM/Embedder 提供商
-│   └── llm_provider.py      # LLM 提供商 (SiliconFlow)
+│   ├── llm_provider.py      # LLM 提供商 (SiliconFlow)
+│   └── embedder_provider.py # Embedder 提供商
 ├── .env                     # 环境变量配置
 ├── .env.example             # 环境变量示例
 └── requirements.txt         # Python 依赖
@@ -96,11 +141,43 @@ python main.py
 
 | 模型 | 用途 | 关键字段 |
 |------|------|----------|
-| `NormalizedEvent` | 标准化事件 | event_id, source, raw_content, structured_data, trace_id |
-| `ClassifiedEvent` | 分类结果 | event_type, risk_level, risk_score, key_entities, summary |
+| `NormalizedEvent` | 标准化事件 | event_id, source, raw_content, structured_data, trace_id, event_type, risk_level, risk_score |
+| `ClassifiedEvent` | 分类结果 | event_type, risk_level, risk_score, key_entities, summary, reasoning |
 | `QueueMessage` | RabbitMQ 消息封装 | payload, msg_type, version, trace_id |
+| `EventSource` | 事件来源枚举 | NEWS, CHAT, TRANSACTION, BEHAVIOR |
+| `RiskLevel` | 风险等级枚举 | HIGH, MEDIUM, LOW |
+| `EventType` | 事件类型枚举 | EMERGENCY, NEGATIVE, POSITIVE, INFORMATION, BUSINESS |
+| `KeyEntity` | 关键实体 | name, type |
 
-### graphiti/graphiti_workflow.py — Graph 服务
+### dashboard.py — Web 看板服务
+
+基于 FastAPI 构建的 Web 看板，提供事件可视化与统计分析。
+
+**主要端点**:
+- `GET /` — 看板主页（HTML）
+- `GET /api/events` — 事件列表（分页、过滤）
+- `GET /api/events/{event_id}` — 事件详情
+- `GET /api/stats` — 统计数据
+- `GET /api/stats/risk-distribution` — 风险分布
+- `GET /api/stats/source-distribution` — 来源分布
+- `GET /api/graph/stats` — 图谱统计
+
+**启动方式**:
+```bash
+python -m uvicorn dashboard:app --reload --port 8000
+```
+
+### graph_service.py — 知识图谱服务
+
+基于 Graphiti 构建时序知识图谱，将所有分类后的事件写入图谱。
+
+**核心功能**:
+- `init_graphiti()`: 初始化 Graphiti 客户端（连接 Neo4j、配置 LLM/Embedder）
+- `add_episode()`: 将事件作为 Episode 写入 Graphiti，自动提取实体和关系
+- `search()`: 混合检索（语义 + 关键词 + 图遍历 + 重排序）
+- `close_graphiti()`: 关闭连接释放资源
+
+### graphiti/graphiti_workflow.py — Graph 底层操作
 
 - `add_event_to_graph()`: 将事件写入图谱，Graphiti 自动提取实体/关系/向量嵌入
 - `hybrid_search()`: 混合检索 — 语义向量 + BM25 + BFS 图遍历 → RRF 融合
@@ -150,9 +227,19 @@ RISK_THRESHOLD=0.7
 
 ### 4. 启动系统
 
+#### 方式一：终端 Pipeline（分析消息）
+
 ```bash
 python main.py
 ```
+
+#### 方式二：Web 看板（可视化界面）
+
+```bash
+python -m uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
+```
+
+然后访问 http://localhost:8000 查看看板。
 
 系统启动后，在终端输入消息进行分析:
 
@@ -199,6 +286,8 @@ python main.py
 | LLM | SiliconFlow API (DeepSeek-V3) |
 | Embedding | BAAI/bge-m3 (SiliconFlow) |
 | 数据模型 | Pydantic v2 |
+| Web 框架 | FastAPI + Jinja2 |
+| 向量检索 | Graphiti Hybrid Search |
 
 ## 依赖
 
@@ -213,3 +302,21 @@ python-dotenv    # 环境变量
 ulid-py          # 唯一 ID 生成
 httpx            # HTTP 客户端
 ```
+
+## providers 模块说明
+
+### providers/llm_provider.py — LLM 提供商
+
+封装 SiliconFlow LLM 调用，提供统一的接口供 CrewAI Agent 使用。
+
+**主要功能**:
+- `get_llm()`: 获取配置好的 LLM 实例
+- 支持自定义模型、温度、max_tokens 等参数
+
+### providers/embedder_provider.py — Embedder 提供商
+
+封装 SiliconFlow Embedding 调用，提供向量嵌入能力。
+
+**主要功能**:
+- `get_embedder()`: 获取配置好的 Embedder 实例
+- 支持 BAAI/bge-m3 等模型
