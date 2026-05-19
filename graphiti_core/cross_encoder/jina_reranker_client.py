@@ -99,7 +99,7 @@ class JinaRerankerClient(CrossEncoderClient):
             'documents': passages,
         }
 
-logger.debug(
+        logger.debug(
             'Sending rerank request: url=%s, model=%s, payload_size=%d bytes',
             url, self._model, len(str(payload)),
         )
