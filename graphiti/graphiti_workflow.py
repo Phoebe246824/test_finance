@@ -1,9 +1,6 @@
-import asyncio
-import json
+import logging
 import os
-import sys
 from datetime import datetime, date
-from enum import Enum
 from typing import Any, List, Optional
 
 from dotenv import load_dotenv
@@ -16,8 +13,13 @@ from graphiti_core.llm_client import LLMConfig
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.cross_encoder.jina_reranker_client import JinaRerankerClient
 from graphiti_core.prompts import Message
-from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_CROSS_ENCODER, COMBINED_HYBRID_SEARCH_RRF
+from graphiti_core.search.search_config_recipes import (
+    COMBINED_HYBRID_SEARCH_CROSS_ENCODER,
+    COMBINED_HYBRID_SEARCH_RRF,
+)
 from graphiti_core.search.search_filters import SearchFilters
+
+logger = logging.getLogger(__name__)
 
 ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(dotenv_path=ENV_PATH, override=True)
@@ -53,6 +55,7 @@ if not LLM_API_KEY:
 # Pydantic schema models
 # ========================
 
+
 class Event(BaseModel):
     event_id: Optional[str] = Field(None, description="事件编号，如 E1、E2")
     event_date: Optional[date] = Field(None, description="事件发生日期")
@@ -64,40 +67,74 @@ class Event(BaseModel):
 
 
 class Person(BaseModel):
-    id_number: Optional[str] = Field(None,description="唯一标识ID（如 P014），用于与同名实体区分;身份证号、护照号等证件信息（建议脱敏存储）")
-    full_name: Optional[str] = Field(None,description="人物姓名，仅填写姓名本身，不包含编号")
-    alias: Optional[List[str]] = Field(None,description="人物别名、昵称、英文名或曾用名")
-    gender: Optional[str] = Field(None,description="性别")
-    nationality: Optional[str] = Field(None,description="国籍或所属国家/地区")
-    birth_date: Optional[str] = Field(None,description="出生日期")
-    age: Optional[int] = Field(None,description="年龄")
-    occupation: Optional[str] = Field(None,description="职业或岗位")
-    affiliated_organization: Optional[str] = Field(None,description="所属组织、单位或机构")
-    phone: Optional[str] = Field(None,description="联系电话")
-    email: Optional[str] = Field(None,description="电子邮箱")
-    address: Optional[str] = Field(None,description="居住地址或工作地址")
+    id_number: Optional[str] = Field(
+        None,
+        description="唯一标识ID（如 P014），用于与同名实体区分;身份证号、护照号等证件信息（建议脱敏存储）",
+    )
+    full_name: Optional[str] = Field(
+        None, description="人物姓名，仅填写姓名本身，不包含编号"
+    )
+    alias: Optional[List[str]] = Field(
+        None, description="人物别名、昵称、英文名或曾用名"
+    )
+    gender: Optional[str] = Field(None, description="性别")
+    nationality: Optional[str] = Field(None, description="国籍或所属国家/地区")
+    birth_date: Optional[str] = Field(None, description="出生日期")
+    age: Optional[int] = Field(None, description="年龄")
+    occupation: Optional[str] = Field(None, description="职业或岗位")
+    affiliated_organization: Optional[str] = Field(
+        None, description="所属组织、单位或机构"
+    )
+    phone: Optional[str] = Field(None, description="联系电话")
+    email: Optional[str] = Field(None, description="电子邮箱")
+    address: Optional[str] = Field(None, description="居住地址或工作地址")
 
-    social_identity: Optional[str] = Field( None,description="社会身份，例如专家、记者、群众、员工、负责人等")
-    role: Optional[str] = Field(None,description="在当前事件中的角色，例如目击者、受害者、责任人、救援人员、调查人员等")
-    impact: Optional[str] = Field(None,description="该人物在事件中的影响、伤亡情况或作用描述")
-    involvement_level: Optional[str] = Field(None,description="参与事件的程度，例如核心相关、间接关联、旁观者等")
+    social_identity: Optional[str] = Field(
+        None, description="社会身份，例如专家、记者、群众、员工、负责人等"
+    )
+    role: Optional[str] = Field(
+        None,
+        description="在当前事件中的角色，例如目击者、受害者、责任人、救援人员、调查人员等",
+    )
+    impact: Optional[str] = Field(
+        None, description="该人物在事件中的影响、伤亡情况或作用描述"
+    )
+    involvement_level: Optional[str] = Field(
+        None, description="参与事件的程度，例如核心相关、间接关联、旁观者等"
+    )
+
 
 class Organization(BaseModel):
     org_name: Optional[str] = Field(None, description="组织全称")
     country: Optional[str] = Field(None, description="所属国家或地区")
     role: Optional[str] = Field(None, description="在本事件中的角色")
-    id_number: Optional[str] = Field(None, description="组织特征ID（唯一标识符），用于唯一标识一个组织实体")
+    id_number: Optional[str] = Field(
+        None, description="组织特征ID（唯一标识符），用于唯一标识一个组织实体"
+    )
     org_alias: Optional[List[str]] = Field(None, description="组织别名、简称或历史名称")
-    org_type: Optional[str] = Field(None, description="组织类型，例如政府机构、企业、媒体、学校、国际组织、科研机构、NGO等")
+    org_type: Optional[str] = Field(
+        None,
+        description="组织类型，例如政府机构、企业、媒体、学校、国际组织、科研机构、NGO等",
+    )
     parent_org: Optional[str] = Field(None, description="上级组织或母公司名称")
-    industry: Optional[str] = Field(None, description="所属行业或领域，例如化工、能源、金融、互联网、医疗等")
+    industry: Optional[str] = Field(
+        None, description="所属行业或领域，例如化工、能源、金融、互联网、医疗等"
+    )
     city: Optional[str] = Field(None, description="所在城市")
     address: Optional[str] = Field(None, description="组织地址或办公地点")
     founded_time: Optional[str] = Field(None, description="组织成立时间")
-    legal_representative: Optional[str] = Field(None, description="法人代表、负责人或主要管理者")
-    impact: Optional[str] = Field(None, description="该组织在事件中的影响、损失或作用描述")
-    involvement_level: Optional[str] = Field(None, description="组织参与事件的程度，例如直接参与、间接关联、核心参与等")
-    contact_info: Optional[str] = Field(None, description="联系电话、邮箱或其他联系方式")
+    legal_representative: Optional[str] = Field(
+        None, description="法人代表、负责人或主要管理者"
+    )
+    impact: Optional[str] = Field(
+        None, description="该组织在事件中的影响、损失或作用描述"
+    )
+    involvement_level: Optional[str] = Field(
+        None, description="组织参与事件的程度，例如直接参与、间接关联、核心参与等"
+    )
+    contact_info: Optional[str] = Field(
+        None, description="联系电话、邮箱或其他联系方式"
+    )
     official_website: Optional[str] = Field(None, description="官方网站链接")
     description: Optional[str] = Field(None, description="组织简介或背景信息")
 
@@ -119,7 +156,8 @@ class Technology(BaseModel):
     energy_density: Optional[str] = Field(None, description="能量密度")
     key_parameter: Optional[str] = Field(None, description="关键参数")
     is_disruptive: Optional[bool] = Field(None, description="是否为颠覆性技术")
-    
+
+
 class Policy(BaseModel):
     policy_name: Optional[str] = Field(None, description="政策名称")
     policy_type: Optional[str] = Field(None, description="政策类型")
@@ -140,9 +178,12 @@ class Involves(BaseModel):
     role: Optional[str] = Field(None, description="实体角色")
     involvement_type: Optional[str] = Field(None, description="参与类型")
     importance: Optional[str] = Field(None, description="重要程度")
+
+
 # ========================
 # Client factory / workflow helpers
 # ========================
+
 
 async def init_graph_client(config: dict | None = None) -> Graphiti:
     config = config or {}
@@ -166,7 +207,6 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     reranker_api_key = reranker_config.get("api_key") or RERANKER_API_KEY
     reranker_base_url = reranker_config.get("base_url") or RERANKER_BASE_URL
     reranker_model = reranker_config.get("model") or RERANKER_MODEL
-
 
     llm_client = OpenAIGenericClient(
         config=LLMConfig(
@@ -284,12 +324,12 @@ async def add_event_to_graph(
     group_id: str | None = None,
     custom_extraction_instructions: str | None = None,
     update_communities: bool = False,
-    summarize_before_extract: bool = False, #是否先摘要再抽取
+    summarize_before_extract: bool = False,  # 是否先摘要再抽取
 ) -> Any:
     effective_reference_time = reference_time or datetime.now()
     effective_source = source_description
     entity_types = {
-        "Person":Person,
+        "Person": Person,
         "Event": Event,
         "Organization": Organization,
         "Commodity": Commodity,
@@ -333,7 +373,9 @@ async def add_event_to_graph(
     summary_text = None
 
     if summarize_before_extract:
-        summary_text = await _summarize_for_extraction(graphiti, event_text, effective_source)
+        summary_text = await _summarize_for_extraction(
+            graphiti, event_text, effective_source
+        )
         effective_event_text = summary_text
 
     result = await graphiti.add_episode(
@@ -344,7 +386,8 @@ async def add_event_to_graph(
         entity_types=entity_types,
         edge_types=edge_types,
         edge_type_map=edge_type_map,
-        custom_extraction_instructions=custom_extraction_instructions or default_custom_instructions,
+        custom_extraction_instructions=custom_extraction_instructions
+        or default_custom_instructions,
         group_id=group_id,
         update_communities=update_communities,
     )
@@ -366,7 +409,7 @@ async def add_event_to_graph(
         "input_text": event_text,
         "summary": summary_text,
         "used_summary_for_extraction": summarize_before_extract,
-        "group_id":group_id
+        "group_id": group_id,
     }
 
 
@@ -374,7 +417,7 @@ async def hybrid_search(
     graphiti: Graphiti,
     query: str,
     group_id: str | None = None,
-    recipe: Any = COMBINED_HYBRID_SEARCH_CROSS_ENCODER,#默认
+    recipe: Any = COMBINED_HYBRID_SEARCH_CROSS_ENCODER,  # 默认
     filters: Any | None = None,
     num_results: int = 10,
     candidate_limit: int | None = None,  # 候选集数量 默认按 num_results * 2（至少 10）
@@ -415,10 +458,16 @@ async def hybrid_search(
 
     if min_score > 0.0 and global_ranked:
         before = len(global_ranked)
-        global_ranked = [item for item in global_ranked if (item.get("score") if item.get("score") is not None else 0) >= min_score]
+        global_ranked = [
+            item
+            for item in global_ranked
+            if (item.get("score") if item.get("score") is not None else 0) >= min_score
+        ]
         after = len(global_ranked)
         if after < before:
-            print(f"[hybrid_search] 相关性过滤: {before} -> {after} (min_score={min_score})")
+            logger.info(
+                "相关性过滤: %d -> %d (min_score=%.2f)", before, after, min_score
+            )
 
     return {
         "query": query,
@@ -466,14 +515,15 @@ async def _global_merge_rerank_top_k(
     for text, score in reranked:
         if len(top_ranked) >= top_k:
             break
-        top_ranked.append({
-            "type": text_to_type.get(text, "unknown"),
-            "text": text,
-            "score": score,
-        })
+        top_ranked.append(
+            {
+                "type": text_to_type.get(text, "unknown"),
+                "text": text,
+                "score": score,
+            }
+        )
 
     return top_ranked
-
 
 
 async def summarize_text(llm_client, title: str, content: str) -> str:
@@ -510,5 +560,3 @@ async def summarize_text(llm_client, title: str, content: str) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return str(response).strip()
-
-
