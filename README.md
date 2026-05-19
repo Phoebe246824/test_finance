@@ -192,6 +192,17 @@ pip install -r requirements.txt
 
 ### 2. 配置环境变量
 
+> **⚠️ 默认配置变更 (2026-05-18)**
+> 
+> 本次更新将默认 LLM 提供商从 `SiliconFlow` 改为 `OpenAI (gpt-4o)`。
+> 
+> **影响**：
+> - 未配置 `.env` 的用户将默认使用 OpenAI API
+> - gpt-4o 费用显著高于 DeepSeek-V3.2
+> 
+> **回退方法**：
+> 在 `.env` 中设置 `LLM_PROVIDER=siliconflow` 并配置对应 API Key
+
 复制 `.env.example` 为 `.env`，填入实际配置:
 
 ```env

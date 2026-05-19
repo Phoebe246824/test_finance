@@ -88,7 +88,7 @@ class OpenAIRerankerClient(CrossEncoderClient):
                         messages=openai_messages,
                         temperature=0,
                         max_tokens=1,
-                        logit_bias={'6432': 1, '7983': 1},
+                        logit_bias={'6432': 1.0, '7983': 1.0},
                         logprobs=True,
                         top_logprobs=2,
                     )

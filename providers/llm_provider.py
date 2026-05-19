@@ -18,14 +18,14 @@ def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None
     """获取硅基流动LLM实例"""
     # 确保模型名称不为空
     if not model:
-        model = os.getenv("LLM_MODEL", "Pro/deepseek-ai/DeepSeek-V3.2")
+        model = os.getenv("LLM_MODEL") or "gpt-4o"
     llm = LLM(
         model=model,
         # max_tokens=5120,
         max_completion_tokens=8192,
         top_p=0.85,
-        api_key=api_key or os.getenv("LLM_API_KEY"),
-        base_url=base_url or os.getenv("LLM_BASE_URL"),
+        api_key=api_key or os.getenv("LLM_API_KEY") or "",
+        base_url=base_url or os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1",
         temperature=temperature,
         provider="openai"
     )
@@ -34,9 +34,9 @@ def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None
 
 
 def get_llm(model=None, temperature=0.7, provider=None, api_key=None, base_url=None):
-    provider = provider or os.getenv("LLM_PROVIDER", "siliconflow")
     """根据提供商获取LLM实例"""
-    if provider == "siliconflow":
+    provider = provider or os.getenv("LLM_PROVIDER") or "openai"
+    if provider in ("siliconflow", "openai"):
         return get_siliconflow_llm(model=model, temperature=temperature, api_key=api_key, base_url=base_url)
     else:
         raise ValueError(f"不支持的LLM提供商: {provider}")

@@ -14,10 +14,10 @@ from graphiti_core.driver.neo4j_driver import Neo4jDriver
 from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.llm_client import LLMConfig
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
-from graphiti_core.cross_encoder.bge_reranker_client import BGERerankerClient
-from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
+from graphiti_core.cross_encoder.jina_reranker_client import JinaRerankerClient
 from graphiti_core.prompts import Message
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_CROSS_ENCODER, COMBINED_HYBRID_SEARCH_RRF
+from graphiti_core.search.search_filters import SearchFilters
 
 ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(dotenv_path=ENV_PATH, override=True)
@@ -27,16 +27,26 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 # Config
 # ========================
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password")
-OPENAI_API_KEY = os.environ.get("LLM_API_KEY")
+NEO4J_URI = os.environ.get("NEO4J_URI") or "bolt://localhost:7687"
+NEO4J_USER = os.environ.get("NEO4J_USER") or "neo4j"
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD") or "password"
+LLM_API_KEY = os.environ.get("LLM_API_KEY")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
+LLM_MODEL = os.environ.get("LLM_MODEL") or "gpt-4o"
+
+EMBEDDER_API_KEY = os.environ.get("EMBEDDER_API_KEY") or LLM_API_KEY
+EMBEDDER_API_BASE = os.environ.get("EMBEDDER_API_BASE") or LLM_BASE_URL
+EMBEDDER_MODEL = os.environ.get("EMBEDDER_MODEL") or "BAAI/bge-m3"
+
+RERANKER_API_KEY = os.environ.get("RERANKER_API_KEY") or LLM_API_KEY
+RERANKER_BASE_URL = os.environ.get("RERANKER_BASE_URL") or LLM_BASE_URL
+RERANKER_MODEL = os.environ.get("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3"
 
 if not NEO4J_URI or not NEO4J_USER or not NEO4J_PASSWORD:
     raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set")
 
-if not OPENAI_API_KEY:
-    raise ValueError("LLM_API_KEY must be set")
+if not LLM_API_KEY:
+    raise ValueError("LLM_API_KEY must be set and cannot be empty")
 
 
 # ========================
@@ -139,15 +149,24 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     neo4j_config = config.get("neo4j", {})
     llm_config = config.get("llm", {})
     embedder_config = config.get("embedder", {})
+    reranker_config = config.get("reranker", {})
 
     neo4j_uri = neo4j_config.get("uri", NEO4J_URI)
     neo4j_user = neo4j_config.get("user", NEO4J_USER)
     neo4j_password = neo4j_config.get("password", NEO4J_PASSWORD)
-    llm_api_key = llm_config.get("api_key", OPENAI_API_KEY)
-    llm_base_url = llm_config.get("base_url", os.environ.get("LLM_BASE_URL", "https://api.siliconflow.cn/v1"))
-    llm_model = llm_config.get("model", os.environ.get("LLM_MODEL", "deepseek-ai/DeepSeek-V3.2"))
-    embedder_model = embedder_config.get("model", "BAAI/bge-m3")
-    embedder_api_base = embedder_config.get("api_base", "https://api.siliconflow.cn/v1")
+
+    llm_api_key = llm_config.get("api_key") or LLM_API_KEY
+    llm_base_url = llm_config.get("base_url") or LLM_BASE_URL
+    llm_model = llm_config.get("model") or LLM_MODEL
+
+    embedder_api_key = embedder_config.get("api_key") or EMBEDDER_API_KEY
+    embedder_api_base = embedder_config.get("api_base") or EMBEDDER_API_BASE
+    embedder_model = embedder_config.get("model") or EMBEDDER_MODEL
+
+    reranker_api_key = reranker_config.get("api_key") or RERANKER_API_KEY
+    reranker_base_url = reranker_config.get("base_url") or RERANKER_BASE_URL
+    reranker_model = reranker_config.get("model") or RERANKER_MODEL
+
 
     llm_client = OpenAIGenericClient(
         config=LLMConfig(
@@ -160,11 +179,19 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     embedder = OpenAIEmbedder(
         config=OpenAIEmbedderConfig(
             embedding_model=embedder_model,
-            api_key=llm_api_key,
+            api_key=embedder_api_key,
             base_url=embedder_api_base,
         )
     )
-    cross_encoder = BGERerankerClient()
+
+    cross_encoder = JinaRerankerClient(
+        config=LLMConfig(
+            api_key=reranker_api_key,
+            model=reranker_model,
+            base_url=reranker_base_url,
+        )
+    )
+
     graphiti = Graphiti(
         neo4j_uri,
         neo4j_user,
@@ -339,11 +366,16 @@ async def hybrid_search(
         search_config = recipe.copy(update={"limit": candidate_limit})
     elif isinstance(recipe, dict):
         search_config = {**recipe, "limit": candidate_limit}
+
+    # Graphiti 底层部分搜索实现会假定 search_filter 一定是 SearchFilters 实例。
+    # 显式传空过滤器，避免 None 传入后在驱动层触发 `'NoneType' object has no attribute 'get'`。
+    search_filters = filters if filters is not None else SearchFilters()
+
     result = await graphiti.search_(
         query,
         config=search_config,
         group_ids=group_ids,
-        search_filter=filters,
+        search_filter=search_filters,
     )
     global_ranked = None
     if num_results is not None:

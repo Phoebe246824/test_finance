@@ -13,7 +13,10 @@ import asyncio
 import json
 import os
 import random
+import re
+import sys
 import time
+import traceback
 import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -34,6 +37,53 @@ from crewai import Agent, Task, Crew, Process
 
 
 # ============================================================
+#  日志输出：同时写入终端和文件
+# ============================================================
+
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+class TeeOutput:
+    """将 stdout/stderr 同步写入终端与日志文件，日志文件中去除终端 ANSI 控制符。"""
+
+    def __init__(self, console_stream, log_stream):
+        self.console_stream = console_stream
+        self.log_stream = log_stream
+
+    def write(self, data):
+        self.console_stream.write(data)
+        self.console_stream.flush()
+
+        clean_data = ANSI_ESCAPE_RE.sub("", data)
+        self.log_stream.write(clean_data)
+        self.log_stream.flush()
+
+    def flush(self):
+        self.console_stream.flush()
+        self.log_stream.flush()
+
+    def isatty(self):
+        return getattr(self.console_stream, "isatty", lambda: False)()
+
+
+def setup_output_logging(log_dir: str | None = None) -> tuple[str, object, object, object]:
+    """把所有 print/异常输出保存到 logs/sentinel_*.log。"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    log_dir = log_dir or os.path.join(base_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_path = os.path.join(log_dir, f"sentinel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    sys.stdout = TeeOutput(original_stdout, log_file)
+    sys.stderr = TeeOutput(original_stderr, log_file)
+
+    return log_path, log_file, original_stdout, original_stderr
+
+
+# ============================================================
 #  全局配置加载
 # ============================================================
 
@@ -46,30 +96,35 @@ def load_config() -> dict:
     """
     config = {
         "rabbitmq": {
-            "host": os.getenv("RABBITMQ_HOST", "localhost"),
-            "port": int(os.getenv("RABBITMQ_PORT", "5672")),
-            "user": os.getenv("RABBITMQ_USER", "guest"),
-            "password": os.getenv("RABBITMQ_PASSWORD", "guest"),
+            "host": os.getenv("RABBITMQ_HOST") or "localhost",
+            "port": int(os.getenv("RABBITMQ_PORT") or "5672"),
+            "user": os.getenv("RABBITMQ_USER") or "guest",
+            "password": os.getenv("RABBITMQ_PASSWORD") or "password",
         },
         "neo4j": {
-            "uri": os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-            "user": os.getenv("NEO4J_USER", "neo4j"),
-            "password": os.getenv("NEO4J_PASSWORD", "password"),
+            "uri": os.getenv("NEO4J_URI") or "bolt://localhost:7687",
+            "user": os.getenv("NEO4J_USER") or "neo4j",
+            "password": os.getenv("NEO4J_PASSWORD") or "password",
         },
         "llm": {
-            "api_key": os.getenv("LLM_API_KEY", ""),
-            "base_url": os.getenv("LLM_BASE_URL", "https://api.siliconflow.cn/v1"),
-            "model": os.getenv("LLM_MODEL", "mimo-v2.5-pro"),
+            "api_key": os.getenv("LLM_API_KEY") or "",
+            "base_url": os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1",
+            "model": os.getenv("LLM_MODEL") or "gpt-4o",
         },
         "embedder": {
-            "model": os.getenv("EMBEDDER_MODEL", "BAAI/bge-m3"),
-            "api_base": os.getenv("EMBEDDER_API_BASE", "https://api.siliconflow.cn/v1"),
+            "model": os.getenv("EMBEDDER_MODEL") or "BAAI/bge-m3",
+            "api_key": os.getenv("EMBEDDER_API_KEY") or os.getenv("LLM_API_KEY") or "",
+            "api_base": os.getenv("EMBEDDER_API_BASE") or "https://api.openai.com/v1",
         },
         "graphiti": {
-            "episode_source_name": "sentinel",
+            "episode_source_name": os.getenv("GRAPHITI_EPISODE_SOURCE") or "sentinel",
+        },
+        "search": {
+            "num_results": int(os.getenv("SEARCH_NUM_RESULTS") or "10"),
+            "risk_num_results": int(os.getenv("RISK_SEARCH_NUM_RESULTS") or os.getenv("SEARCH_NUM_RESULTS") or "20"),
         },
         "classification": {
-            "risk_threshold": float(os.getenv("RISK_THRESHOLD", "0.2")),
+            "risk_threshold": float(os.getenv("RISK_THRESHOLD") or "0.2"),
         },
     }
     print("[config] 配置加载完成 (env > .env > defaults)")
@@ -77,6 +132,7 @@ def load_config() -> dict:
     print(f"         neo4j:     {config['neo4j']['uri']}")
     print(f"         llm:       {config['llm']['model']}")
     print(f"         embedder:  {config['embedder']['model']}")
+    print(f"         search:    num_results={config['search']['num_results']}, risk_num_results={config['search']['risk_num_results']}")
     return config
 
 
@@ -562,7 +618,128 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
 #  Stage 4: Search — 混合搜索演示
 # ============================================================
 
-async def simulate_search(config: dict, event: NormalizedEvent, num_results: int = 10, group_id: str = "sentinel") -> None:
+def extract_subject_id_numbers(text: str) -> list[str]:
+    """从当前事件文本中抽取主体 id_number，例如【P01# 小明】中的 P01。
+
+    检索范围只使用稳定 id_number，不使用人名兜底，避免同名主体误召回。
+    """
+    id_numbers: list[str] = []
+    seen: set[str] = set()
+
+    for entity_id in re.findall(r"【\s*([A-Za-z]+\d+)\s*#\s*[^】]+?\s*】", text):
+        normalized_id = entity_id.strip().upper()
+        if normalized_id and normalized_id not in seen:
+            id_numbers.append(normalized_id)
+            seen.add(normalized_id)
+
+    for entity_id in re.findall(r"\b([A-Za-z]+\d+)\b", text):
+        normalized_id = entity_id.strip().upper()
+        if normalized_id and normalized_id not in seen:
+            id_numbers.append(normalized_id)
+            seen.add(normalized_id)
+
+    return id_numbers
+
+
+async def get_subject_episode_uuids(graphiti, id_numbers: list[str], group_id: str) -> set[str]:
+    """查找所有包含指定 id_number 主体的 Episode UUID。
+
+    这里的“包含”指 Episode 通过 MENTIONS 关系直接提到了 id_number=P01 的实体，
+    不是从 P01 出发扩展一跳/多跳邻居子图。
+    """
+    if not id_numbers:
+        return set()
+
+    records, _, _ = await graphiti.driver.execute_query(
+        """
+        MATCH (e:Episodic)-[:MENTIONS]->(n:Entity)
+        WHERE e.group_id = $group_id
+          AND toUpper(toString(n.id_number)) IN $id_numbers
+        RETURN DISTINCT e.uuid AS uuid
+        """,
+        group_id=group_id,
+        id_numbers=[id_number.upper() for id_number in id_numbers],
+        routing_="r",
+    )
+    return {record["uuid"] for record in records if record.get("uuid")}
+
+
+def filter_search_result_by_subject_episodes(result: dict, episode_uuids: set[str], id_numbers: list[str]) -> dict:
+    """只保留“包含当前主体 id_number 的 Episode”及其内部结果。"""
+    if not id_numbers or not result:
+        return result
+
+    if not episode_uuids:
+        scoped_result = dict(result)
+        scoped_result["scope_mode"] = "subject_episode"
+        scoped_result["subject_id_numbers"] = id_numbers
+        scoped_result["subject_episode_uuids"] = []
+        scoped_result["edges"] = []
+        scoped_result["nodes"] = []
+        scoped_result["episodes"] = []
+        scoped_result["results"] = []
+        scoped_result["num_results_count"] = 0
+        return scoped_result
+
+    scoped_episodes = [
+        episode for episode in result.get("episodes", [])
+        if getattr(episode, "uuid", None) in episode_uuids
+    ]
+    scoped_edge_uuids = {
+        edge_uuid
+        for episode in scoped_episodes
+        for edge_uuid in getattr(episode, "entity_edges", [])
+    }
+    scoped_edges = [
+        edge for edge in result.get("edges", [])
+        if getattr(edge, "uuid", None) in scoped_edge_uuids
+    ]
+    scoped_node_uuids = {
+        node_uuid
+        for edge in scoped_edges
+        for node_uuid in (getattr(edge, "source_node_uuid", None), getattr(edge, "target_node_uuid", None))
+        if node_uuid
+    }
+    scoped_nodes = [
+        node for node in result.get("nodes", [])
+        if getattr(node, "uuid", None) in scoped_node_uuids
+    ]
+
+    scoped_texts: list[str] = []
+    for episode in scoped_episodes:
+        content = getattr(episode, "content", None)
+        if content:
+            scoped_texts.append(str(content))
+    for edge in scoped_edges:
+        fact = getattr(edge, "fact", None)
+        if fact:
+            scoped_texts.append(str(fact))
+
+    filtered_results = []
+    for item in result.get("results", []):
+        text = item.get("text", "")
+        if any(text and text in scoped_text for scoped_text in scoped_texts):
+            filtered_results.append(item)
+
+    if not filtered_results:
+        filtered_results = [
+            {"type": "subject_episode", "text": text, "score": None}
+            for text in scoped_texts[: result.get("num_results_limit", 10)]
+        ]
+
+    scoped_result = dict(result)
+    scoped_result["scope_mode"] = "subject_episode"
+    scoped_result["subject_id_numbers"] = id_numbers
+    scoped_result["subject_episode_uuids"] = sorted(episode_uuids)
+    scoped_result["edges"] = scoped_edges
+    scoped_result["nodes"] = scoped_nodes
+    scoped_result["episodes"] = scoped_episodes
+    scoped_result["results"] = filtered_results[: result.get("num_results_limit", 10)]
+    scoped_result["num_results_count"] = len(scoped_result["results"])
+    return scoped_result
+
+
+async def simulate_search(config: dict, event: NormalizedEvent, num_results: int | None = None, group_id: str = "sentinel") -> None:
     """
     Graphiti 混合搜索：使用 Graphiti 客户端进行搜索
     """
@@ -571,8 +748,12 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
     print("=" * 70)
     from graphiti.graphiti_workflow import hybrid_search, init_graph_client
 
+    if num_results is None:
+        num_results = int(config.get("search", {}).get("num_results", 10))
+
     result = {}
     graphiti = None
+    subject_id_numbers = extract_subject_id_numbers(event.raw_content)
     try:
         print("[search] 正在初始化 Graphiti 搜索客户端...")
         graphiti = await init_graph_client(config)
@@ -581,7 +762,14 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
         print(f"\n[search] hybrid_search()")
         print(f"         query=\"{event.raw_content}\"")
         print(f"         group_id={group_id}")
+        print("         scope=主体 Episode 检索：只保留包含当前 id_number 主体的图/episode")
+        print(f"         subject_id_numbers={subject_id_numbers or '未抽取到主体 id_number，退回普通 group 搜索'}")
         print(f"         num_results={num_results}")
+
+        subject_episode_uuids: set[str] = set()
+        if subject_id_numbers:
+            subject_episode_uuids = await get_subject_episode_uuids(graphiti, subject_id_numbers, group_id)
+            print(f"         subject_episode_count={len(subject_episode_uuids)}")
 
         print("[search] 开始执行 hybrid_search...")
         result = await asyncio.wait_for(
@@ -593,8 +781,13 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
             ),
             timeout=20,
         )
+        before_scope_count = len(result.get("results", [])) if result else 0
+        result = filter_search_result_by_subject_episodes(result, subject_episode_uuids, subject_id_numbers)
+        after_scope_count = len(result.get("results", [])) if result else 0
 
         print(f"         搜索成功 ✓")
+        if subject_id_numbers:
+            print(f"         主体 Episode 过滤: {before_scope_count} -> {after_scope_count}")
 
         # 使用 graphiti_workflow.hybrid_search 的全局重排结果（results）
         # results 内每条形如: {"type": "edge|episode|node", "text": ..., "score": ...}
@@ -624,7 +817,9 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
         result.setdefault("reranked_edges", [])
         result.setdefault("reranked_episodes", [])
     except Exception as e:
-        print(f"         搜索失败: {e}")
+        print(f"         搜索失败: {type(e).__name__}: {e}")
+        print("         搜索异常堆栈如下，便于定位真实报错位置:")
+        traceback.print_exc()
         # 保证下游第二次风险评估可继续执行
         result = result or {}
         result.setdefault("reranked_nodes", [])
@@ -949,7 +1144,8 @@ class SentinelPipelineFlow(Flow):
             if risk_result["risk_score"] > risk_threshold: # 人工调整阈值（配置化）
                 print(f"[risk] risk_score={risk_result['risk_score']} > {risk_threshold}，进入第二次风险评估")
                 print(f"==========================进行第二次风险评估，获取主体关联事件==========================")
-                results = await simulate_search(self.config, self.normalized_event, num_results=10)
+                risk_num_results = int(self.config.get("search", {}).get("risk_num_results", 20))
+                results = await simulate_search(self.config, self.normalized_event, num_results=risk_num_results)
                 risk_result = second_evaluate_risk(self.config, classified_event,results)
                 self.normalized_event.risk_level = risk_result["risk_level"]
                 self.normalized_event.risk_score = risk_result["risk_score"]
@@ -1102,27 +1298,37 @@ async def _drain_pending_asyncio_tasks() -> None:
 async def main() -> None:
     global start_time
     parser = argparse.ArgumentParser(description="Sentinel 舆情分析系统 — Phase 1 模拟运行")
-    
-    start_time = time.time()
+    parser.add_argument("--log-dir", default=None, help="日志目录，默认写入当前项目 logs/ 目录")
+    args = parser.parse_args()
 
-    print("╔════════════════════════════════════════════════════════════════════╗")
-    print("║           SENTINEL 舆情分析系统 — Phase 1 Pipeline 模拟               ║")
-    print("║                                                                    ║")
-    print("║   Ingestion → Classification → Graph → Search → Dashboard          ║")
-    print("║   RabbitMQ    CrewAI            Graphiti  Hybrid    FastAPI        ║")
-    print("╚════════════════════════════════════════════════════════════════════╝")
-
-    config = load_config()
-
+    log_path, log_file, original_stdout, original_stderr = setup_output_logging(args.log_dir)
     try:
-        await start_service(config)
-    finally:
-        await shutdown_all()
-        await close_all_llms()
-        await asyncio.sleep(0.05)
-        await _drain_pending_asyncio_tasks()
+        start_time = time.time()
 
-    print("\n✓ Pipeline 模拟完成")
+        print("╔════════════════════════════════════════════════════════════════════╗")
+        print("║           SENTINEL 舆情分析系统 — Phase 1 Pipeline 模拟               ║")
+        print("║                                                                    ║")
+        print("║   Ingestion → Classification → Graph → Search → Dashboard          ║")
+        print("║   RabbitMQ    CrewAI            Graphiti  Hybrid    FastAPI        ║")
+        print("╚════════════════════════════════════════════════════════════════════╝")
+        print(f"[log] 本次运行输出将保存到: {log_path}")
+
+        config = load_config()
+
+        try:
+            await start_service(config)
+        finally:
+            await shutdown_all()
+            await close_all_llms()
+            await asyncio.sleep(0.05)
+            await _drain_pending_asyncio_tasks()
+
+        print("\n✓ Pipeline 模拟完成")
+        print(f"[log] 日志文件: {log_path}")
+    finally:
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        log_file.close()
 
 
 if __name__ == "__main__":
