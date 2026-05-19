@@ -562,7 +562,7 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
     print("\n" + "=" * 70)
     print("  Stage 3: Graph — Graphiti 知识图谱构图")
     print("=" * 70)
-    from graphiti.graphiti_workflow import add_event_to_graph
+    from graphiti.graphiti_workflow import add_event_to_graph, close_graph_client
 
     graphiti = await get_graphiti_client(config)
 
@@ -614,7 +614,7 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
         print(f"\n[graph] 构图完成: {len(build_results)} 条 Episode 写入成功")
         print(f"         累计: {total_nodes} 个实体节点, {total_edges} 条关系边")
 
-        await graphiti.close()
+        await close_graph_client(graphiti)
 
     return build_results
 
@@ -751,7 +751,7 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
     print("\n" + "=" * 70)
     print("  Stage 4: Search — Graphiti 混合搜索演示")
     print("=" * 70)
-    from graphiti.graphiti_workflow import hybrid_search, init_graph_client
+    from graphiti.graphiti_workflow import hybrid_search, init_graph_client, close_graph_client
 
     if num_results is None:
         num_results = int(config.get("search", {}).get("num_results", 10))
@@ -838,7 +838,7 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
 
     finally:
         if graphiti is not None:
-            await graphiti.close()
+            await close_graph_client(graphiti)
             print("[search] Graphiti 客户端已关闭")
 
     print(f"\n[search] 搜索完成")

@@ -224,6 +224,24 @@ async def _safe_close_client(client: Any) -> None:
         await result
 
 
+async def _close_inner_http_client(client: Any) -> None:
+    """Close the inner AsyncOpenAI or httpx client if present."""
+    if client is None:
+        return
+    for attr in ("client", "_client"):
+        inner = getattr(client, attr, None)
+        if inner is None:
+            continue
+        if callable(getattr(inner, "is_closed", None)) and inner.is_closed():
+            continue
+        close_fn = getattr(inner, "aclose", None) or getattr(inner, "close", None)
+        if close_fn is None:
+            continue
+        result = close_fn()
+        if hasattr(result, "__await__"):
+            await result
+
+
 async def close_graph_client(graphiti: Graphiti) -> None:
     for client in (
         getattr(graphiti, "llm_client", None),
@@ -232,6 +250,11 @@ async def close_graph_client(graphiti: Graphiti) -> None:
     ):
         try:
             await _safe_close_client(client)
+        except RuntimeError as e:
+            if "Event loop is closed" not in str(e):
+                raise
+        try:
+            await _close_inner_http_client(client)
         except RuntimeError as e:
             if "Event loop is closed" not in str(e):
                 raise
