@@ -180,7 +180,7 @@ python -m uvicorn dashboard:app --reload --port 8000
 ### graphiti/graphiti_workflow.py — Graph 底层操作
 
 - `add_event_to_graph()`: 将事件写入图谱，Graphiti 自动提取实体/关系/向量嵌入
-- `hybrid_search()`: 混合检索 — 语义向量 + BM25 + BFS 图遍历 → RRF 融合
+- `hybrid_search()`: 混合检索 — 语义向量 + BM25 + BFS 图遍历 → RRF 融合，支持 `min_score` 相关性阈值过滤低分结果
 
 ## 快速开始
 

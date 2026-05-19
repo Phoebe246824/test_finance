@@ -122,6 +122,7 @@ def load_config() -> dict:
         "search": {
             "num_results": int(os.getenv("SEARCH_NUM_RESULTS") or "10"),
             "risk_num_results": int(os.getenv("RISK_SEARCH_NUM_RESULTS") or os.getenv("SEARCH_NUM_RESULTS") or "20"),
+            "min_score": float(os.getenv("SEARCH_MIN_SCORE") or "0.0"),
         },
         "classification": {
             "risk_threshold": float(os.getenv("RISK_THRESHOLD") or "0.2"),
@@ -132,7 +133,11 @@ def load_config() -> dict:
     print(f"         neo4j:     {config['neo4j']['uri']}")
     print(f"         llm:       {config['llm']['model']}")
     print(f"         embedder:  {config['embedder']['model']}")
-    print(f"         search:    num_results={config['search']['num_results']}, risk_num_results={config['search']['risk_num_results']}")
+    print(
+        f"         search:    num_results={config['search']['num_results']}, "
+        f"risk_num_results={config['search']['risk_num_results']}, "
+        f"min_score={config['search']['min_score']}"
+    )
     return config
 
 
@@ -771,6 +776,10 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
             subject_episode_uuids = await get_subject_episode_uuids(graphiti, subject_id_numbers, group_id)
             print(f"         subject_episode_count={len(subject_episode_uuids)}")
 
+        min_score = float(config.get("search", {}).get("min_score", 0.0))
+        if min_score > 0:
+            print(f"         min_score={min_score} (低于此分数的结果将被丢弃)")
+
         print("[search] 开始执行 hybrid_search...")
         result = await asyncio.wait_for(
             hybrid_search(
@@ -778,6 +787,7 @@ async def simulate_search(config: dict, event: NormalizedEvent, num_results: int
                 query=event.raw_content,
                 group_id=group_id,
                 num_results=num_results,
+                min_score=min_score,
             ),
             timeout=20,
         )

@@ -353,8 +353,9 @@ async def hybrid_search(
     group_id: str | None = None,
     recipe: Any = COMBINED_HYBRID_SEARCH_CROSS_ENCODER,#默认
     filters: Any | None = None,
-    num_results: int = 10 ,
-    candidate_limit: int | None = None,#候选集数量 默认按 num_results * 2（至少 10）
+    num_results: int = 10,
+    candidate_limit: int | None = None,  # 候选集数量 默认按 num_results * 2（至少 10）
+    min_score: float = 0.0,  # 相关性阈值，低于此分数的结果将被丢弃
 ) -> Any:
     group_ids = [group_id] if group_id else None
     search_config = recipe
@@ -388,6 +389,14 @@ async def hybrid_search(
             communities=result.communities,
             top_k=num_results,
         )
+
+    if min_score > 0.0 and global_ranked:
+        before = len(global_ranked)
+        global_ranked = [item for item in global_ranked if (item.get("score") if item.get("score") is not None else 0) >= min_score]
+        after = len(global_ranked)
+        if after < before:
+            print(f"[hybrid_search] 相关性过滤: {before} -> {after} (min_score={min_score})")
+
     return {
         "query": query,
         "results": global_ranked,
