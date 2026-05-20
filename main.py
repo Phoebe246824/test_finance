@@ -879,49 +879,15 @@ async def simulate_search(
 # ============================================================
 
 
-def simulate_dashboard(
+async def simulate_dashboard(
     config: dict, normalized_event: NormalizedEvent, results: dict
 ) -> None:
     logger = get_logger("main.dashboard")
     from providers.llm_provider import get_llm
-
+    from trend_prediction.classifier import EventClassifier
+    from trend_prediction.task_templates import get_intent_analysis_task, get_trend_prediction_task
 
     llm = get_llm(temperature=0.3)
-
-    intent_analyzer = Agent(
-        role="意图分析专家",
-        goal="深入分析事件背后的真实意图、动机和潜在影响",
-        backstory="""
-        你是一个资深的意图分析专家，擅长从复杂的事件描述中挖掘真实意图。
-        你的分析维度包括：
-        1. 表面意图：事件直接表达的目标
-        2. 深层动机：事件背后隐藏的动机
-        3. 利益相关方：涉及哪些利益相关方及其立场
-        4. 潜在影响：事件可能产生的短期和长期影响
-        5. 信号强度：事件信号的真实性和重要性
-        """,
-        llm=llm,
-        verbose=True,
-        allow_delegation=False,
-    )
-
-    trend_predictor = Agent(
-        role="趋势预测专家",
-        goal="基于事件意图分析，预测事件的发展趋势和可能的演变路径",
-        backstory="""
-        你是一个资深的趋势预测专家，擅长基于事件意图分析预测发展趋势。
-        你的分析维度包括：
-        1. 短期趋势（1-3个月）：事件可能的短期发展方向
-        2. 中期趋势（3-12个月）：事件可能的中期演变路径
-        3. 长期趋势（1年以上）：事件可能的长期影响和结局
-        4. 关键转折点：预测可能影响事件走向的关键节点
-        5. 概率评估：对不同发展路径的概率评估
-        6. 风险预警：预测可能的风险和不确定性因素
-        """,
-        llm=llm,
-        verbose=True,
-        allow_delegation=False,
-    )
 
     event = normalized_event
     reranked_edges = results.get("reranked_edges", []) if results else []
@@ -948,93 +914,57 @@ def simulate_dashboard(
 上下文信息: {episode_context}
 事件描述: {event.raw_content}
 """
-    intent_task = Task(
-        description=f"""
-分析以下事件的意图： {event_description}
 
-事件说明：{event_description}
+    classifier = EventClassifier()
+    category, confidence, severity, severity_confidence = await classifier.classify_with_severity(event.raw_content)
+    category_name = classifier.get_category_name(category)
+    severity_name = classifier.get_severity_name(severity)
 
-请从以下维度进行深入分析：
+    print_info(f"\n[dashboard] 事件分类: {category_name} (置信度: {confidence:.0%})")
+    print_info(f"[dashboard] 影响严重度: {severity_name} (置信度: {severity_confidence:.0%})")
+    print_info("[dashboard] 使用自适应提示词进行意图分析和趋势预测")
 
-1. **表面意图**：事件直接表达的目标是什么？
-2. **深层动机**：事件背后隐藏的动机是什么？
-3. **利益相关方**：涉及哪些利益相关方？他们的立场和态度是什么？
-4. **潜在影响**：事件可能产生的短期和长期影响有哪些？
-5. **信号强度**：该事件的信号强度如何？（高/中/低）为什么？
+    intent_analyzer = Agent(
+        llm=llm,
+        role="意图分析专家",
+        goal="深入分析事件背后的真实意图、动机和潜在影响",
+        backstory=(
+            "你是一个资深的意图分析专家，擅长从复杂的事件描述中挖掘真实意图。"
+            f"当前事件分类为「{category_name}」，请从该领域的专业视角进行分析。"
+        ),
+        verbose=True,
+        allow_delegation=False,
+    )
 
-请使用以下格式输出分析结果：
+    trend_predictor = Agent(
+        llm=llm,
+        role="趋势预测专家",
+        goal="基于事件意图分析，预测事件的发展趋势和可能的演变路径",
+        backstory=(
+            "你是一个资深的趋势预测专家，擅长基于事件意图分析预测发展趋势。"
+            f"当前事件分类为「{category_name}」，影响严重度为「{severity_name}」。"
+        ),
+        verbose=True,
+        allow_delegation=False,
+    )
 
-```
-# 意图分析报告
-
-## 表面意图
-[分析]
-
-## 深层动机
-[分析]
-
-## 利益相关方
-- [利益相关方1]：[立场和态度]
-- [利益相关方2]：[立场和态度]
-
-## 潜在影响
-- 短期影响：[分析]
-- 长期影响：[分析]
-
-## 信号强度
-[高/中/低] - [理由]
-```
-""",
-        expected_output="一个完整的意图分析报告，包含上述所有维度的分析结果。",
+    intent_task = get_intent_analysis_task(
+        event_text=event_description,
+        classifier=classifier,
+        category=category,
+        confidence=confidence,
         agent=intent_analyzer,
     )
 
-    trend_task = Task(
-        description=f"""
-基于以下事件和意图分析，预测事件的发展趋势：
-
-事件描述：{event_description}
-
-请从以下维度进行趋势预测：
-
-1. **短期趋势**（1-3个月）：事件可能的短期发展方向是什么？
-2. **中期趋势**（3-12个月）：事件可能的中期演变路径是什么？
-3. **长期趋势**（1年以上）：事件可能的长期影响和结局是什么？
-4. **关键转折点**：预测可能影响事件走向的关键节点是什么？
-5. **概率评估**：对不同发展路径的概率评估（百分比）
-6. **风险预警**：预测可能的风险和不确定性因素
-
-请使用以下格式输出分析结果：
-
-```
-# 趋势预测报告
-
-## 短期趋势（1-3个月）
-[分析]
-
-## 中期趋势（3-12个月）
-[分析]
-
-## 长期趋势（1年以上）
-[分析]
-
-## 关键转折点
-- [转折点1]：[描述]
-- [转折点2]：[描述]
-
-## 概率评估
-- 路径A：[概率]
-- 路径B：[概率]
-- 路径C：[概率]
-
-## 风险预警
-- [风险1]：[描述]
-- [风险2]：[描述]
-```
-""",
-        expected_output="一个完整的趋势预测报告，包含上述所有维度的分析结果。",
+    trend_task = get_trend_prediction_task(
+        event_text=event_description,
+        intent_task=intent_task,
+        classifier=classifier,
+        category=category,
+        confidence=confidence,
         agent=trend_predictor,
-        context=[intent_task],
+        severity=severity,
+        severity_confidence=severity_confidence,
     )
 
     crew = Crew(
@@ -1276,13 +1206,13 @@ class SentinelPipelineFlow(Flow):
         return results
 
     @listen(search)
-    def dashboard(self, results):
+    async def dashboard(self, results):
         self._log.info("=" * 60)
         self._log.info("Stage 5: Dashboard — 意图分析与趋势预测")
         self._log.info("=" * 60)
         self._log.info("input: results_count=%d",
                         len(results.get("results", [])) if results else 0)
-        simulate_dashboard(self.config, self.normalized_event, results)
+        await simulate_dashboard(self.config, self.normalized_event, results)
         self._log.info("output: complete")
         return "complete"
 
