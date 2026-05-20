@@ -1114,6 +1114,7 @@ def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
         source = result_dict.get("source", "news")
         if isinstance(source, str):
             source = EventSource(source)
+        # TODO: 日志记录标准化结果
         return NormalizedEvent(
             event_id=str(uuid.uuid4()),
             source=source,
@@ -1145,7 +1146,7 @@ def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
 
 # ============================================================
 
-
+# TODO: 日志增加每个阶段的输入输出记录
 class SentinelPipelineFlow(Flow):
     """
     Sentinel 舆情分析系统 Pipeline Flow
@@ -1158,7 +1159,6 @@ class SentinelPipelineFlow(Flow):
 
     @start()
     def classification(self):
-        print_banner("Stage 2: Classification — 事件分类")
         event = self.normalized_event
         self.normalized_event = (
             simulate_classification(self.config, event) if event else None
@@ -1166,7 +1166,6 @@ class SentinelPipelineFlow(Flow):
 
     @listen(classification)
     async def graph_build(self):
-        print_banner("Stage 3: Graph Build — 图谱构建")
         results = await simulate_graph_build(self.config, self.normalized_event)
         result = results[0] if results else None
         self.state["graph_result"] = result
@@ -1174,7 +1173,6 @@ class SentinelPipelineFlow(Flow):
     @listen(graph_build)
     async def risk_evaluation(self, result):
         logger = get_logger("main.flow")
-        print_banner("Stage 4: Risk Evaluation — 风险评估")
         classified_event = self.normalized_event
         if classified_event:
             risk_result = evaluate_risk(self.config, classified_event)
@@ -1228,13 +1226,11 @@ class SentinelPipelineFlow(Flow):
 
     @listen("check_risk")
     async def search(self, result):
-        print_banner("Stage 5: Search — 混合搜索")
         results = await simulate_search(self.config, self.normalized_event)
         return results
 
     @listen(search)
     def dashboard(self, results):
-        print_banner("Stage 6: Dashboard — 分析展示")
         simulate_dashboard(self.config, self.normalized_event, results)
         return "complete"
 
