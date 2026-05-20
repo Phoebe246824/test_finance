@@ -229,9 +229,6 @@ def simulate_ingestion(config: dict, event_count: int = 5) -> list:
         list[NormalizedEvent]: 标准化后的 NormalizedEvent 对象列表
     """
     logger = get_logger("main.ingestion")
-    logger.info("=" * 60)
-    logger.info("Stage 1: Ingestion — 事件接入与标准化")
-    logger.info("=" * 60)
 
     reset_duplicate_cache()
     normalized_events = []
@@ -508,9 +505,6 @@ def simulate_classification(
     config: dict, normalized_events: NormalizedEvent
 ) -> NormalizedEvent:
     logger = get_logger("main.classification")
-    logger.info("=" * 60)
-    logger.info("Stage 2: Classification — 事件分类")
-    logger.info("=" * 60)
 
     classification_result = classify_event(config, normalized_events)
 
@@ -1169,7 +1163,7 @@ class SentinelPipelineFlow(Flow):
     def classification(self):
         event = self.normalized_event
         self._log.info("=" * 60)
-        self._log.info("Stage 1: Ingestion → Classification")
+        self._log.info("Stage 1: Classification — 事件分类")
         self._log.info("=" * 60)
         self._log.info("input: event_id=%s, source=%s, content=%.80s",
                         event.event_id if event else None,
