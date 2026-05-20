@@ -339,7 +339,6 @@ def classify_event(config: dict, normalized_event: dict) -> dict:
         }
     except Exception as e:
         print_error("分类结果解析失败")
-        logger = get_logger("main.classification")
         logger.error("parse classification result failed: %s", e, exc_info=True)
         return None
 
@@ -505,6 +504,10 @@ def simulate_classification(
     logger = get_logger("main.classification")
 
     classification_result = classify_event(config, normalized_events)
+
+    if classification_result is None:
+        print_error("分类失败，使用默认值")
+        return normalized_events
 
     event_type = classification_result["event_type"]
     key_entities = classification_result["key_entities"]
@@ -758,7 +761,7 @@ async def simulate_search(
     event: NormalizedEvent,
     num_results: int | None = None,
     group_id: str = "sentinel",
-) -> None:
+) -> dict:
     logger = get_logger("main.search")
     from graphiti.graphiti_workflow import (
         hybrid_search,
