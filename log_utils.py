@@ -67,7 +67,7 @@ def setup_file_logging(log_dir: str | None = None) -> str:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
-    for noisy in ("neo4j", "httpx", "urllib3", "openai", "httpcore", "crewai"):
+    for noisy in ("neo4j", "httpx", "urllib3", "httpcore", "crewai"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     return log_path
