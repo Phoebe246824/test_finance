@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
 
 from crewai import LLM
 from dotenv import load_dotenv
@@ -11,7 +10,7 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-_ACTIVE_LLMS: list[Any] = []
+_ACTIVE_LLMS: list[LLM] = []
 
 
 def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None):
@@ -44,7 +43,6 @@ def get_llm(model=None, temperature=0.7, provider=None, api_key=None, base_url=N
 
 async def close_all_llms() -> None:
     """关闭所有已创建的 LLM 客户端，避免程序退出时残留异步连接。"""
-    global _ACTIVE_LLMS
     seen: set[int] = set()
     for llm in list(_ACTIVE_LLMS):
         if llm is None:
