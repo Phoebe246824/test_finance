@@ -229,6 +229,9 @@ def simulate_ingestion(config: dict, event_count: int = 5) -> list:
         list[NormalizedEvent]: 标准化后的 NormalizedEvent 对象列表
     """
     logger = get_logger("main.ingestion")
+    logger.info("=" * 60)
+    logger.info("Stage 1: Ingestion — 事件接入与标准化")
+    logger.info("=" * 60)
 
     reset_duplicate_cache()
     normalized_events = []
@@ -502,6 +505,9 @@ def simulate_classification(
     config: dict, normalized_events: NormalizedEvent
 ) -> NormalizedEvent:
     logger = get_logger("main.classification")
+    logger.info("=" * 60)
+    logger.info("Stage 2: Classification — 事件分类")
+    logger.info("=" * 60)
 
     classification_result = classify_event(config, normalized_events)
 
@@ -1158,6 +1164,9 @@ class SentinelPipelineFlow(Flow):
     @start()
     def classification(self):
         event = self.normalized_event
+        self._log.info("=" * 60)
+        self._log.info("Stage 1: Ingestion → Classification")
+        self._log.info("=" * 60)
         self._log.info("input: event_id=%s, source=%s, content=%.80s",
                         event.event_id if event else None,
                         event.source.value if event else None,
@@ -1173,6 +1182,9 @@ class SentinelPipelineFlow(Flow):
     @listen(classification)
     async def graph_build(self):
         event = self.normalized_event
+        self._log.info("=" * 60)
+        self._log.info("Stage 2: Graph — 知识图谱构建")
+        self._log.info("=" * 60)
         self._log.info("input: event_id=%s, event_type=%s",
                         event.event_id if event else None,
                         event.event_type if event else None)
@@ -1188,6 +1200,9 @@ class SentinelPipelineFlow(Flow):
     async def risk_evaluation(self, result):
         logger = self._log
         classified_event = self.normalized_event
+        logger.info("=" * 60)
+        logger.info("Stage 3: Risk — 风险评估")
+        logger.info("=" * 60)
         self._log.info("input: event_id=%s, risk_level=%s, risk_score=%s",
                         classified_event.event_id if classified_event else None,
                         classified_event.risk_level if classified_event else None,
@@ -1251,6 +1266,9 @@ class SentinelPipelineFlow(Flow):
 
     @listen("check_risk")
     async def search(self, result):
+        self._log.info("=" * 60)
+        self._log.info("Stage 4: Search — 混合检索")
+        self._log.info("=" * 60)
         self._log.info("input: query=%.80s",
                         self.normalized_event.raw_content if self.normalized_event else "")
         results = await simulate_search(self.config, self.normalized_event)
@@ -1260,6 +1278,9 @@ class SentinelPipelineFlow(Flow):
 
     @listen(search)
     def dashboard(self, results):
+        self._log.info("=" * 60)
+        self._log.info("Stage 5: Dashboard — 意图分析与趋势预测")
+        self._log.info("=" * 60)
         self._log.info("input: results_count=%d",
                         len(results.get("results", [])) if results else 0)
         simulate_dashboard(self.config, self.normalized_event, results)
