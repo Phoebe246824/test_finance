@@ -229,7 +229,7 @@ def simulate_ingestion(config: dict, event_count: int = 5) -> list:
         list[NormalizedEvent]: 标准化后的 NormalizedEvent 对象列表
     """
     logger = get_logger("main.ingestion")
-    print_info("Stage 1: Ingestion — 事件接入服务")
+    print_banner("Stage 1: Ingestion — 事件接入服务")
 
     reset_duplicate_cache()
     normalized_events = []
@@ -504,7 +504,7 @@ def simulate_classification(
     config: dict, normalized_events: NormalizedEvent
 ) -> NormalizedEvent:
     logger = get_logger("main.classification")
-    print_info("Stage 2: Classification — CrewAI 事件分类")
+    print_banner("Stage 2: Classification — CrewAI 事件分类")
 
     classification_result = classify_event(config, normalized_events)
 
@@ -550,7 +550,7 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
         list[dict]: GraphBuildResult 列表
     """
     logger = get_logger("main.graph")
-    print_info("Stage 3: Graph — Graphiti 知识图谱构图")
+    print_banner("Stage 3: Graph — Graphiti 知识图谱构图")
     from graphiti.graphiti_workflow import add_event_to_graph, close_graph_client
 
     graphiti = await get_graphiti_client(config)
@@ -763,7 +763,7 @@ async def simulate_search(
     group_id: str = "sentinel",
 ) -> None:
     logger = get_logger("main.search")
-    print_info("Stage 4: Search — Graphiti 混合搜索")
+    print_banner("Stage 4: Search — Graphiti 混合搜索")
     from graphiti.graphiti_workflow import (
         hybrid_search,
         init_graph_client,
@@ -882,7 +882,7 @@ def simulate_dashboard(
     logger = get_logger("main.dashboard")
     from providers.llm_provider import get_llm
 
-    print_info("Stage 6: Dashboard — 意图分析 + 趋势预测")
+    print_banner("Stage 6: Dashboard — 意图分析 + 趋势预测")
 
     llm = get_llm(temperature=0.3)
 
