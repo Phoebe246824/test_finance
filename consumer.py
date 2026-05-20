@@ -6,23 +6,27 @@ Sentinel 舆情分析系统 — 事件接入服务 (Ingestion)
 当前已有基础: FastAPI 消息发送接口 + pika 消费者框架
 本次扩展: 多队列消费、事件标准化、幂等去重、转发至下游
 """
+
 import json
 import logging
 import uuid
 import threading
 import time
 from datetime import datetime
+from log_utils import print_error
 
 from logging.handlers import RotatingFileHandler
 
 from models import (
-    NormalizedEvent, EventSource, QueueMessage,
-    to_queue_message, from_queue_message,
+    NormalizedEvent,
+    EventSource,
+    to_queue_message,
 )
 
 # 惰性导入 pika（未安装时不影响 normalize_event 等函数）
 try:
     import pika
+
     PIKA_AVAILABLE = True
 except ImportError:
     pika = None  # type: ignore
@@ -33,21 +37,8 @@ except ImportError:
 #  日志与配置
 # ============================================================
 
+
 def setup_logger(name: str, log_file: str = "ingestion.log") -> logging.Logger:
-    """
-    创建带文件轮转的结构化日志器
-
-    Args:
-        name: 日志器名称
-        log_file: 日志文件路径
-
-    Returns:
-        logging.Logger: 配置好的日志器实例
-
-    作用:
-        统一日志格式，包含 timestamp + level + trace_id + message
-        文件轮转: 单文件最大 5MB，保留 3 份备份
-    """
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger
@@ -59,22 +50,15 @@ def setup_logger(name: str, log_file: str = "ingestion.log") -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # 文件 handler（轮转）
     file_handler = RotatingFileHandler(
         log_file,
-        maxBytes=5 * 1024 * 1024,  # 5MB
+        maxBytes=5 * 1024 * 1024,
         backupCount=3,
         encoding="utf-8",
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
-
-    # 控制台 handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
 
     return logger
 
@@ -112,6 +96,7 @@ _LAST_CLEANUP: float = 0.0
 #  RabbitMQ 连接管理
 # ============================================================
 
+
 def get_rabbitmq_connection(config: dict):
     """
     获取 RabbitMQ 连接和通道（带认证、心跳、重连）
@@ -130,8 +115,7 @@ def get_rabbitmq_connection(config: dict):
     """
     if not PIKA_AVAILABLE:
         raise RuntimeError(
-            "pika 未安装，无法连接 RabbitMQ。\n"
-            "安装方式: pip install pika"
+            "pika 未安装，无法连接 RabbitMQ。\n安装方式: pip install pika"
         )
     credentials = pika.PlainCredentials(
         username=config["user"],
@@ -243,6 +227,7 @@ def declare_topology(channel, config: dict) -> None:
 # ============================================================
 #  事件标准化
 # ============================================================
+
 
 def normalize_event(raw_event: dict, source: str) -> NormalizedEvent:
     """
@@ -495,10 +480,7 @@ def start_consumers(config: dict) -> None:
         注册优雅关闭处理
     """
     if not PIKA_AVAILABLE:
-        raise RuntimeError(
-            "pika 未安装，无法启动消费者。\n"
-            "安装方式: pip install pika"
-        )
+        raise RuntimeError("pika 未安装，无法启动消费者。\n安装方式: pip install pika")
 
     logger = setup_logger("ingestion")
 
@@ -507,6 +489,7 @@ def start_consumers(config: dict) -> None:
         logger.info("RabbitMQ 连接成功")
     except Exception as e:
         logger.error(f"RabbitMQ 连接失败: {e}")
+        print_error("RabbitMQ 连接失败，请检查配置")
         raise
 
     # 声明拓扑
@@ -535,6 +518,7 @@ def start_consumers(config: dict) -> None:
         channel.stop_consuming()
 
     import signal
+
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
@@ -609,7 +593,7 @@ def get_recent_events(limit: int = 20, offset: int = 0) -> list[dict]:
     """
     with _STATS_LOCK:
         events = _STATS["recent_events"]
-        return events[offset: offset + limit]
+        return events[offset : offset + limit]
 
 
 def get_event_by_id(event_id: str) -> dict | None:
@@ -632,6 +616,7 @@ def get_event_by_id(event_id: str) -> dict | None:
 # ============================================================
 #  FastAPI 接口（保留原有 + 扩展）
 # ============================================================
+
 
 def create_app(config: dict):
     """
@@ -676,7 +661,7 @@ def create_app(config: dict):
         if not PIKA_AVAILABLE:
             raise HTTPException(
                 status_code=500,
-                detail="pika 未安装，无法连接 RabbitMQ。请先安装: pip install pika"
+                detail="pika 未安装，无法连接 RabbitMQ。请先安装: pip install pika",
             )
         try:
             connection, channel = get_rabbitmq_connection(config)
