@@ -304,6 +304,7 @@ def classify_event(config: dict, normalized_event: dict) -> dict:
     )
 
     classify_task = Task(
+        name="事件分类",
         description="分析以下事件内容，识别事件类型并提取关键实体(人物、组织、地点)，不提取中性物品、无关人物、主观情绪、背景常识。"
         "事件内容: {event_content}。 "
         "请输出 JSON 格式, 包含 event_type:str, key_entities:dict, summary:str 字段。不要markdown格式和任何解释",
@@ -366,6 +367,7 @@ def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
     )
 
     risk_task = Task(
+        name="风险评估",
         description="基于事件信息从人物、物品、组织、地点、事件、重要时间等各角度，进行高标准的评估风险等级，不能忽略任何细微的风险。核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为，只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为一律纳入风险研判，不做无风险默认化判定。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "请输出 JSON 格式: risk_level (high/medium/low), risk_score (0.0-1.0), reasoning",
@@ -447,6 +449,7 @@ def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) ->
 
     related_events = "\n".join(related_events_parts)
     risk_task = Task(
+        name="二次风险评估",
         description="基于事件信息从人物、组织、地点、事件、重要时间等各角度，进行风险评估。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}"
@@ -1076,6 +1079,7 @@ def create_normalizer_agent(llm) -> Agent:
 def create_normalize_task(agent: Agent, raw_content: str) -> Task:
     """创建标准化任务"""
     return Task(
+        name="事件标准化",
         description=f"""分析输入的内容，
         [内容]: {raw_content} 
         提取以下字段并输出 JSON:
