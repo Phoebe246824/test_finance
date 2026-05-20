@@ -9,35 +9,31 @@ import os
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
-_GREEN = "\033[92m"
-_YELLOW = "\033[93m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
+from rich.console import Console
+
+_console = Console()
 
 _LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
 _LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def print_info(*args, **kwargs):
-    msg = " ".join(str(a) for a in args)
-    print(f"{_GREEN}{msg}{_RESET}", **kwargs)
+    _console.print(" ".join(str(a) for a in args), style="green", **kwargs)
 
 
 def print_warn(*args, **kwargs):
-    msg = " ".join(str(a) for a in args)
-    print(f"{_YELLOW}{msg}{_RESET}", **kwargs)
+    _console.print(" ".join(str(a) for a in args), style="yellow", **kwargs)
 
 
 def print_error(*args, **kwargs):
-    msg = " ".join(str(a) for a in args)
-    print(f"{_RED}{msg}{_RESET}", **kwargs)
+    _console.print(" ".join(str(a) for a in args), style="red", **kwargs)
 
 
 def print_banner(title: str, char: str = "=", width: int = 70):
-    print(f"\n{_CYAN}{char * width}{_RESET}")
-    print(f"{_CYAN}  {title}{_RESET}")
-    print(f"{_CYAN}{char * width}{_RESET}")
+    _console.print()
+    _console.print(char * width, style="cyan")
+    _console.print(f"  {title}", style="cyan")
+    _console.print(char * width, style="cyan")
 
 
 def get_logger(name: str) -> logging.Logger:
