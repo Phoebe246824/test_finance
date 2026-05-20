@@ -41,6 +41,7 @@ from log_utils import (
     get_logger,
     setup_file_logging,
 )
+from providers.llm_provider import close_all_llms
 
 
 # ============================================================
