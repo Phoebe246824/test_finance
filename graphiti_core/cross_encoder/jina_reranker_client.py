@@ -69,10 +69,6 @@ class JinaRerankerClient(CrossEncoderClient):
     )
     async def _api_call(self, url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         response = await self._client.post(url, json=payload, headers=headers)
-        logger.info(
-            'HTTP Response: POST %s "%s" Headers(%s)',
-            url, response.status_code, dict(response.headers),
-        )
         response.raise_for_status()
         return response.json()
 
