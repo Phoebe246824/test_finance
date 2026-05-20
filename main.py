@@ -1146,7 +1146,6 @@ def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
 
 # ============================================================
 
-# TODO: 日志增加每个阶段的输入输出记录
 class SentinelPipelineFlow(Flow):
     """
     Sentinel 舆情分析系统 Pipeline Flow
@@ -1156,24 +1155,45 @@ class SentinelPipelineFlow(Flow):
         super().__init__()
         self.config = config
         self.normalized_event = normalized_event
+        self._log = get_logger("main.flow")
 
     @start()
     def classification(self):
         event = self.normalized_event
+        self._log.info("input: event_id=%s, source=%s, content=%.80s",
+                        event.event_id if event else None,
+                        event.source.value if event else None,
+                        event.raw_content if event else "")
         self.normalized_event = (
             simulate_classification(self.config, event) if event else None
         )
+        if self.normalized_event:
+            self._log.info("output: event_type=%s, entities=%s",
+                            self.normalized_event.event_type,
+                            list(self.normalized_event.structured_data.keys()))
 
     @listen(classification)
     async def graph_build(self):
+        event = self.normalized_event
+        self._log.info("input: event_id=%s, event_type=%s",
+                        event.event_id if event else None,
+                        event.event_type if event else None)
         results = await simulate_graph_build(self.config, self.normalized_event)
         result = results[0] if results else None
         self.state["graph_result"] = result
+        self._log.info("output: success=%s, entities=%d, relations=%d",
+                        result.get("success") if result else None,
+                        result.get("entities_extracted", 0) if result else 0,
+                        result.get("relations_created", 0) if result else 0)
 
     @listen(graph_build)
     async def risk_evaluation(self, result):
-        logger = get_logger("main.flow")
+        logger = self._log
         classified_event = self.normalized_event
+        self._log.info("input: event_id=%s, risk_level=%s, risk_score=%s",
+                        classified_event.event_id if classified_event else None,
+                        classified_event.risk_level if classified_event else None,
+                        classified_event.risk_score if classified_event else None)
         if classified_event:
             risk_result = evaluate_risk(self.config, classified_event)
             self.normalized_event.risk_level = risk_result["risk_level"]
@@ -1201,12 +1221,17 @@ class SentinelPipelineFlow(Flow):
                 self.normalized_event.risk_level = risk_result["risk_level"]
                 self.normalized_event.risk_score = risk_result["risk_score"]
                 self.normalized_event.reasoning = risk_result["reasoning"]
+                self._log.info("second evaluation output: level=%s, score=%.2f",
+                                risk_result["risk_level"], risk_result["risk_score"])
             else:
                 logger.info(
                     "risk_score=%.2f <= %.2f, skip second evaluation",
                     risk_result["risk_score"],
                     risk_threshold,
                 )
+        self._log.info("output: risk_level=%s, risk_score=%s",
+                        self.normalized_event.risk_level if self.normalized_event else None,
+                        self.normalized_event.risk_score if self.normalized_event else None)
 
         return result
 
@@ -1218,24 +1243,34 @@ class SentinelPipelineFlow(Flow):
         from models import RiskLevel
 
         if risk_level == RiskLevel.LOW:
+            self._log.info("route=complete, risk_level=%s", risk_level)
             print_info("低风险事件，流程结束")
             return "complete"
         else:
+            self._log.info("route=check_risk, risk_level=%s", risk_level)
             print_info("非低风险事件，进入 Search")
             return "check_risk"
 
     @listen("check_risk")
     async def search(self, result):
+        self._log.info("input: query=%.80s",
+                        self.normalized_event.raw_content if self.normalized_event else "")
         results = await simulate_search(self.config, self.normalized_event)
+        self._log.info("output: results_count=%d",
+                        len(results.get("results", [])) if results else 0)
         return results
 
     @listen(search)
     def dashboard(self, results):
+        self._log.info("input: results_count=%d",
+                        len(results.get("results", [])) if results else 0)
         simulate_dashboard(self.config, self.normalized_event, results)
+        self._log.info("output: complete")
         return "complete"
 
     @listen("complete")
     def end(self):
+        self._log.info("pipeline finished")
         print_info("Pipeline 消息处理完成")
 
 
