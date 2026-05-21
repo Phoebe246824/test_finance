@@ -80,6 +80,7 @@ def load_config() -> dict:
         },
         "graphiti": {
             "episode_source_name": os.getenv("GRAPHITI_EPISODE_SOURCE") or "sentinel",
+            "dry_run": os.getenv("GRAPHITI_DRY_RUN", "").lower() in ("1", "true", "yes"),
         },
         "search": {
             "num_results": int(os.getenv("SEARCH_NUM_RESULTS") or "10"),
@@ -558,6 +559,11 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
     from graphiti.graphiti_workflow import add_event_to_graph, close_graph_client
 
     graphiti = await get_graphiti_client(config)
+    dry_run = config.get("graphiti", {}).get("dry_run", False)
+
+    if dry_run:
+        print_info("DRY RUN: 跳过图谱写入（提取结果仍会显示）")
+        logger.info("DRY RUN mode enabled, skipping Neo4j writes")
 
     logger.info(
         "Graphiti client initialized: neo4j=%s, llm=%s, embedder=%s",
@@ -581,14 +587,23 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
             reference_time=timestamp,
             source_description=f"{event.source}:{event.event_type}",
             group_id=group_id,
+            dry_run=dry_run,
         )
 
         entities = result.get("entities_extracted", 0)
         relations = result.get("relations_created", 0)
-        print_info(f"写入成功: {entities} 个实体, {relations} 条关系")
-        logger.info(
-            "graph write success: entities=%d, relations=%d", entities, relations
-        )
+        if dry_run:
+            print_info(f"提取完成（dry run，未写入数据库）: {entities} 个实体, {relations} 条关系")
+            logger.info(
+                "DRY RUN: extraction complete, skipped Neo4j write: entities=%d, relations=%d",
+                entities,
+                relations,
+            )
+        else:
+            print_info(f"写入成功: {entities} 个实体, {relations} 条关系")
+            logger.info(
+                "graph write success: entities=%d, relations=%d", entities, relations
+            )
 
         build_results.append(
             {

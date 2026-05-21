@@ -324,7 +324,8 @@ async def add_event_to_graph(
     group_id: str | None = None,
     custom_extraction_instructions: str | None = None,
     update_communities: bool = False,
-    summarize_before_extract: bool = False,  # 是否先摘要再抽取
+    summarize_before_extract: bool = False,
+    dry_run: bool = False,
 ) -> Any:
     effective_reference_time = reference_time or datetime.now()
     effective_source = source_description
@@ -378,19 +379,44 @@ async def add_event_to_graph(
         )
         effective_event_text = summary_text
 
-    result = await graphiti.add_episode(
-        name=effective_source,
-        episode_body=effective_event_text,
-        source_description=effective_source,
-        reference_time=effective_reference_time,
-        entity_types=entity_types,
-        edge_types=edge_types,
-        edge_type_map=edge_type_map,
-        custom_extraction_instructions=custom_extraction_instructions
-        or default_custom_instructions,
-        group_id=group_id,
-        update_communities=update_communities,
-    )
+    _original_process: Any = None
+    if dry_run:
+        _original_process = graphiti._process_episode_data
+
+        async def _noop_process(
+            episode: Any,
+            nodes: Any,
+            entity_edges: Any,
+            now: Any,
+            group_id: Any,
+            saga: Any = None,
+            saga_previous_episode_uuid: Any = None,
+            node_episode_index_map: Any = None,
+        ) -> tuple[list, Any]:
+            episodes = episode if isinstance(episode, list) else [episode]
+            for ep in episodes:
+                ep.entity_edges = [e.uuid for e in entity_edges]
+            return [], episodes[0]
+
+        graphiti._process_episode_data = _noop_process
+
+    try:
+        result = await graphiti.add_episode(
+            name=effective_source,
+            episode_body=effective_event_text,
+            source_description=effective_source,
+            reference_time=effective_reference_time,
+            entity_types=entity_types,
+            edge_types=edge_types,
+            edge_type_map=edge_type_map,
+            custom_extraction_instructions=custom_extraction_instructions
+            or default_custom_instructions,
+            group_id=group_id,
+            update_communities=update_communities,
+        )
+    finally:
+        if dry_run and _original_process is not None:
+            graphiti._process_episode_data = _original_process
 
     result_payload = (
         result.model_dump()
