@@ -12,7 +12,6 @@ import asyncio
 import json
 import os
 import random
-import re
 import logging
 import time
 import traceback
@@ -42,6 +41,7 @@ from log_utils import (
     setup_file_logging,
 )
 from providers.llm_provider import close_all_llms
+from utils.text import extract_subject_id_numbers
 
 
 # ============================================================
@@ -654,29 +654,6 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
 # ============================================================
 
 
-def extract_subject_id_numbers(text: str) -> list[str]:
-    """从当前事件文本中抽取主体 id_number，例如【P01# 小明】中的 P01。
-
-    检索范围只使用稳定 id_number，不使用人名兜底，避免同名主体误召回。
-    """
-    id_numbers: list[str] = []
-    seen: set[str] = set()
-
-    for entity_id in re.findall(r"【\s*([A-Za-z]+\d+)\s*#\s*[^】]+?\s*】", text):
-        normalized_id = entity_id.strip().upper()
-        if normalized_id and normalized_id not in seen:
-            id_numbers.append(normalized_id)
-            seen.add(normalized_id)
-
-    for entity_id in re.findall(r"\b([A-Za-z]+\d+)\b", text):
-        normalized_id = entity_id.strip().upper()
-        if normalized_id and normalized_id not in seen:
-            id_numbers.append(normalized_id)
-            seen.add(normalized_id)
-
-    return id_numbers
-
-
 async def get_subject_episode_uuids(
     graphiti, id_numbers: list[str], group_id: str
 ) -> set[str]:
@@ -1246,14 +1223,23 @@ class SentinelPipelineFlow(Flow):
                         group_id = self.config.get("graphiti", {}).get(
                             "episode_source_name", "sentinel"
                         )
-                        await batch_add_to_graph(
+                        batch_results = await batch_add_to_graph(
                             graphiti, batch_texts, group_id, dry_run
                         )
 
-                        # 构图成功后删除 Redis 中已处理的 KV
-                        await self._kvstore.remove(self._id_numbers)
+                        # 仅当所有事件都构图成功时才删除 KV
+                        all_success = all(r.get("success", True) for r in batch_results)
+                        if all_success:
+                            await self._kvstore.remove(self._id_numbers)
+                            print_info("批量构图完成，已清理 Redis KV")
+                        else:
+                            failed = sum(
+                                1 for r in batch_results if not r.get("success", True)
+                            )
+                            print_info(
+                                f"批量构图部分失败 ({failed}/{len(batch_results)})，KV 保留待重试"
+                            )
                         await close_graph_client(graphiti)
-                        print_info("批量构图完成，已清理 Redis KV")
 
                 risk_num_results = int(
                     self.config.get("search", {}).get("risk_num_results", 20)
@@ -1375,38 +1361,44 @@ async def run_flow(config: dict):
             from blacklist.filter import BlacklistFilter
             from kvstore.redis_store import EventKVStore
 
-            redis_client = Redis(
-                host=config["redis"]["host"],
-                port=config["redis"]["port"],
-                password=config["redis"]["password"] or None,
-                db=config["redis"]["db"],
-                decode_responses=False,
-            )
+            redis_client: Redis | None = None
+            try:
+                redis_client = Redis(
+                    host=config["redis"]["host"],
+                    port=config["redis"]["port"],
+                    password=config["redis"]["password"] or None,
+                    db=config["redis"]["db"],
+                    decode_responses=False,
+                )
 
-            bl_filter = BlacklistFilter(redis_client)
-            kvstore = EventKVStore(redis_client)
+                bl_filter = BlacklistFilter(redis_client)
+                kvstore = EventKVStore(redis_client)
 
-            id_numbers = extract_subject_id_numbers(normalized_event.raw_content)
-            should_proceed, matched_persons = await bl_filter.check(normalized_event)
+                id_numbers = extract_subject_id_numbers(normalized_event.raw_content)
+                should_proceed, matched_persons = await bl_filter.check(
+                    normalized_event
+                )
 
-            if not should_proceed:
-                await kvstore.stash(normalized_event, id_numbers or [])
-                print_info("事件未命中黑名单，已暂存到 Redis")
-                await redis_client.aclose()
-                continue
+                if not should_proceed:
+                    await kvstore.stash(normalized_event, id_numbers or [])
+                    print_info("事件未命中黑名单，已暂存到 Redis")
+                    continue
 
-            # PASS: 自动积累到黑名单
-            if matched_persons:
-                for pid in matched_persons:
-                    await bl_filter.append_person(pid)
+                # PASS: 自动积累到黑名单
+                if matched_persons:
+                    for pid in matched_persons:
+                        await bl_filter.append_person(pid)
 
-            print_info("消息处理开始")
-            flow = SentinelPipelineFlow(
-                config, normalized_event, redis_client, kvstore, id_numbers
-            )
-            flow.kickoff()
-            print_info("消息处理完成")
-            await redis_client.aclose()
+                print_info("消息处理开始")
+                flow = SentinelPipelineFlow(
+                    config, normalized_event, redis_client, kvstore, id_numbers
+                )
+                flow.kickoff()
+                print_info("消息处理完成")
+
+            finally:
+                if redis_client is not None:
+                    await redis_client.aclose()
 
         except KeyboardInterrupt:
             print("\n退出程序")
