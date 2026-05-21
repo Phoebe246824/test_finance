@@ -586,3 +586,63 @@ async def summarize_text(llm_client, title: str, content: str) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return str(response).strip()
+
+
+async def batch_add_to_graph(
+    graphiti: Graphiti,
+    events: list[dict],
+    group_id: str,
+    dry_run: bool = False,
+) -> list[dict]:
+    """
+    批量将多个事件写入图谱。
+
+    Args:
+        graphiti: Graphiti 客户端实例
+        events: 事件列表，每个元素包含 {"text": ..., "reference_time": ..., ...}
+        group_id: 事件分组 ID
+        dry_run: 是否跳过 Neo4j 写入
+
+    Returns:
+        list[dict]: 每个事件的写入结果（与 add_event_to_graph 返回值格式一致）
+    """
+    results = []
+    for event in events:
+        event_text = event.get("text", "")
+        reference_time = event.get("reference_time")
+        if isinstance(reference_time, str):
+            try:
+                reference_time = datetime.fromisoformat(reference_time)
+            except ValueError:
+                reference_time = datetime.now()
+        elif reference_time is None:
+            reference_time = datetime.now()
+
+        try:
+            result = await add_event_to_graph(
+                graphiti=graphiti,
+                event_text=event_text,
+                reference_time=reference_time,
+                source_description=f"batch:{group_id}",
+                group_id=group_id,
+                dry_run=dry_run,
+            )
+            results.append(result)
+        except Exception as e:
+            logger.error("batch_add_to_graph failed for event: %s", e)
+            results.append({
+                "success": False,
+                "error": str(e),
+                "entities_extracted": 0,
+                "relations_created": 0,
+            })
+
+    total_nodes = sum(r.get("entities_extracted", 0) for r in results)
+    total_edges = sum(r.get("relations_created", 0) for r in results)
+    logger.info(
+        "batch_add_to_graph complete: %d events, %d nodes, %d edges",
+        len(results),
+        total_nodes,
+        total_edges,
+    )
+    return results
