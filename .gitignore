@@ -3,3 +3,7 @@ __pycache__/
 .env/
 *.log
 .claude/
+
+# Ignore Docker-related files
+volumes/
+docker-compose.override.yml

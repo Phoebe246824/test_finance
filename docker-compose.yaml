@@ -1,0 +1,8 @@
+include:
+  - compose/milvus.yaml
+  - compose/neo4j.yaml
+  - compose/rabbitmq.yaml
+
+networks:
+  devopsnetwork:
+    driver: bridge
