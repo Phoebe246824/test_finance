@@ -15,7 +15,6 @@ from graphiti_core.cross_encoder.jina_reranker_client import JinaRerankerClient
 from graphiti_core.prompts import Message
 from graphiti_core.search.search_config_recipes import (
     COMBINED_HYBRID_SEARCH_CROSS_ENCODER,
-    COMBINED_HYBRID_SEARCH_RRF,
 )
 from graphiti_core.search.search_filters import SearchFilters
 
@@ -630,12 +629,14 @@ async def batch_add_to_graph(
             results.append(result)
         except Exception as e:
             logger.error("batch_add_to_graph failed for event: %s", e)
-            results.append({
-                "success": False,
-                "error": str(e),
-                "entities_extracted": 0,
-                "relations_created": 0,
-            })
+            results.append(
+                {
+                    "success": False,
+                    "error": str(e),
+                    "entities_extracted": 0,
+                    "relations_created": 0,
+                }
+            )
 
     total_nodes = sum(r.get("entities_extracted", 0) for r in results)
     total_edges = sum(r.get("relations_created", 0) for r in results)

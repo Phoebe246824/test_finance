@@ -39,7 +39,9 @@ class BlacklistFilter:
             os.getenv("BLACKLIST_EVENT_SIMILARITY_THRESHOLD", "0.5")
         )
         self._reranker_api_key = reranker_api_key or os.getenv("RERANKER_API_KEY", "")
-        self._reranker_base_url = reranker_base_url or os.getenv("RERANKER_BASE_URL", "")
+        self._reranker_base_url = reranker_base_url or os.getenv(
+            "RERANKER_BASE_URL", ""
+        )
         self._reranker_model = reranker_model or os.getenv("RERANKER_MODEL", "")
 
     async def check(self, event: NormalizedEvent) -> tuple[bool, list[str]]:
@@ -139,7 +141,9 @@ class BlacklistFilter:
                 documents=summaries,
             )
             if max_score > self._similarity_threshold:
-                await self._manager.append_event(event.event_id, event.summary or event.raw_content[:200])
+                await self._manager.append_event(
+                    event.event_id, event.summary or event.raw_content[:200]
+                )
                 return True
         except Exception as e:
             logger.warning("event similarity check failed: %s", e)

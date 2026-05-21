@@ -63,18 +63,18 @@ class EventKVStore:
     ) -> list[dict]:
         """
         从指定人员 ID 的 KV 链表中取回历史事件。
-        
+
         Args:
             id_numbers: 人员 ID 列表
             max_per_person: 每人最多取 N 条（默认 BATCH_MAX_PER_PERSON=20）
             max_age_days: 暂未实现（依赖 TTL 自然过期）
-            
+
         Returns:
             list[dict]: 历史事件列表（已解析为 dict）
         """
         max_per = max_per_person or int(os.getenv("BATCH_MAX_PER_PERSON", "20"))
         events: list[dict] = []
-        
+
         for pid in id_numbers:
             key = self._key(pid)
             raw_list = await self._redis.lrange(key, -max_per, -1)
@@ -84,7 +84,7 @@ class EventKVStore:
                     events.append(event_dict)
                 except json.JSONDecodeError as e:
                     logger.warning("failed to parse stashed event: %s", e)
-        
+
         logger.info("fetched %d events for %d persons", len(events), len(id_numbers))
         return events
 

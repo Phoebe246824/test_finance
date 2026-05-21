@@ -54,7 +54,9 @@ class BlacklistManager:
 
     async def append_event(self, event_id: str, summary: str) -> bool:
         """追加高危事件摘要到黑名单。"""
-        payload = json.dumps({"event_id": event_id, "summary": summary}, ensure_ascii=False)
+        payload = json.dumps(
+            {"event_id": event_id, "summary": summary}, ensure_ascii=False
+        )
         return await self._redis.hset(self.EVENT_KEY, event_id, payload)
 
     async def remove_person(self, id_number: str) -> bool:
@@ -72,12 +74,17 @@ class BlacklistManager:
     async def get_person_stats(self) -> dict[str, float]:
         """获取所有人员及其命中次数。"""
         items = await self._redis.zrange(self.PERSON_KEY, 0, -1, withscores=True)
-        return {pid.decode() if isinstance(pid, bytes) else pid: score for pid, score in items}
+        return {
+            pid.decode() if isinstance(pid, bytes) else pid: score
+            for pid, score in items
+        }
 
     async def get_keyword_stats(self) -> dict[str, float]:
         """获取所有敏感词及其命中次数。"""
         items = await self._redis.zrange(self.KEYWORD_KEY, 0, -1, withscores=True)
-        return {kw.decode() if isinstance(kw, bytes) else kw: score for kw, score in items}
+        return {
+            kw.decode() if isinstance(kw, bytes) else kw: score for kw, score in items
+        }
 
     async def get_event_count(self) -> int:
         """获取高危事件库中的事件数量。"""

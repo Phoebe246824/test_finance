@@ -80,7 +80,8 @@ def load_config() -> dict:
         },
         "graphiti": {
             "episode_source_name": os.getenv("GRAPHITI_EPISODE_SOURCE") or "sentinel",
-            "dry_run": os.getenv("GRAPHITI_DRY_RUN", "").lower() in ("1", "true", "yes"),
+            "dry_run": os.getenv("GRAPHITI_DRY_RUN", "").lower()
+            in ("1", "true", "yes"),
         },
         "search": {
             "num_results": int(os.getenv("SEARCH_NUM_RESULTS") or "10"),
@@ -600,7 +601,9 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
         entities = result.get("entities_extracted", 0)
         relations = result.get("relations_created", 0)
         if dry_run:
-            print_info(f"提取完成（dry run，未写入数据库）: {entities} 个实体, {relations} 条关系")
+            print_info(
+                f"提取完成（dry run，未写入数据库）: {entities} 个实体, {relations} 条关系"
+            )
             logger.info(
                 "DRY RUN: extraction complete, skipped Neo4j write: entities=%d, relations=%d",
                 entities,
@@ -907,7 +910,10 @@ async def simulate_dashboard(
     logger = get_logger("main.dashboard")
     from providers.llm_provider import get_llm
     from trend_prediction.classifier import EventClassifier
-    from trend_prediction.task_templates import get_intent_analysis_task, get_trend_prediction_task
+    from trend_prediction.task_templates import (
+        get_intent_analysis_task,
+        get_trend_prediction_task,
+    )
 
     llm = get_llm(temperature=0.3)
 
@@ -938,12 +944,19 @@ async def simulate_dashboard(
 """
 
     classifier = EventClassifier()
-    category, confidence, severity, severity_confidence = await classifier.classify_with_severity(event.raw_content)
+    (
+        category,
+        confidence,
+        severity,
+        severity_confidence,
+    ) = await classifier.classify_with_severity(event.raw_content)
     category_name = classifier.get_category_name(category)
     severity_name = classifier.get_severity_name(severity)
 
     print_info(f"\n[dashboard] 事件分类: {category_name} (置信度: {confidence:.0%})")
-    print_info(f"[dashboard] 影响严重度: {severity_name} (置信度: {severity_confidence:.0%})")
+    print_info(
+        f"[dashboard] 影响严重度: {severity_name} (置信度: {severity_confidence:.0%})"
+    )
     print_info("[dashboard] 使用自适应提示词进行意图分析和趋势预测")
 
     intent_analyzer = Agent(
@@ -1101,6 +1114,7 @@ def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
 
 # ============================================================
 
+
 class SentinelPipelineFlow(Flow):
     """
     Sentinel 舆情分析系统 Pipeline Flow
@@ -1128,17 +1142,21 @@ class SentinelPipelineFlow(Flow):
         self._log.info("=" * 60)
         self._log.info("Stage 1: Classification — 事件分类")
         self._log.info("=" * 60)
-        self._log.info("input: event_id=%s, source=%s, content=%.80s",
-                        event.event_id if event else None,
-                        event.source.value if event else None,
-                        event.raw_content if event else "")
+        self._log.info(
+            "input: event_id=%s, source=%s, content=%.80s",
+            event.event_id if event else None,
+            event.source.value if event else None,
+            event.raw_content if event else "",
+        )
         self.normalized_event = (
             simulate_classification(self.config, event) if event else None
         )
         if self.normalized_event:
-            self._log.info("output: event_type=%s, entities=%s",
-                            self.normalized_event.event_type,
-                            list(self.normalized_event.structured_data.keys()))
+            self._log.info(
+                "output: event_type=%s, entities=%s",
+                self.normalized_event.event_type,
+                list(self.normalized_event.structured_data.keys()),
+            )
 
     @listen(classification)
     async def graph_build(self):
@@ -1146,16 +1164,20 @@ class SentinelPipelineFlow(Flow):
         self._log.info("=" * 60)
         self._log.info("Stage 2: Graph — 知识图谱构建")
         self._log.info("=" * 60)
-        self._log.info("input: event_id=%s, event_type=%s",
-                        event.event_id if event else None,
-                        event.event_type if event else None)
+        self._log.info(
+            "input: event_id=%s, event_type=%s",
+            event.event_id if event else None,
+            event.event_type if event else None,
+        )
         results = await simulate_graph_build(self.config, self.normalized_event)
         result = results[0] if results else None
         self.state["graph_result"] = result
-        self._log.info("output: success=%s, entities=%d, relations=%d",
-                        result.get("success") if result else None,
-                        result.get("entities_extracted", 0) if result else 0,
-                        result.get("relations_created", 0) if result else 0)
+        self._log.info(
+            "output: success=%s, entities=%d, relations=%d",
+            result.get("success") if result else None,
+            result.get("entities_extracted", 0) if result else 0,
+            result.get("relations_created", 0) if result else 0,
+        )
 
     @listen(graph_build)
     async def risk_evaluation(self, result):
@@ -1164,10 +1186,12 @@ class SentinelPipelineFlow(Flow):
         logger.info("=" * 60)
         logger.info("Stage 3: Risk — 风险评估")
         logger.info("=" * 60)
-        self._log.info("input: event_id=%s, risk_level=%s, risk_score=%s",
-                        classified_event.event_id if classified_event else None,
-                        classified_event.risk_level if classified_event else None,
-                        classified_event.risk_score if classified_event else None)
+        self._log.info(
+            "input: event_id=%s, risk_level=%s, risk_score=%s",
+            classified_event.event_id if classified_event else None,
+            classified_event.risk_level if classified_event else None,
+            classified_event.risk_score if classified_event else None,
+        )
         if classified_event:
             risk_result = evaluate_risk(self.config, classified_event)
             self.normalized_event.risk_level = risk_result["risk_level"]
@@ -1186,7 +1210,10 @@ class SentinelPipelineFlow(Flow):
 
                 # 批量构图触发：中/高风险时从 Redis 取历史事件
                 if self._id_numbers and self._kvstore:
-                    from graphiti.graphiti_workflow import batch_add_to_graph, close_graph_client
+                    from graphiti.graphiti_workflow import (
+                        batch_add_to_graph,
+                        close_graph_client,
+                    )
                     from graphiti.graphiti_workflow import init_graph_client
 
                     historical_events = await self._kvstore.fetch(
@@ -1194,21 +1221,34 @@ class SentinelPipelineFlow(Flow):
                         max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
                     )
                     if historical_events:
-                        print_info(f"从 Redis 取回 {len(historical_events)} 条历史事件，执行批量构图")
+                        print_info(
+                            f"从 Redis 取回 {len(historical_events)} 条历史事件，执行批量构图"
+                        )
                         graphiti = await init_graph_client(self.config)
                         dry_run = self.config.get("graphiti", {}).get("dry_run", False)
 
                         batch_texts = [
-                            {"text": self.normalized_event.raw_content, "reference_time": self.normalized_event.timestamp}
+                            {
+                                "text": self.normalized_event.raw_content,
+                                "reference_time": self.normalized_event.timestamp,
+                            }
                         ]
                         for he in historical_events:
-                            batch_texts.append({
-                                "text": he.get("raw_content", ""),
-                                "reference_time": he.get("timestamp", datetime.now()),
-                            })
+                            batch_texts.append(
+                                {
+                                    "text": he.get("raw_content", ""),
+                                    "reference_time": he.get(
+                                        "timestamp", datetime.now()
+                                    ),
+                                }
+                            )
 
-                        group_id = self.config.get("graphiti", {}).get("episode_source_name", "sentinel")
-                        await batch_add_to_graph(graphiti, batch_texts, group_id, dry_run)
+                        group_id = self.config.get("graphiti", {}).get(
+                            "episode_source_name", "sentinel"
+                        )
+                        await batch_add_to_graph(
+                            graphiti, batch_texts, group_id, dry_run
+                        )
 
                         # 构图成功后删除 Redis 中已处理的 KV
                         await self._kvstore.remove(self._id_numbers)
@@ -1227,17 +1267,22 @@ class SentinelPipelineFlow(Flow):
                 self.normalized_event.risk_level = risk_result["risk_level"]
                 self.normalized_event.risk_score = risk_result["risk_score"]
                 self.normalized_event.reasoning = risk_result["reasoning"]
-                self._log.info("second evaluation output: level=%s, score=%.2f",
-                                risk_result["risk_level"], risk_result["risk_score"])
+                self._log.info(
+                    "second evaluation output: level=%s, score=%.2f",
+                    risk_result["risk_level"],
+                    risk_result["risk_score"],
+                )
             else:
                 logger.info(
                     "risk_score=%.2f <= %.2f, skip second evaluation",
                     risk_result["risk_score"],
                     risk_threshold,
                 )
-        self._log.info("output: risk_level=%s, risk_score=%s",
-                        self.normalized_event.risk_level if self.normalized_event else None,
-                        self.normalized_event.risk_score if self.normalized_event else None)
+        self._log.info(
+            "output: risk_level=%s, risk_score=%s",
+            self.normalized_event.risk_level if self.normalized_event else None,
+            self.normalized_event.risk_score if self.normalized_event else None,
+        )
 
         return result
 
@@ -1262,11 +1307,15 @@ class SentinelPipelineFlow(Flow):
         self._log.info("=" * 60)
         self._log.info("Stage 4: Search — 混合检索")
         self._log.info("=" * 60)
-        self._log.info("input: query=%.80s",
-                        self.normalized_event.raw_content if self.normalized_event else "")
+        self._log.info(
+            "input: query=%.80s",
+            self.normalized_event.raw_content if self.normalized_event else "",
+        )
         results = await simulate_search(self.config, self.normalized_event)
-        self._log.info("output: results_count=%d",
-                        len(results.get("results", [])) if results else 0)
+        self._log.info(
+            "output: results_count=%d",
+            len(results.get("results", [])) if results else 0,
+        )
         return results
 
     @listen(search)
@@ -1274,8 +1323,9 @@ class SentinelPipelineFlow(Flow):
         self._log.info("=" * 60)
         self._log.info("Stage 5: Dashboard — 意图分析与趋势预测")
         self._log.info("=" * 60)
-        self._log.info("input: results_count=%d",
-                        len(results.get("results", [])) if results else 0)
+        self._log.info(
+            "input: results_count=%d", len(results.get("results", [])) if results else 0
+        )
         await simulate_dashboard(self.config, self.normalized_event, results)
         self._log.info("output: complete")
         return "complete"
@@ -1351,7 +1401,9 @@ async def run_flow(config: dict):
                     await bl_filter.append_person(pid)
 
             print_info("消息处理开始")
-            flow = SentinelPipelineFlow(config, normalized_event, redis_client, kvstore, id_numbers)
+            flow = SentinelPipelineFlow(
+                config, normalized_event, redis_client, kvstore, id_numbers
+            )
             flow.kickoff()
             print_info("消息处理完成")
             await redis_client.aclose()
