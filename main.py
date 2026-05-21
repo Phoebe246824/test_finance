@@ -1106,10 +1106,20 @@ class SentinelPipelineFlow(Flow):
     Sentinel 舆情分析系统 Pipeline Flow
     """
 
-    def __init__(self, config: dict, normalized_event=None):
+    def __init__(
+        self,
+        config: dict,
+        normalized_event=None,
+        redis_client=None,
+        kvstore=None,
+        id_numbers=None,
+    ):
         super().__init__()
         self.config = config
         self.normalized_event = normalized_event
+        self._redis_client = redis_client
+        self._kvstore = kvstore
+        self._id_numbers = id_numbers or []
         self._log = get_logger("main.flow")
 
     @start()
@@ -1173,6 +1183,38 @@ class SentinelPipelineFlow(Flow):
                 print_info(
                     f"风险评分 {risk_result['risk_score']} 超过阈值 {risk_threshold}，进行第二次风险评估"
                 )
+
+                # 批量构图触发：中/高风险时从 Redis 取历史事件
+                if self._id_numbers and self._kvstore:
+                    from graphiti.graphiti_workflow import batch_add_to_graph, close_graph_client
+                    from graphiti.graphiti_workflow import init_graph_client
+
+                    historical_events = await self._kvstore.fetch(
+                        self._id_numbers,
+                        max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
+                    )
+                    if historical_events:
+                        print_info(f"从 Redis 取回 {len(historical_events)} 条历史事件，执行批量构图")
+                        graphiti = await init_graph_client(self.config)
+                        dry_run = self.config.get("graphiti", {}).get("dry_run", False)
+
+                        batch_texts = [
+                            {"text": self.normalized_event.raw_content, "reference_time": self.normalized_event.timestamp}
+                        ]
+                        for he in historical_events:
+                            batch_texts.append({
+                                "text": he.get("raw_content", ""),
+                                "reference_time": he.get("timestamp", datetime.now()),
+                            })
+
+                        group_id = self.config.get("graphiti", {}).get("episode_source_name", "sentinel")
+                        await batch_add_to_graph(graphiti, batch_texts, group_id, dry_run)
+
+                        # 构图成功后删除 Redis 中已处理的 KV
+                        await self._kvstore.remove(self._id_numbers)
+                        await close_graph_client(graphiti)
+                        print_info("批量构图完成，已清理 Redis KV")
+
                 risk_num_results = int(
                     self.config.get("search", {}).get("risk_num_results", 20)
                 )
@@ -1278,10 +1320,41 @@ async def run_flow(config: dict):
                 normalized_event.source,
             )
 
+            # 黑名单过滤 + KV 暂存
+            from redis.asyncio import Redis
+            from blacklist.filter import BlacklistFilter
+            from kvstore.redis_store import EventKVStore
+
+            redis_client = Redis(
+                host=config["redis"]["host"],
+                port=config["redis"]["port"],
+                password=config["redis"]["password"] or None,
+                db=config["redis"]["db"],
+                decode_responses=False,
+            )
+
+            bl_filter = BlacklistFilter(redis_client)
+            kvstore = EventKVStore(redis_client)
+
+            id_numbers = extract_subject_id_numbers(normalized_event.raw_content)
+            should_proceed, matched_persons = await bl_filter.check(normalized_event)
+
+            if not should_proceed:
+                await kvstore.stash(normalized_event, id_numbers or [])
+                print_info("事件未命中黑名单，已暂存到 Redis")
+                await redis_client.aclose()
+                continue
+
+            # PASS: 自动积累到黑名单
+            if matched_persons:
+                for pid in matched_persons:
+                    await bl_filter.append_person(pid)
+
             print_info("消息处理开始")
-            flow = SentinelPipelineFlow(config, normalized_event)
+            flow = SentinelPipelineFlow(config, normalized_event, redis_client, kvstore, id_numbers)
             flow.kickoff()
             print_info("消息处理完成")
+            await redis_client.aclose()
 
         except KeyboardInterrupt:
             print("\n退出程序")
