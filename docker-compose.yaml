@@ -2,6 +2,7 @@ include:
   - compose/milvus.yaml
   - compose/neo4j.yaml
   - compose/rabbitmq.yaml
+  - compose/redis.yaml
 
 networks:
   devopsnetwork:

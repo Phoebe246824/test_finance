@@ -94,6 +94,13 @@ def load_config() -> dict:
         "classification": {
             "risk_threshold": float(os.getenv("RISK_THRESHOLD") or "0.2"),
         },
+        "redis": {
+            "host": os.getenv("REDIS_HOST") or "localhost",
+            "port": int(os.getenv("REDIS_PORT") or "6379"),
+            "password": os.getenv("REDIS_PASSWORD") or "",
+            "db": int(os.getenv("REDIS_DB") or "0"),
+            "blacklist_db": int(os.getenv("BLACKLIST_REDIS_DB") or "1"),
+        },
     }
     logger = get_logger("main.config")
     logger.info(
