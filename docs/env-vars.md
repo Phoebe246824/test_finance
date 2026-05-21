@@ -23,5 +23,11 @@
 | `RISK_SEARCH_NUM_RESULTS` | 风险评估搜索返回数 | 20 |
 | `SEARCH_MIN_SCORE` | 搜索相关性阈值（0.0 关闭） | 0.0 |
 | `RISK_THRESHOLD` | 风险评分阈值 | 0.7 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB` | Redis 连接（KV 暂存使用） | localhost:6379, db=0 |
+| `KV_TTL_DAYS` | 暂存事件过期天数 | 90 |
+| `BATCH_MAX_PER_PERSON` | 批量构图时每人最多取事件数 | 20 |
+| `BLACKLIST_REDIS_DB` | 黑名单使用的 Redis DB 编号 | 1 |
+| `BLACKLIST_EVENT_SIMILARITY_THRESHOLD` | 事件相似度阈值 | 0.5 |
+| `BLACKLIST_PERSON_MIN_HITS` | 人员命中次数阈值 | 1 |
 
 LLM / Embedder / Reranker 三组凭证独立，可分别配置不同的 API 地址和密钥。
