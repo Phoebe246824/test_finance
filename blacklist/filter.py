@@ -15,10 +15,9 @@ import os
 from typing import Optional
 
 import httpx
-from redis.asyncio import Redis
 
+from blacklist.store import BlacklistStore
 from models import NormalizedEvent
-from blacklist.manager import BlacklistManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +27,13 @@ class BlacklistFilter:
 
     def __init__(
         self,
-        redis_client: Redis,
+        store: BlacklistStore,
         similarity_threshold: Optional[float] = None,
         reranker_api_key: Optional[str] = None,
         reranker_base_url: Optional[str] = None,
         reranker_model: Optional[str] = None,
     ):
-        self._manager = BlacklistManager(redis_client)
+        self._store = store
         self._similarity_threshold = similarity_threshold or float(
             os.getenv("BLACKLIST_EVENT_SIMILARITY_THRESHOLD", "0.5")
         )
@@ -44,42 +43,35 @@ class BlacklistFilter:
         )
         self._reranker_model = reranker_model or os.getenv("RERANKER_MODEL", "")
 
-    async def check(self, event: NormalizedEvent) -> tuple[bool, list[str]]:
+    async def check(self, event: NormalizedEvent) -> tuple[bool, list[str], list[str], bool]:
         """
         执行三合一 OR 匹配。
 
         Returns:
-            (should_proceed, matched_person_ids):
+            (should_proceed, matched_person_ids, matched_keywords, event_similarity_hit):
                 should_proceed: True=PASS 进入 pipeline, False=STASH 存 Redis
-                matched_person_ids: 命中的人员 ID 列表（用于后续自动积累）
+                matched_person_ids: 命中的人员 ID 列表
+                matched_keywords: 命中的敏感词列表
+                event_similarity_hit: 是否命中事件相似度黑名单
         """
-        matched_persons: list[str] = []
-
-        # 1. 人员匹配
-        person_hits = await self._check_persons(event)
-        if person_hits:
-            matched_persons.extend(person_hits)
-
-        # 2. 敏感词匹配
-        keyword_hit = await self._check_keywords(event)
-
-        # 3. 事件相似度匹配
+        matched_persons = await self._check_persons(event)
+        matched_keywords = await self._check_keywords(event)
         event_hit = await self._check_event_similarity(event)
 
-        should_proceed = bool(matched_persons or keyword_hit or event_hit)
+        should_proceed = bool(matched_persons or matched_keywords or event_hit)
 
         if should_proceed:
             logger.info(
-                "blacklist PASS: event_id=%s, persons=%s, keyword=%s, event_sim=%s",
+                "blacklist PASS: event_id=%s, persons=%s, keywords=%s, event_sim=%s",
                 event.event_id,
                 matched_persons,
-                keyword_hit,
+                matched_keywords,
                 event_hit,
             )
         else:
             logger.info("blacklist STASH: event_id=%s, no matches", event.event_id)
 
-        return should_proceed, matched_persons
+        return should_proceed, matched_persons, matched_keywords, event_hit
 
     async def _check_persons(self, event: NormalizedEvent) -> list[str]:
         """从事件文本中提取人员 ID 并比对黑名单。"""
@@ -88,47 +80,42 @@ class BlacklistFilter:
         id_numbers = extract_person_id_numbers(event.raw_content)
         hits = []
         for pid in id_numbers:
-            score = await self._manager.query_person(pid)
+            score = await self._store.query_person(pid)
             if score is not None:
                 hits.append(pid)
-                await self._manager.append_person(pid)
         return hits
 
-    async def _check_keywords(self, event: NormalizedEvent) -> bool:
-        """检查事件内容是否包含任一敏感词。"""
-        keywords = await self._manager.query_keywords()
+    async def _check_keywords(self, event: NormalizedEvent) -> list[str]:
+        """检查事件内容是否包含的敏感词。"""
+        keywords = await self._store.query_keywords()
         if not keywords:
-            return False
+            return []
 
+        matched_keywords: list[str] = []
         content = event.raw_content
         for kw_bytes in keywords:
             kw = kw_bytes.decode() if isinstance(kw_bytes, bytes) else kw_bytes
             if kw in content:
-                await self._manager.append_keyword(kw)
-                return True
-        return False
+                matched_keywords.append(kw)
+        return matched_keywords
 
     async def _check_event_similarity(self, event: NormalizedEvent) -> bool:
         """
         使用 Jina Rerank API 比对事件黑名单中的摘要。
         最高分 > 阈值则判定为命中。
         """
-        event_count = await self._manager.get_event_count()
+        event_count = await self._store.get_event_count()
         if event_count == 0:
             return False
 
-        event_summaries = await self._manager._redis.hgetall(BlacklistManager.EVENT_KEY)
+        event_summaries = await self._store.get_event_summaries()
         if not event_summaries:
             return False
 
         summaries: list[str] = []
-        event_ids: list[str] = []
-        for eid, payload in event_summaries.items():
-            eid_str = eid.decode() if isinstance(eid, bytes) else eid
-            event_ids.append(eid_str)
+        for payload in event_summaries.values():
             try:
-                data = payload.decode() if isinstance(payload, bytes) else payload
-                summaries.append(json.loads(data).get("summary", ""))
+                summaries.append(json.loads(payload).get("summary", ""))
             except (json.JSONDecodeError, AttributeError):
                 summaries.append("")
 
@@ -141,9 +128,6 @@ class BlacklistFilter:
                 documents=summaries,
             )
             if max_score > self._similarity_threshold:
-                await self._manager.append_event(
-                    event.event_id, event.summary or event.raw_content[:200]
-                )
                 return True
         except Exception as e:
             logger.warning("event similarity check failed: %s", e)
@@ -179,14 +163,3 @@ class BlacklistFilter:
 
         return results[0].get("relevance_score", 0.0)
 
-    async def append_person(self, id_number: str) -> int:
-        """手动追加人员到黑名单。"""
-        return await self._manager.append_person(id_number)
-
-    async def append_keyword(self, keyword: str) -> int:
-        """手动追加敏感词到黑名单。"""
-        return await self._manager.append_keyword(keyword)
-
-    async def append_event(self, event_id: str, summary: str) -> bool:
-        """手动追加事件到黑名单。"""
-        return await self._manager.append_event(event_id, summary)

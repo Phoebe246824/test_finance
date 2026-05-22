@@ -1,11 +1,11 @@
-"""测试 BlacklistManager 黑名单 CRUD 操作。"""
+"""测试 BlacklistStore 黑名单 CRUD 操作。"""
 
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from blacklist.manager import BlacklistManager
+from blacklist.store import BlacklistStore
 
 
 @pytest.fixture
@@ -26,10 +26,10 @@ def mock_redis():
 
 @pytest.fixture
 def manager(mock_redis):
-    return BlacklistManager(mock_redis)
+    return BlacklistStore(mock_redis)
 
 
-class TestBlacklistManagerPerson:
+class TestBlacklistStorePerson:
     @pytest.mark.asyncio
     async def test_query_person_not_in_list(self, manager, mock_redis):
         """人员不在黑名单中应返回 None。"""
@@ -72,7 +72,7 @@ class TestBlacklistManagerPerson:
         assert result == {"P001": 5.0, "P002": 3.0}
 
 
-class TestBlacklistManagerKeyword:
+class TestBlacklistStoreKeyword:
     @pytest.mark.asyncio
     async def test_query_keywords_empty(self, manager, mock_redis):
         """敏感词库为空应返回空列表。"""
@@ -101,7 +101,7 @@ class TestBlacklistManagerKeyword:
         assert result is True
 
 
-class TestBlacklistManagerEvent:
+class TestBlacklistStoreEvent:
     @pytest.mark.asyncio
     async def test_query_event_not_found(self, manager, mock_redis):
         """事件不在黑名单中应返回 None。"""

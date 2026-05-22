@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blacklist.manager import BlacklistManager
+from blacklist.store import BlacklistStore
 
 PERSON_SEEDS = [
     "P05",
@@ -53,24 +53,24 @@ async def main() -> None:
     blacklist_db = int(os.getenv("BLACKLIST_REDIS_DB", "1"))
 
     redis = Redis(host=host, port=port, password=password, db=blacklist_db)
-    manager = BlacklistManager(redis)
+    store = BlacklistStore(redis)
 
     try:
         before = await redis.dbsize()
         await redis.flushdb()
 
         for person_id in PERSON_SEEDS:
-            await manager.append_person(person_id)
+            await store.append_person(person_id)
 
         for keyword in KEYWORD_SEEDS:
-            await manager.append_keyword(keyword)
+            await store.append_keyword(keyword)
 
         for event_id, summary in EVENT_SEEDS:
-            await manager.append_event(event_id, summary)
+            await store.append_event(event_id, summary)
 
-        person_stats = await manager.get_person_stats()
-        keyword_stats = await manager.get_keyword_stats()
-        event_count = await manager.get_event_count()
+        person_stats = await store.get_person_stats()
+        keyword_stats = await store.get_keyword_stats()
+        event_count = await store.get_event_count()
 
         print(f"Reset and seeded Redis blacklist DB {blacklist_db}")
         print(f"Cleared keys before reset: {before}")

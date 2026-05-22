@@ -1114,14 +1114,14 @@ class SentinelPipelineFlow(Flow):
         config: dict,
         normalized_event=None,
         redis_client=None,
-        kvstore=None,
+        store=None,
         id_numbers=None,
     ):
         super().__init__()
         self.config = config
         self.normalized_event = normalized_event
         self._redis_client = redis_client
-        self._kvstore = kvstore
+        self._store = store
         self._id_numbers = id_numbers or []
         self._log = get_logger("main.flow")
 
@@ -1202,14 +1202,14 @@ class SentinelPipelineFlow(Flow):
                 )
 
                 # 批量构图触发：中/高风险时从 Redis 取历史事件
-                if self._id_numbers and self._kvstore:
+                if self._id_numbers and self._store:
                     from graphiti.graphiti_workflow import (
                         batch_add_to_graph,
                         close_graph_client,
                         init_graph_client,
                     )
 
-                    historical_events = await self._kvstore.fetch(
+                    historical_events = await self._store.fetch_stashed_events(
                         self._id_numbers,
                         max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
                     )
@@ -1246,7 +1246,7 @@ class SentinelPipelineFlow(Flow):
                         # 仅当所有事件都构图成功时才删除 KV
                         all_success = all(r.get("success", True) for r in batch_results)
                         if all_success:
-                            await self._kvstore.remove(self._id_numbers)
+                            await self._store.remove_stashed_events(self._id_numbers)
                             print_info("批量构图完成，已清理 Redis KV")
                         else:
                             failed = sum(
@@ -1385,7 +1385,7 @@ async def run_flow(config: dict):
             from redis.asyncio import Redis
 
             from blacklist.filter import BlacklistFilter
-            from kvstore.redis_store import EventKVStore
+            from blacklist.store import BlacklistStore
 
             redis_client: Redis | None = None
             blacklist_redis_client: Redis | None = None
@@ -1405,29 +1405,34 @@ async def run_flow(config: dict):
                     decode_responses=False,
                 )
 
-                bl_filter = BlacklistFilter(blacklist_redis_client)
-                kvstore = EventKVStore(redis_client)
+                store = BlacklistStore(blacklist_redis_client, redis_client)
+                bl_filter = BlacklistFilter(store)
 
                 from utils.text import extract_person_id_numbers
 
                 id_numbers = extract_person_id_numbers(normalized_event.raw_content)
-                should_proceed, matched_persons = await bl_filter.check(
-                    normalized_event
+                should_proceed, matched_persons, matched_keywords, event_hit = (
+                    await bl_filter.check(normalized_event)
                 )
 
                 if not should_proceed:
-                    await kvstore.stash(normalized_event, id_numbers or [])
+                    await store.stash_event(normalized_event, id_numbers or [])
                     print_info("事件未命中黑名单，已暂存到 Redis")
                     continue
 
-                # PASS: 自动积累到黑名单
-                if matched_persons:
-                    for pid in matched_persons:
-                        await bl_filter.append_person(pid)
+                for pid in matched_persons:
+                    await store.append_person(pid)
+                for keyword in matched_keywords:
+                    await store.append_keyword(keyword)
+                if event_hit:
+                    await store.append_event(
+                        normalized_event.event_id,
+                        normalized_event.summary or normalized_event.raw_content[:200],
+                    )
 
                 print_info("消息处理开始")
                 flow = SentinelPipelineFlow(
-                    config, normalized_event, redis_client, kvstore, id_numbers
+                    config, normalized_event, redis_client, store, id_numbers
                 )
                 await flow.kickoff_async()
                 print_info("消息处理完成")

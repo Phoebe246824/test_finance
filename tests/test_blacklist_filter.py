@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from blacklist.filter import BlacklistFilter
+from blacklist.store import BlacklistStore
 from models import EventSource, NormalizedEvent
 
 
@@ -35,8 +36,9 @@ def sample_event():
 
 @pytest.fixture
 def filter_instance(mock_redis):
+    store = BlacklistStore(mock_redis, mock_redis)
     return BlacklistFilter(
-        redis_client=mock_redis,
+        store=store,
         similarity_threshold=0.5,
         reranker_api_key="",
     )
@@ -54,11 +56,11 @@ class TestBlacklistFilterPersonCheck:
 
     @pytest.mark.asyncio
     async def test_person_in_blacklist(self, filter_instance, mock_redis, sample_event):
-        """人员在黑名单中应命中并自动积累。"""
+        """人员在黑名单中应命中，但不在检查阶段自动累积。"""
         mock_redis.zscore.return_value = 3.0
         hits = await filter_instance._check_persons(sample_event)
         assert hits == ["P01"]
-        mock_redis.zincrby.assert_called_with("person_blacklist", 1, "P01")
+        mock_redis.zincrby.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_person_in_text(self, filter_instance, mock_redis):
@@ -79,22 +81,22 @@ class TestBlacklistFilterKeywordCheck:
         """敏感词库为空不应命中。"""
         mock_redis.zrange.return_value = []
         result = await filter_instance._check_keywords(sample_event)
-        assert result is False
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_keyword_matches(self, filter_instance, mock_redis, sample_event):
-        """内容包含敏感词应命中。"""
+        """内容包含敏感词应返回命中的关键词列表。"""
         mock_redis.zrange.return_value = ["非法".encode()]
         result = await filter_instance._check_keywords(sample_event)
-        assert result is True
-        mock_redis.zincrby.assert_called_with("keyword_blacklist", 1, "非法")
+        assert result == ["非法"]
+        mock_redis.zincrby.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_keyword_no_match(self, filter_instance, mock_redis, sample_event):
         """内容不包含敏感词不应命中。"""
         mock_redis.zrange.return_value = ["无关词".encode()]
         result = await filter_instance._check_keywords(sample_event)
-        assert result is False
+        assert result == []
 
 
 class TestBlacklistFilterEventSimilarity:
@@ -123,9 +125,13 @@ class TestBlacklistFilterCheck:
         mock_redis.zscore.return_value = None
         mock_redis.zrange.return_value = []
         mock_redis.hlen.return_value = 0
-        should_proceed, matched = await filter_instance.check(sample_event)
+        should_proceed, matched_persons, matched_keywords, event_hit = (
+            await filter_instance.check(sample_event)
+        )
         assert should_proceed is False
-        assert matched == []
+        assert matched_persons == []
+        assert matched_keywords == []
+        assert event_hit is False
 
     @pytest.mark.asyncio
     async def test_person_hit_pass(self, filter_instance, mock_redis, sample_event):
@@ -133,9 +139,13 @@ class TestBlacklistFilterCheck:
         mock_redis.zscore.return_value = 2.0
         mock_redis.zrange.return_value = []
         mock_redis.hlen.return_value = 0
-        should_proceed, matched = await filter_instance.check(sample_event)
+        should_proceed, matched_persons, matched_keywords, event_hit = (
+            await filter_instance.check(sample_event)
+        )
         assert should_proceed is True
-        assert matched == ["P01"]
+        assert matched_persons == ["P01"]
+        assert matched_keywords == []
+        assert event_hit is False
 
     @pytest.mark.asyncio
     async def test_keyword_hit_pass(self, filter_instance, mock_redis):
@@ -149,10 +159,16 @@ class TestBlacklistFilterCheck:
         mock_redis.zscore.return_value = None
         mock_redis.zrange.return_value = ["新产品".encode()]
         mock_redis.hlen.return_value = 0
-        filter_instance = BlacklistFilter(mock_redis, reranker_api_key="")
-        should_proceed, matched = await filter_instance.check(event)
+        filter_instance = BlacklistFilter(
+            BlacklistStore(mock_redis, mock_redis), reranker_api_key=""
+        )
+        should_proceed, matched_persons, matched_keywords, event_hit = (
+            await filter_instance.check(event)
+        )
         assert should_proceed is True
-        assert matched == []
+        assert matched_persons == []
+        assert matched_keywords == ["新产品"]
+        assert event_hit is False
 
     @pytest.mark.asyncio
     async def test_keyword_hit_pass_without_person_ids(
@@ -169,8 +185,12 @@ class TestBlacklistFilterCheck:
         mock_redis.zrange.return_value = ["爆炸".encode(), "制裁".encode()]
         mock_redis.hlen.return_value = 0
 
-        should_proceed, matched = await filter_instance.check(event)
+        should_proceed, matched_persons, matched_keywords, event_hit = (
+            await filter_instance.check(event)
+        )
 
         assert should_proceed is True
-        assert matched == []
-        mock_redis.zincrby.assert_called_with("keyword_blacklist", 1, "爆炸")
+        assert matched_persons == []
+        assert matched_keywords == ["爆炸"]
+        assert event_hit is False
+        mock_redis.zincrby.assert_not_called()
