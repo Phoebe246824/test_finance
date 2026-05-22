@@ -301,7 +301,7 @@ def simulate_ingestion(config: dict, event_count: int = 5) -> list:
 # ============================================================
 
 
-def classify_event(config: dict, normalized_event: dict) -> dict:
+async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
     from providers.llm_provider import get_llm
 
@@ -343,7 +343,7 @@ def classify_event(config: dict, normalized_event: dict) -> dict:
         raw_content = normalized_event.get("raw_content", "")
         title = normalized_event.get("title", "")
 
-    result = crew.kickoff(
+    result = await crew.kickoff_async(
         inputs={
             "event_content": f"标题: {title}\n内容: {raw_content}",
         }
@@ -523,12 +523,12 @@ async def second_evaluate_risk(
         }
 
 
-def simulate_classification(
+async def simulate_classification(
     config: dict, normalized_events: NormalizedEvent
 ) -> NormalizedEvent:
     logger = get_logger("main.classification")
 
-    classification_result = classify_event(config, normalized_events)
+    classification_result = await classify_event(config, normalized_events)
 
     if classification_result is None:
         print_error("分类失败，使用默认值")
@@ -1126,7 +1126,7 @@ class SentinelPipelineFlow(Flow):
         self._log = get_logger("main.flow")
 
     @start()
-    def classification(self):
+    async def classification(self):
         event = self.normalized_event
         self._log.info("=" * 60)
         self._log.info("Stage 1: Classification — 事件分类")
@@ -1138,7 +1138,7 @@ class SentinelPipelineFlow(Flow):
             event.raw_content if event else "",
         )
         self.normalized_event = (
-            simulate_classification(self.config, event) if event else None
+            await simulate_classification(self.config, event) if event else None
         )
         if self.normalized_event:
             self._log.info(
@@ -1158,7 +1158,11 @@ class SentinelPipelineFlow(Flow):
             event.event_id if event else None,
             event.event_type if event else None,
         )
-        results = await simulate_graph_build(self.config, self.normalized_event)
+        if event is None:
+            self.state["graph_result"] = None
+            self._log.info("output: success=%s, entities=%d, relations=%d", None, 0, 0)
+            return None
+        results = await simulate_graph_build(self.config, event)
         result = results[0] if results else None
         self.state["graph_result"] = result
         self._log.info(
@@ -1257,7 +1261,7 @@ class SentinelPipelineFlow(Flow):
                     self.config.get("search", {}).get("risk_num_results", 20)
                 )
                 results = await simulate_search(
-                    self.config, self.normalized_event, num_results=risk_num_results
+                    self.config, classified_event, num_results=risk_num_results
                 )
                 risk_result = await second_evaluate_risk(
                     self.config, classified_event, results
@@ -1302,14 +1306,18 @@ class SentinelPipelineFlow(Flow):
 
     @listen("check_risk")
     async def search(self, result):
+        event = self.normalized_event
         self._log.info("=" * 60)
         self._log.info("Stage 4: Search — 混合检索")
         self._log.info("=" * 60)
         self._log.info(
             "input: query=%.80s",
-            self.normalized_event.raw_content if self.normalized_event else "",
+            event.raw_content if event else "",
         )
-        results = await simulate_search(self.config, self.normalized_event)
+        if event is None:
+            self._log.info("output: results_count=%d", 0)
+            return {"results": []}
+        results = await simulate_search(self.config, event)
         self._log.info(
             "output: results_count=%d",
             len(results.get("results", [])) if results else 0,
@@ -1318,13 +1326,17 @@ class SentinelPipelineFlow(Flow):
 
     @listen(search)
     async def dashboard(self, results):
+        event = self.normalized_event
         self._log.info("=" * 60)
         self._log.info("Stage 5: Dashboard — 意图分析与趋势预测")
         self._log.info("=" * 60)
         self._log.info(
             "input: results_count=%d", len(results.get("results", [])) if results else 0
         )
-        await simulate_dashboard(self.config, self.normalized_event, results)
+        if event is None:
+            self._log.info("output: complete")
+            return "complete"
+        await simulate_dashboard(self.config, event, results)
         self._log.info("output: complete")
         return "complete"
 
@@ -1417,7 +1429,7 @@ async def run_flow(config: dict):
                 flow = SentinelPipelineFlow(
                     config, normalized_event, redis_client, kvstore, id_numbers
                 )
-                flow.kickoff()
+                await flow.kickoff_async()
                 print_info("消息处理完成")
 
             finally:
