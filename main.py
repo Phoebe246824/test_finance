@@ -10,39 +10,40 @@ Sentinel 舆情分析系统 — Phase 1 主入口（模拟运行）
 import argparse
 import asyncio
 import json
+import logging
 import os
 import random
-import logging
 import time
 import traceback
 import uuid
 from datetime import datetime, timedelta
+
 from dotenv import load_dotenv
 
 load_dotenv()
-from models import (
-    NormalizedEvent,
-    EventSource,
-    to_queue_message,
-)
+from crewai import Agent, Crew, Process, Task
+from crewai.flow.flow import Flow, listen, router, start
+
 from consumer import (
-    normalize_event,
     is_duplicate,
+    normalize_event,
     reset_duplicate_cache,
 )
-from crewai.flow.flow import Flow, listen, start, router
-from crewai import Agent, Task, Crew, Process
 from log_utils import (
+    get_logger,
+    print_banner,
+    print_error,
     print_info,
     print_warn,
-    print_error,
-    print_banner,
-    get_logger,
     setup_file_logging,
+)
+from models import (
+    EventSource,
+    NormalizedEvent,
+    to_queue_message,
 )
 from providers.llm_provider import close_all_llms
 from utils.text import extract_subject_id_numbers
-
 
 # ============================================================
 #  全局配置加载
@@ -227,9 +228,7 @@ def sanitize_text_input(text: str) -> str:
     zero_width = "​‌‍﻿⁠"
     for char in zero_width:
         cleaned = cleaned.replace(char, "")
-    return "".join(
-        char for char in cleaned if ord(char) >= 32 or char in "\n\r\t"
-    )
+    return "".join(char for char in cleaned if ord(char) >= 32 or char in "\n\r\t")
 
 
 # ============================================================
@@ -433,7 +432,9 @@ async def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
         }
 
 
-async def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) -> dict:
+async def second_evaluate_risk(
+    config: dict, event: NormalizedEvent, results: dict
+) -> dict:
     logger = get_logger("main.risk_evaluation")
     from providers.llm_provider import get_llm
 
@@ -781,9 +782,9 @@ async def simulate_search(
 ) -> dict:
     logger = get_logger("main.search")
     from graphiti.graphiti_workflow import (
+        close_graph_client,
         hybrid_search,
         init_graph_client,
-        close_graph_client,
     )
 
     if num_results is None:
@@ -1201,8 +1202,8 @@ class SentinelPipelineFlow(Flow):
                     from graphiti.graphiti_workflow import (
                         batch_add_to_graph,
                         close_graph_client,
+                        init_graph_client,
                     )
-                    from graphiti.graphiti_workflow import init_graph_client
 
                     historical_events = await self._kvstore.fetch(
                         self._id_numbers,
@@ -1370,10 +1371,12 @@ async def run_flow(config: dict):
 
             # 黑名单过滤 + KV 暂存
             from redis.asyncio import Redis
+
             from blacklist.filter import BlacklistFilter
             from kvstore.redis_store import EventKVStore
 
             redis_client: Redis | None = None
+            blacklist_redis_client: Redis | None = None
             try:
                 redis_client = Redis(
                     host=config["redis"]["host"],
@@ -1382,8 +1385,15 @@ async def run_flow(config: dict):
                     db=config["redis"]["db"],
                     decode_responses=False,
                 )
+                blacklist_redis_client = Redis(
+                    host=config["redis"]["host"],
+                    port=config["redis"]["port"],
+                    password=config["redis"]["password"] or None,
+                    db=config["redis"]["blacklist_db"],
+                    decode_responses=False,
+                )
 
-                bl_filter = BlacklistFilter(redis_client)
+                bl_filter = BlacklistFilter(blacklist_redis_client)
                 kvstore = EventKVStore(redis_client)
 
                 from utils.text import extract_person_id_numbers
@@ -1411,6 +1421,8 @@ async def run_flow(config: dict):
                 print_info("消息处理完成")
 
             finally:
+                if blacklist_redis_client is not None:
+                    await blacklist_redis_client.aclose()
                 if redis_client is not None:
                     await redis_client.aclose()
 

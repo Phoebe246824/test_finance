@@ -1,12 +1,13 @@
 """测试 EventKVStore Redis KV 暂存操作。"""
 
 import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
-from models import NormalizedEvent, EventSource
+import pytest
+
 from kvstore.redis_store import EventKVStore
+from models import EventSource, NormalizedEvent
 
 
 @pytest.fixture
@@ -141,6 +142,7 @@ class TestEventKVStoreHelpers:
     @pytest.mark.asyncio
     async def test_get_all_person_keys(self, kvstore, mock_redis):
         """获取所有人员 key。"""
+
         async def mock_scan_iter(match=None):
             for key in [b"person:P01", b"person:P02"]:
                 yield key

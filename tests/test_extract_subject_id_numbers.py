@@ -1,6 +1,5 @@
 """测试 extract_subject_id_numbers 人员 ID 提取逻辑。"""
 
-import pytest
 from utils.text import extract_person_id_numbers, extract_subject_id_numbers
 
 

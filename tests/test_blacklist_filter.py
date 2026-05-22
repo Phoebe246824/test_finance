@@ -1,11 +1,12 @@
 """测试 BlacklistFilter 三合一 OR 匹配逻辑。"""
 
 import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from models import NormalizedEvent, EventSource
+import pytest
+
 from blacklist.filter import BlacklistFilter
+from models import EventSource, NormalizedEvent
 
 
 @pytest.fixture
@@ -43,7 +44,9 @@ def filter_instance(mock_redis):
 
 class TestBlacklistFilterPersonCheck:
     @pytest.mark.asyncio
-    async def test_person_not_in_blacklist(self, filter_instance, mock_redis, sample_event):
+    async def test_person_not_in_blacklist(
+        self, filter_instance, mock_redis, sample_event
+    ):
         """人员不在黑名单中不应命中。"""
         mock_redis.zscore.return_value = None
         hits = await filter_instance._check_persons(sample_event)
@@ -150,3 +153,24 @@ class TestBlacklistFilterCheck:
         should_proceed, matched = await filter_instance.check(event)
         assert should_proceed is True
         assert matched == []
+
+    @pytest.mark.asyncio
+    async def test_keyword_hit_pass_without_person_ids(
+        self, filter_instance, mock_redis
+    ):
+        """无人员但命中敏感词时仍应 PASS。"""
+        event = NormalizedEvent(
+            event_id="E004",
+            source=EventSource.NEWS,
+            raw_content="某工业园区仓库发生爆炸，周边企业员工已紧急疏散。",
+            title="爆炸事件",
+        )
+        mock_redis.zscore.return_value = None
+        mock_redis.zrange.return_value = ["爆炸".encode(), "制裁".encode()]
+        mock_redis.hlen.return_value = 0
+
+        should_proceed, matched = await filter_instance.check(event)
+
+        assert should_proceed is True
+        assert matched == []
+        mock_redis.zincrby.assert_called_with("keyword_blacklist", 1, "爆炸")

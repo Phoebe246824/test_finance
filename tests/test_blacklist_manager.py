@@ -1,8 +1,9 @@
 """测试 BlacklistManager 黑名单 CRUD 操作。"""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from blacklist.manager import BlacklistManager
 
