@@ -83,9 +83,9 @@ class BlacklistFilter:
 
     async def _check_persons(self, event: NormalizedEvent) -> list[str]:
         """从事件文本中提取人员 ID 并比对黑名单。"""
-        from utils.text import extract_subject_id_numbers
+        from utils.text import extract_person_id_numbers
 
-        id_numbers = extract_subject_id_numbers(event.raw_content)
+        id_numbers = extract_person_id_numbers(event.raw_content)
         hits = []
         for pid in id_numbers:
             score = await self._manager.query_person(pid)

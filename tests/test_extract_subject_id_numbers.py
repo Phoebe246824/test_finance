@@ -1,7 +1,7 @@
 """测试 extract_subject_id_numbers 人员 ID 提取逻辑。"""
 
 import pytest
-from utils.text import extract_subject_id_numbers
+from utils.text import extract_person_id_numbers, extract_subject_id_numbers
 
 
 class TestExtractSubjectIdNumbers:
@@ -50,4 +50,10 @@ class TestExtractSubjectIdNumbers:
         """方括号中的 P01 和后面的纯 P01 应合并。"""
         text = "【P01# 小明】和 P01 是同一个人"
         result = extract_subject_id_numbers(text)
+        assert result == ["P01"]
+
+    def test_extract_person_ids_only_returns_p_prefix(self):
+        """仅人员提取函数不应返回地点/机构/交易等非人员编号。"""
+        text = "【L17# 北京市海淀区】、【C11# 清河街道办事处】、【P01# 张三】、T002"
+        result = extract_person_id_numbers(text)
         assert result == ["P01"]
