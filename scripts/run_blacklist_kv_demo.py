@@ -179,12 +179,22 @@ async def main() -> None:
         stderr=asyncio.subprocess.STDOUT,
     )
 
-    stdout, _ = await process.communicate(payload.encode("utf-8"))
-    output = stdout.decode("utf-8", errors="replace") if stdout else ""
-    print(output)
+    assert process.stdin is not None
+    assert process.stdout is not None
 
-    if process.returncode != 0:
-        raise RuntimeError(f"main.py exited with code {process.returncode}")
+    process.stdin.write(payload.encode("utf-8"))
+    await process.stdin.drain()
+    process.stdin.close()
+
+    while True:
+        line = await process.stdout.readline()
+        if not line:
+            break
+        print(line.decode("utf-8", errors="replace"), end="")
+
+    returncode = await process.wait()
+    if returncode != 0:
+        raise RuntimeError(f"main.py exited with code {returncode}")
 
     print("=" * 100)
     print("自动回放完成，请结合日志与 Redis 检查结果")
