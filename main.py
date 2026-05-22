@@ -221,6 +221,17 @@ def generate_mock_raw_event() -> dict:
     return random.choice(MOCK_RAW_EVENTS_STRUCTURED).copy()
 
 
+def sanitize_text_input(text: str) -> str:
+    """清洗非法 Unicode、零宽字符和不可见控制字符。"""
+    cleaned = text.encode("utf-8", errors="ignore").decode("utf-8")
+    zero_width = "​‌‍﻿⁠"
+    for char in zero_width:
+        cleaned = cleaned.replace(char, "")
+    return "".join(
+        char for char in cleaned if ord(char) >= 32 or char in "\n\r\t"
+    )
+
+
 # ============================================================
 #  Stage 1: Ingestion — 事件接入与标准化
 # ============================================================
@@ -354,7 +365,7 @@ def classify_event(config: dict, normalized_event: dict) -> dict:
         return None
 
 
-def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
+async def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
     logger = get_logger("main.risk_evaluation")
     from providers.llm_provider import get_llm
 
@@ -390,7 +401,7 @@ def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
         verbose=True,
     )
 
-    result = crew.kickoff(
+    result = await crew.kickoff_async(
         inputs={
             "event_type": event.event_type,
             "summary": event.summary,
@@ -422,7 +433,7 @@ def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
         }
 
 
-def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) -> dict:
+async def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) -> dict:
     logger = get_logger("main.risk_evaluation")
     from providers.llm_provider import get_llm
 
@@ -474,7 +485,7 @@ def second_evaluate_risk(config: dict, event: NormalizedEvent, results: dict) ->
     )
 
     print_info("开始第二次风险评估")
-    result = crew.kickoff(
+    result = await crew.kickoff_async(
         inputs={
             "event_type": event.event_type,
             "summary": event.summary,
@@ -986,7 +997,7 @@ async def simulate_dashboard(
         verbose=True,
     )
 
-    result = crew.kickoff()
+    result = await crew.kickoff_async()
 
     logger.info("analysis result:\n%s", result)
 
@@ -1032,7 +1043,7 @@ def create_normalize_task(agent: Agent, raw_content: str) -> Task:
     )
 
 
-def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
+async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
     logger = get_logger("main.normalizer")
     from providers.llm_provider import get_llm
 
@@ -1053,7 +1064,7 @@ def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
             verbose=True,
         )
 
-        result = crew.kickoff()
+        result = await crew.kickoff_async()
 
         result_dict = json.loads(result.raw)
         source = result_dict.get("source", "news")
@@ -1170,7 +1181,7 @@ class SentinelPipelineFlow(Flow):
             classified_event.risk_score if classified_event else None,
         )
         if classified_event:
-            risk_result = evaluate_risk(self.config, classified_event)
+            risk_result = await evaluate_risk(self.config, classified_event)
             self.normalized_event.risk_level = risk_result["risk_level"]
             self.normalized_event.risk_score = risk_result["risk_score"]
             self.normalized_event.reasoning = risk_result["reasoning"]
@@ -1247,7 +1258,7 @@ class SentinelPipelineFlow(Flow):
                 results = await simulate_search(
                     self.config, self.normalized_event, num_results=risk_num_results
                 )
-                risk_result = second_evaluate_risk(
+                risk_result = await second_evaluate_risk(
                     self.config, classified_event, results
                 )
                 self.normalized_event.risk_level = risk_result["risk_level"]
@@ -1336,6 +1347,7 @@ async def run_flow(config: dict):
         try:
             print("\n请输入消息内容:")
             user_input = (await asyncio.to_thread(input, "> ")).strip()
+            user_input = sanitize_text_input(user_input)
 
             if not user_input:
                 print("消息不能为空，请重新输入")
@@ -1349,7 +1361,7 @@ async def run_flow(config: dict):
             logger.info("user input: %s", user_input)
 
             payload = {"data": user_input}
-            normalized_event = normalize_payload_to_event(payload, config)
+            normalized_event = await normalize_payload_to_event(payload, config)
             logger.info(
                 "normalized event: event_id=%s, source=%s",
                 normalized_event.event_id,
@@ -1374,7 +1386,9 @@ async def run_flow(config: dict):
                 bl_filter = BlacklistFilter(redis_client)
                 kvstore = EventKVStore(redis_client)
 
-                id_numbers = extract_subject_id_numbers(normalized_event.raw_content)
+                from utils.text import extract_person_id_numbers
+
+                id_numbers = extract_person_id_numbers(normalized_event.raw_content)
                 should_proceed, matched_persons = await bl_filter.check(
                     normalized_event
                 )
@@ -1483,7 +1497,7 @@ async def main() -> None:
             await asyncio.sleep(0.05)
             await _drain_pending_asyncio_tasks()
 
-        print("\n✓ Pipeline 模拟完成")
+        print("\nPipeline 模拟完成")
         print(f"日志文件: {log_path}")
     finally:
         logging.shutdown()
