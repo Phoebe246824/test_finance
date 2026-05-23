@@ -16,9 +16,6 @@ from blacklist.store import BlacklistStore
 
 PERSON_SEEDS = [
     "P05",
-    "P06",
-    "P08",
-    "P09",
 ]
 
 KEYWORD_SEEDS = [
