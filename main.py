@@ -921,6 +921,67 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
         )
 
 
+async def _maybe_batch_graph_stashed_events(
+    config: dict,
+    store: BlacklistStore | None,
+    id_numbers: list[str],
+    normalized_event: NormalizedEvent,
+) -> None:
+    if not id_numbers or store is None:
+        return
+
+    historical_events = await store.fetch_stashed_events(
+        id_numbers,
+        max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
+    )
+    if not historical_events:
+        return
+
+    print_info(f"从 Redis 取回 {len(historical_events)} 条历史事件，执行批量构图")
+    graphiti = None
+    try:
+        graphiti = await init_graph_client(config)
+        dry_run = config.get("graphiti", {}).get("dry_run", False)
+
+        batch_texts = [
+            {
+                "text": normalized_event.raw_content,
+                "reference_time": normalized_event.timestamp,
+            }
+        ]
+        for historical_event in historical_events:
+            batch_texts.append(
+                {
+                    "text": historical_event.get("raw_content", ""),
+                    "reference_time": historical_event.get(
+                        "timestamp", datetime.now()
+                    ),
+                }
+            )
+
+        group_id = config.get("graphiti", {}).get(
+            "episode_source_name", "sentinel"
+        )
+        batch_results = await batch_add_to_graph(
+            graphiti, batch_texts, group_id, dry_run
+        )
+
+        all_success = all(r.get("success", True) for r in batch_results)
+        if all_success:
+            await store.remove_stashed_events(id_numbers)
+            print_info("批量构图完成，已清理 Redis KV")
+        else:
+            failed = sum(
+                1 for r in batch_results if not r.get("success", True)
+            )
+            print_info(
+                f"批量构图部分失败 ({failed}/{len(batch_results)})，KV 保留待重试"
+            )
+    finally:
+        if graphiti is not None:
+            await close_graph_client(graphiti)
+
+
 # ============================================================
 #  CrewAI Flow 封装
 # ============================================================
@@ -1023,56 +1084,12 @@ class SentinelPipelineFlow(Flow):
                     f"风险评分 {risk_result['risk_score']} 超过阈值 {risk_threshold}，进行第二次风险评估"
                 )
 
-                # 批量构图触发：中/高风险时从 Redis 取历史事件
-                if self._id_numbers and self._store:
-                    historical_events = await self._store.fetch_stashed_events(
-                        self._id_numbers,
-                        max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
-                    )
-                    if historical_events:
-                        print_info(
-                            f"从 Redis 取回 {len(historical_events)} 条历史事件，执行批量构图"
-                        )
-                        graphiti = await init_graph_client(self.config)
-                        dry_run = self.config.get("graphiti", {}).get("dry_run", False)
-
-                        batch_texts = [
-                            {
-                                "text": self.normalized_event.raw_content,
-                                "reference_time": self.normalized_event.timestamp,
-                            }
-                        ]
-                        for he in historical_events:
-                            batch_texts.append(
-                                {
-                                    "text": he.get("raw_content", ""),
-                                    "reference_time": he.get(
-                                        "timestamp", datetime.now()
-                                    ),
-                                }
-                            )
-
-                        group_id = self.config.get("graphiti", {}).get(
-                            "episode_source_name", "sentinel"
-                        )
-                        batch_results = await batch_add_to_graph(
-                            graphiti, batch_texts, group_id, dry_run
-                        )
-
-                        # 仅当所有事件都构图成功时才删除 KV
-                        all_success = all(r.get("success", True) for r in batch_results)
-                        if all_success:
-                            await self._store.remove_stashed_events(self._id_numbers)
-                            print_info("批量构图完成，已清理 Redis KV")
-                        else:
-                            failed = sum(
-                                1 for r in batch_results if not r.get("success", True)
-                            )
-                            print_info(
-                                f"批量构图部分失败 ({failed}/{len(batch_results)})，KV 保留待重试"
-                            )
-                        await close_graph_client(graphiti)
-
+                await _maybe_batch_graph_stashed_events(
+                    self.config,
+                    self._store,
+                    self._id_numbers,
+                    self.normalized_event,
+                )
                 risk_num_results = int(
                     self.config.get("search", {}).get("risk_num_results", 20)
                 )
