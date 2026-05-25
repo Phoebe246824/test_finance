@@ -1,10 +1,10 @@
 """
-Sentinel 舆情分析系统 — Phase 1 主入口（模拟运行）
-=====================================================
-串联 Ingestion → Classification → Graph → Dashboard。
+Sentinel 舆情分析系统 — Pipeline 主入口
+=========================================
+用户输入 / 外部 payload → 黑名单过滤 → 分类 → 图谱 → 搜索 → Dashboard。
 
 调用方式:
-  python main.py
+  uv run main.py
 """
 
 import argparse
@@ -12,11 +12,10 @@ import asyncio
 import json
 import logging
 import os
-import random
 import time
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from dotenv import load_dotenv
 from crewai import Agent, Crew, Process, Task
@@ -25,11 +24,6 @@ from redis.asyncio import Redis
 
 from blacklist.filter import BlacklistFilter
 from blacklist.store import BlacklistStore
-from consumer import (
-    is_duplicate,
-    normalize_event,
-    reset_duplicate_cache,
-)
 from graphiti.graphiti_workflow import (
     add_event_to_graph,
     batch_add_to_graph,
@@ -49,7 +43,6 @@ from models import (
     EventSource,
     NormalizedEvent,
     RiskLevel,
-    to_queue_message,
 )
 from providers.llm_provider import close_all_llms, get_llm
 from trend_prediction.classifier import EventClassifier
@@ -132,112 +125,6 @@ def load_config() -> dict:
     return config
 
 
-# ============================================================
-#  模拟数据工厂
-# ============================================================
-
-# 模拟的原始事件池
-MOCK_RAW_EVENTS = [
-    {
-        "source": "news",
-        "content": "某科技公司因产品质量问题被监管部门立案调查，股价暴跌15%",
-        "title": "科技巨头遭调查",
-    },
-    {
-        "source": "news",
-        "content": "国务院发布新一轮数字经济扶持政策，重点支持人工智能和量子计算领域",
-        "title": "数字经济新政策",
-    },
-    {
-        "source": "chat",
-        "content": "用户A: 这个App更新后闪退严重\n用户B: 我也是，客服说在修了\n用户C: 已经三天了还没修好",
-        "title": "App闪退投诉",
-    },
-    {
-        "source": "news",
-        "content": "某知名企业家在公开场合发表不当言论，引发社交媒体热议和品牌抵制",
-        "title": "企业家不当言论",
-    },
-    {
-        "source": "transaction",
-        "content": "账户T001向账户T002转账500万元，触发大额交易预警",
-        "title": "大额转账预警",
-    },
-    {
-        "source": "behavior",
-        "content": "用户U123在24小时内访问了12个竞争对手网站并下载3份报价单",
-        "title": "异常访问行为",
-    },
-    {
-        "source": "news",
-        "content": "某新能源企业电池工厂发生火灾事故，附近居民紧急疏散",
-        "title": "电池工厂火灾",
-    },
-    {
-        "source": "chat",
-        "content": "员工E001: 公司下个月可能裁员30%\n员工E002: 哪来的消息？\n员工E001: HR部门的朋友说的",
-        "title": "裁员传闻",
-    },
-    {
-        "source": "news",
-        "content": "央行宣布下调存款准备金率0.5个百分点，释放长期流动性约1万亿元",
-        "title": "央行降准",
-    },
-    {
-        "source": "transaction",
-        "content": "账户T003连续7天在同一商户消费，每日金额递增，疑似洗钱行为",
-        "title": "可疑交易模式",
-    },
-]
-
-# 模拟原始事件（结构化格式，对应不同 source 的特有字段）
-MOCK_RAW_EVENTS_STRUCTURED = [
-    {  # 新闻 结构化
-        "source": "news",
-        "content": "某科技公司因产品质量问题被监管部门立案调查，股价暴跌15%",
-        "title": "科技巨头遭调查",
-        "author": "财经日报",
-        "url": "https://news.example.com/tech-investigation",
-        "source_name": "财经日报",
-        "timestamp": datetime.now() - timedelta(hours=2),
-    },
-    {  # 聊天 结构化
-        "source": "chat",
-        "content": "用户A: 这个App更新后闪退严重\n用户B: 我也是",
-        "title": "App闪退投诉",
-        "platform": "WeChat",
-        "participants": ["用户A", "用户B", "用户C"],
-        "channel_id": "group_12345",
-        "timestamp": datetime.now() - timedelta(hours=1),
-    },
-    {  # 交易 结构化
-        "source": "transaction",
-        "content": "账户T001向账户T002转账500万元，触发大额交易预警",
-        "title": "大额转账预警",
-        "from_account": "T001",
-        "to_account": "T002",
-        "amount": 5000000,
-        "currency": "CNY",
-        "timestamp": datetime.now() - timedelta(minutes=30),
-    },
-    {  # 行为 结构化
-        "source": "behavior",
-        "content": "用户U123在24小时内访问了12个竞争对手网站并下载3份报价单",
-        "title": "异常访问行为",
-        "user_id": "U123",
-        "action": "page_visit",
-        "target": "competitor.com",
-        "device": "Windows 11",
-        "timestamp": datetime.now() - timedelta(minutes=10),
-    },
-]
-
-
-def generate_mock_raw_event() -> dict:
-    """从事件池随机抽取一条原始事件（结构化格式）"""
-    return random.choice(MOCK_RAW_EVENTS_STRUCTURED).copy()
-
-
 def sanitize_text_input(text: str) -> str:
     """清洗非法 Unicode、零宽字符和不可见控制字符。"""
     cleaned = text.encode("utf-8", errors="ignore").decode("utf-8")
@@ -247,69 +134,7 @@ def sanitize_text_input(text: str) -> str:
     return "".join(char for char in cleaned if ord(char) >= 32 or char in "\n\r\t")
 
 
-# ============================================================
-#  Stage 1: Ingestion — 事件接入与标准化
-# ============================================================
-
-
-def simulate_ingestion(config: dict, event_count: int = 5) -> list:
-    """
-    模拟事件接入服务：多源消费 + 标准化 + 去重 + 转发
-    调用真实的 normalize_event() 和 is_duplicate() 函数。
-
-    Args:
-        config: 全局配置
-        event_count: 模拟处理的事件数量
-
-    Returns:
-        list[NormalizedEvent]: 标准化后的 NormalizedEvent 对象列表
-    """
-    logger = get_logger("main.ingestion")
-
-    reset_duplicate_cache()
-    normalized_events = []
-
-    for i in range(event_count):
-        raw = generate_mock_raw_event()
-        source = raw["source"]
-
-        print_info(f"消费 raw event #{i + 1} (source={source})")
-        logger.info(
-            "raw event #%d: title=%s, content=%.50s",
-            i + 1,
-            raw["title"],
-            raw["content"],
-        )
-
-        normalized = normalize_event(raw, source)
-
-        if is_duplicate(normalized.event_id):
-            print_info(f"事件重复，跳过: {normalized.event_id}")
-            logger.info("duplicate event skipped: %s", normalized.event_id)
-            continue
-
-        logger.info(
-            "normalized: event_id=%s, trace_id=%s, source=%s, content_type=%s, structured_keys=%s",
-            normalized.event_id,
-            normalized.trace_id,
-            normalized.source.value,
-            normalized.content_type,
-            list(normalized.structured_data.keys()),
-        )
-
-        normalized_events.append(normalized)
-
-        message = to_queue_message(normalized, "normalized", normalized.trace_id)
-        logger.info(
-            "published to sentinel.internal.normalized, size=%d bytes",
-            len(json.dumps(message, ensure_ascii=False)),
-        )
-
-    print_info(
-        f"完成: 共处理 {len(normalized_events)} 条事件, "
-        f"去重跳过 {event_count - len(normalized_events)} 条"
-    )
-    return normalized_events
+# (Ingestion 由外部消息源或用户输入触发，不再使用模拟接入)
 
 
 # ============================================================
@@ -1004,8 +829,6 @@ async def simulate_dashboard(
 
 
 # ============================================================
-#  CrewAI Flow 封装
-# ============================================================
 #  CrewAI Agent: 将 payload 转换为 NormalizedEvent
 # ============================================================
 
@@ -1098,6 +921,8 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
         )
 
 
+# ============================================================
+#  CrewAI Flow 封装
 # ============================================================
 
 
@@ -1480,7 +1305,7 @@ async def _drain_pending_asyncio_tasks() -> None:
 async def main() -> None:
     global start_time
     parser = argparse.ArgumentParser(
-        description="Sentinel 舆情分析系统 — Phase 1 模拟运行"
+        description="Sentinel 舆情分析系统 — Pipeline 主入口"
     )
     parser.add_argument(
         "--log-dir", default=None, help="日志目录，默认写入当前项目 logs/ 目录"
@@ -1492,12 +1317,9 @@ async def main() -> None:
         start_time = time.time()
 
         print("╔════════════════════════════════════════════════════════════════════╗")
-        print(
-            "║           SENTINEL 舆情分析系统 — Phase 1 Pipeline 模拟               ║"
-        )
+        print("║           SENTINEL 舆情分析系统 — Pipeline Flow                    ║")
         print("║                                                                    ║")
-        print("║   Ingestion → Classification → Graph → Search → Dashboard          ║")
-        print("║   RabbitMQ    CrewAI            Graphiti  Hybrid    FastAPI        ║")
+        print("║   Normalize → Blacklist → Classification → Graph → Risk → Search   ║")
         print("╚════════════════════════════════════════════════════════════════════╝")
         print(f"日志文件: {log_path}")
 
@@ -1511,7 +1333,7 @@ async def main() -> None:
             await asyncio.sleep(0.05)
             await _drain_pending_asyncio_tasks()
 
-        print("\nPipeline 模拟完成")
+        print("\nPipeline 处理完成")
         print(f"日志文件: {log_path}")
     finally:
         logging.shutdown()
