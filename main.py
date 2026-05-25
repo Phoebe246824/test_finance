@@ -19,15 +19,23 @@ import uuid
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-
-load_dotenv()
 from crewai import Agent, Crew, Process, Task
 from crewai.flow.flow import Flow, listen, router, start
+from redis.asyncio import Redis
 
+from blacklist.filter import BlacklistFilter
+from blacklist.store import BlacklistStore
 from consumer import (
     is_duplicate,
     normalize_event,
     reset_duplicate_cache,
+)
+from graphiti.graphiti_workflow import (
+    add_event_to_graph,
+    batch_add_to_graph,
+    close_graph_client,
+    hybrid_search,
+    init_graph_client,
 )
 from log_utils import (
     get_logger,
@@ -44,24 +52,14 @@ from models import (
     to_queue_message,
 )
 from providers.llm_provider import close_all_llms, get_llm
-from utils.text import extract_subject_id_numbers
-
-from blacklist.filter import BlacklistFilter
-from blacklist.store import BlacklistStore
-from graphiti.graphiti_workflow import (
-    add_event_to_graph,
-    batch_add_to_graph,
-    close_graph_client,
-    hybrid_search,
-    init_graph_client,
-)
-from redis.asyncio import Redis
 from trend_prediction.classifier import EventClassifier
 from trend_prediction.task_templates import (
     get_intent_analysis_task,
     get_trend_prediction_task,
 )
-from utils.text import extract_person_id_numbers
+from utils.text import extract_person_id_numbers, extract_subject_id_numbers
+
+load_dotenv()
 
 # ============================================================
 #  全局配置加载
@@ -1202,7 +1200,6 @@ class SentinelPipelineFlow(Flow):
 
                 # 批量构图触发：中/高风险时从 Redis 取历史事件
                 if self._id_numbers and self._store:
-
                     historical_events = await self._store.fetch_stashed_events(
                         self._id_numbers,
                         max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
@@ -1396,9 +1393,12 @@ async def run_flow(config: dict):
                 bl_filter = BlacklistFilter(store)
 
                 id_numbers = extract_person_id_numbers(normalized_event.raw_content)
-                should_proceed, matched_persons, matched_keywords, event_hit = (
-                    await bl_filter.check(normalized_event)
-                )
+                (
+                    should_proceed,
+                    matched_persons,
+                    matched_keywords,
+                    event_hit,
+                ) = await bl_filter.check(normalized_event)
 
                 if not should_proceed:
                     await store.stash_event(normalized_event, id_numbers or [])
