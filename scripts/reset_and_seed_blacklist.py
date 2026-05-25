@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from blacklist.store import BlacklistStore
 
+# P05 仅用于人员黑名单命中测试；P06/P08/P09 需保留给 stash/fetch demo
 PERSON_SEEDS = [
     "P05",
 ]
