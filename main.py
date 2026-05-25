@@ -40,10 +40,28 @@ from log_utils import (
 from models import (
     EventSource,
     NormalizedEvent,
+    RiskLevel,
     to_queue_message,
 )
-from providers.llm_provider import close_all_llms
+from providers.llm_provider import close_all_llms, get_llm
 from utils.text import extract_subject_id_numbers
+
+from blacklist.filter import BlacklistFilter
+from blacklist.store import BlacklistStore
+from graphiti.graphiti_workflow import (
+    add_event_to_graph,
+    batch_add_to_graph,
+    close_graph_client,
+    hybrid_search,
+    init_graph_client,
+)
+from redis.asyncio import Redis
+from trend_prediction.classifier import EventClassifier
+from trend_prediction.task_templates import (
+    get_intent_analysis_task,
+    get_trend_prediction_task,
+)
+from utils.text import extract_person_id_numbers
 
 # ============================================================
 #  全局配置加载
@@ -303,7 +321,6 @@ def simulate_ingestion(config: dict, event_count: int = 5) -> list:
 
 async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
-    from providers.llm_provider import get_llm
 
     llm = get_llm(
         model=config["llm"]["model"],
@@ -366,7 +383,6 @@ async def classify_event(config: dict, normalized_event: dict) -> dict:
 
 async def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
     logger = get_logger("main.risk_evaluation")
-    from providers.llm_provider import get_llm
 
     llm = get_llm(
         model=config["llm"]["model"],
@@ -436,7 +452,6 @@ async def second_evaluate_risk(
     config: dict, event: NormalizedEvent, results: dict
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
-    from providers.llm_provider import get_llm
 
     llm = get_llm(temperature=0.1)
 
@@ -559,8 +574,6 @@ async def simulate_classification(
 
 async def get_graphiti_client(config: dict):
     """获取 Graphiti 客户端"""
-    from graphiti.graphiti_workflow import init_graph_client
-
     return await init_graph_client(config)
 
 
@@ -576,8 +589,6 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
         list[dict]: GraphBuildResult 列表
     """
     logger = get_logger("main.graph")
-    from graphiti.graphiti_workflow import add_event_to_graph, close_graph_client
-
     graphiti = await get_graphiti_client(config)
     dry_run = config.get("graphiti", {}).get("dry_run", False)
 
@@ -781,11 +792,6 @@ async def simulate_search(
     group_id: str = "sentinel",
 ) -> dict:
     logger = get_logger("main.search")
-    from graphiti.graphiti_workflow import (
-        close_graph_client,
-        hybrid_search,
-        init_graph_client,
-    )
 
     if num_results is None:
         num_results = int(config.get("search", {}).get("num_results", 10))
@@ -897,12 +903,6 @@ async def simulate_dashboard(
     config: dict, normalized_event: NormalizedEvent, results: dict
 ) -> None:
     logger = get_logger("main.dashboard")
-    from providers.llm_provider import get_llm
-    from trend_prediction.classifier import EventClassifier
-    from trend_prediction.task_templates import (
-        get_intent_analysis_task,
-        get_trend_prediction_task,
-    )
 
     llm = get_llm(temperature=0.3)
 
@@ -1046,7 +1046,6 @@ def create_normalize_task(agent: Agent, raw_content: str) -> Task:
 
 async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedEvent:
     logger = get_logger("main.normalizer")
-    from providers.llm_provider import get_llm
 
     if isinstance(payload, NormalizedEvent):
         return payload
@@ -1203,11 +1202,6 @@ class SentinelPipelineFlow(Flow):
 
                 # 批量构图触发：中/高风险时从 Redis 取历史事件
                 if self._id_numbers and self._store:
-                    from graphiti.graphiti_workflow import (
-                        batch_add_to_graph,
-                        close_graph_client,
-                        init_graph_client,
-                    )
 
                     historical_events = await self._store.fetch_stashed_events(
                         self._id_numbers,
@@ -1292,8 +1286,6 @@ class SentinelPipelineFlow(Flow):
     def check_risk_and_continue(self, result):
         classified_event = self.normalized_event
         risk_level = classified_event.risk_level
-
-        from models import RiskLevel
 
         if risk_level == RiskLevel.LOW:
             self._log.info("route=complete, risk_level=%s", risk_level)
@@ -1382,11 +1374,6 @@ async def run_flow(config: dict):
             )
 
             # 黑名单过滤 + KV 暂存
-            from redis.asyncio import Redis
-
-            from blacklist.filter import BlacklistFilter
-            from blacklist.store import BlacklistStore
-
             redis_client: Redis | None = None
             blacklist_redis_client: Redis | None = None
             try:
@@ -1407,8 +1394,6 @@ async def run_flow(config: dict):
 
                 store = BlacklistStore(blacklist_redis_client, redis_client)
                 bl_filter = BlacklistFilter(store)
-
-                from utils.text import extract_person_id_numbers
 
                 id_numbers = extract_person_id_numbers(normalized_event.raw_content)
                 should_proceed, matched_persons, matched_keywords, event_hit = (
