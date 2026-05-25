@@ -1,6 +1,6 @@
 # 黑名单过滤 + KV 暂存 + 批量构图 — 实现报告
 
-> 原设计文档：已归档至 `docs/plans/blacklist-kv-filter-design.md`（实现后删除，以下为本报告）
+> 原设计文档 `docs/plans/blacklist-kv-filter-design.md` 已由本实现报告取代，原文件已删除。
 
 ## 1. 实现概述
 
@@ -175,7 +175,7 @@ BATCH_MAX_PER_PERSON=20
 | Redis 连接泄漏（stash 后未 close） | 在 `run_flow` 中加 `try/finally` | ✅ |
 | KV 在批量构图前被过早删除 | 改为仅当 `all_success` 时才删除 | ✅ |
 | CrewAI Flow `kickoff()` 在 async 上下文报 "Event loop is closed" | 全局替换为 `kickoff_async()` | ✅ |
-| `uv run python main.py` 违反项目规范 | demo 脚本改为 `uv run main.py` | 待修复 |
+| `uv run python main.py` 违反项目规范 | demo 脚本与文档统一改为 `uv run main.py` / `uv run scripts/...` | ✅ |
 | P06/P08/P09 在黑名单中导致 demo 回捞失败 | 从种子数据移除，加注释说明 | ✅ |
 | `crew.kickoff_async()` 调用错误 | 修正为 `await crew.kickoff_async()` | ✅ |
 | `_check_keywords()` 返回 `bool` 导致多关键词丢失 | 改为返回 `list[str]` | ✅ |
