@@ -1,6 +1,6 @@
 # Sentinel 舆情分析系统
 
-多源事件实时接入 → AI 分类评级 → 知识图谱构建 → 混合检索 → 意图分析 → 趋势预测。
+多源事件实时接入 → 黑名单过滤 → AI 分类评级 → 知识图谱构建（含批量构图） → 混合检索 → 意图分析 → 趋势预测。
 
 ## 系统架构
 
@@ -17,25 +17,31 @@
                              │
                              ▼
 ┌────────────────────────────────────────────────────────────────┐
+│  Stage 1.5  黑名单过滤 (新增)                                     │
+│  ├─ 人员 ID 比对  → person_blacklist (Redis)                     │
+│  ├─ 敏感词比对    → keyword_blacklist (Redis)                    │
+│  └─ 事件相似度比对 → event_blacklist (Redis)                     │
+│                                                                 │
+│  OR 逻辑：任一命中 → PASS      全未命中 → STASH                   │
+│            │                       │                             │
+│            ▼                       ▼                             │
+│        进入 Stage 2          存入 Redis KV                       │
+│                          key=person:<id_number>                  │
+│                                                                 │
+│  PASS 后在 main.py 中自动积累命中记录                              │
+└────────────────────────────┬───────────────────────────────────┘
+                             │ (PASS 路径)
+                             ▼
+┌────────────────────────────────────────────────────────────────┐
 │  Stage 2  事件分类 (CrewAI Agent)                                │
 │  TypeClassifier Agent → 事件类型 + 关键实体提取                   │
-│                        ↓                                        │
-│              ┌─────────────────────┐                            │
-│              │ 人物提取 → 关系型数据库 │  ← 所有事件的人物提取      │
-│              │ (人物库/关键词库)      │                            │
-│              └──────────┬──────────┘                            │
-│                         │                                       │
-│                         ▼                                       │
-│              ┌─────────────────────┐                            │
-│              │  监控匹配引擎        │  ← 人物/关键词/相似事件监控  │
-│              │ 人物 + 关键词 + 相似  │                            │
-│              └──────────┬──────────┘                            │
-└─────────────────────────┼───────────────────────────────────────┘
-                          │
-                          ▼
+└────────────────────────────┬───────────────────────────────────┘
+                             │
+                             ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  Stage 3  知识图谱构建 (Graphiti + Neo4j)                        │
-│  监控事件 → Episode 写入 → LLM 实体/关系提取 → 去重合并 → 向量    │
+│  单事件写入 or 批量构图（中/高风险时触发）                          │
+│  Episode 写入 → LLM 实体/关系提取 → 去重合并 → 向量               │
 └────────────────────────────┬───────────────────────────────────┘
                              │
                              ▼
@@ -49,11 +55,12 @@
               ▼                             ▼
         low risk                      high/medium risk
               │                             │
-              │                          ┌──┴────────────────────────────────────────────────────┐
-              │                          │  Stage 4-1  二次分析评估 (CrewAI Agent)                │
-              │                          │  ① 从关系型数据库召回关联事件                           │
-              │                          │  ② RiskEvaluator Agent → 风险等级 + 风险分数            │
-              │                          └──┬────────────────────────────────────────────────────┘
+              │                          ┌──┴───────────────────────────────────────┐
+              │                          │  Stage 4-1  二次评估 + 批量构图            │
+              │                          │  ① 从 Redis KV 召回同人员历史事件           │
+              │                          │  ② 批量构图 (当前 + 历史事件)               │
+              │                          │  ③ RiskEvaluator → 二次风险评估            │
+              │                          └──┬────────────────────────────────────────┘
               │                             │
               ▼                             ▼
            流程结束                         ┌────────────────────────────────┐
@@ -62,17 +69,8 @@
                                           └────────────┬─────────────────┘
                                                        │
                                                        ▼
-                                          ┌────────────────────────────────┐
-                                          │  Stage 6  消息推送              │
-                                          │  按事件类型 → 不同消息通道       │
-                                          │  突发事件→短信/邮件              │
-                                          │  负面舆情→企业微信/钉钉          │
-                                          │  商业动态→内部系统              │
-                                          └────────────┬─────────────────┘
-                                                       │
-                                                       ▼
                                            ┌────────────────────────────────┐
-                                           │  Stage 7  Dashboard            │
+                                           │  Stage 6  Dashboard            │
                                            │  事件分类 + 严重度评估           │
                                            │  意图分析 + 趋势预测 (自适应)    │
                                            └────────────────────────────────┘
@@ -80,32 +78,39 @@
 
 **数据流说明**:
 1. 用户通过终端或 Web 看板输入消息
-2. Stage 1-2: 标准化 → 分类，同时提取人物存入关系型数据库
-3. 监控匹配引擎检查人物/关键词/相似事件，决定是否构图
-4. Stage 3: 监控事件写入知识图谱
-5. Stage 4: 风险评估，低风险结束，高/中风险进入 Stage 4-1
-6. Stage 4-1: 从关系型数据库召回关联事件，进行二次分析
-7. Stage 5: 混合检索
-8. Stage 6: 按事件类型推送到不同消息通道
-9. Stage 7: Dashboard 意图分析和趋势预测
+2. Stage 1: 标准化 → NormalizedEvent
+3. Stage 1.5: 黑名单过滤（三合一 OR 匹配）→ PASS 进入 pipeline / STASH 暂存 Redis KV
+4. Stage 2: 事件分类 + 关键实体提取
+5. Stage 3: 知识图谱构建（单事件 or 批量）
+6. Stage 4: 风险评估，低风险结束，高/中风险进入 Stage 4-1
+7. Stage 4-1: 从 Redis KV 回捞同人员历史事件 → 批量构图 → 二次评估
+8. Stage 5: 混合检索
+9. Stage 6: Dashboard 意图分析和趋势预测
 
 **核心组件**:
-- **关系型数据库**: 存储人物库、关键词库、事件索引
-- **监控匹配引擎**: 人物监控 + 关键词监控 + 相似事件监控
-- **消息推送网关**: 短信/邮件/企业微信/钉钉/内部系统
+- **Redis**: 黑名单存储（DB 1）+ 事件暂存/回捞（DB 0）
+- **黑名单过滤器**: 人员监控 + 关键词监控 + 相似事件监控
+- **批量构图**: 中/高风险触发，合并历史事件一次性写入图谱
 
 ## 项目结构
 
 ```
-case_analysis/
-├── main.py                  # 主入口，CrewAI Flow 流水线编排
+test_Sentinel/
+├── main.py                  # 主入口，CrewAI Flow 流水线编排（含黑名单过滤 + KV 暂存 + 批量构图）
 ├── models.py                # 共享 Pydantic 数据模型
 ├── consumer.py              # 事件标准化服务
 ├── classifier.py            # 事件分类服务 (CrewAI)
 ├── dashboard.py             # Web 看板服务 (FastAPI)
 ├── graph_service.py         # 知识图谱服务 (Graphiti)
+├── log_utils.py             # 双输出日志系统
+├── blacklist/               # 黑名单系统
+│   ├── __init__.py          # BlacklistStore, BlacklistFilter
+│   ├── store.py             # 统一存储：黑名单 CRUD + 事件暂存/回捞
+│   └── filter.py            # 三合一 OR 匹配器
+├── utils/
+│   └── text.py              # 人员 ID 提取工具
 ├── graphiti/
-│   └── graphiti_workflow.py # Graphiti 知识图谱操作
+│   └── graphiti_workflow.py # Graphiti 知识图谱操作（含批量构图）
 ├── trend_prediction/        # 事件分类与自适应提示词模块
 │   ├── __init__.py          # 公共 API 导出
 │   ├── classifier.py        # 事件分类器（Jina Rerank + 关键词回退）
@@ -116,6 +121,11 @@ case_analysis/
 │   ├── __init__.py          # LLM/Embedder 提供商
 │   ├── llm_provider.py      # LLM 提供商
 │   └── embedder_provider.py # Embedder 提供商
+├── scripts/
+│   ├── reset_and_seed_blacklist.py  # 重置并写入测试种子数据
+│   └── run_blacklist_kv_demo.py     # 15 个测试用例自动回放
+├── tests/                   # 单元测试（51 tests）
+├── compose/                 # Docker Compose 服务定义
 ├── .env                     # 环境变量配置
 ├── .env.example             # 环境变量示例
 └── requirements.txt         # Python 依赖
@@ -128,9 +138,13 @@ case_analysis/
 `SentinelPipelineFlow` (CrewAI Flow):
 
 ```
-Classification → Graph Build → Risk Evaluation → [Router]
-                                            ├── low risk  → 结束
-                                            └── high/medium → Search → Dashboard
+标准化 → 黑名单过滤 → Classification → Graph Build → Risk Evaluation → [Router]
+                                              │                    ├── low risk → 结束
+                                              │                    └── high/medium → KV回捞+批量构图
+                                              │                                        │
+                                              └────────────────────────────────────────┘
+                                                                                       │
+                                                                                  Search → Dashboard
 ```
 
 **Dashboard 阶段**:
@@ -141,7 +155,7 @@ Classification → Graph Build → Risk Evaluation → [Router]
 **运行方式**: 从终端输入消息进行分析
 
 ```bash
-python main.py
+uv run main.py
 # 输入消息内容进行分析，输入 'quit' 或 'exit' 退出
 ```
 
@@ -172,12 +186,12 @@ python main.py
 
 **启动方式**:
 ```bash
-python -m uvicorn dashboard:app --reload --port 8000
+uv run uvicorn dashboard:app --reload --port 8000
 ```
 
 ### graph_service.py — 知识图谱服务
 
-基于 Graphiti 构建时序知识图谱，将所有分类后的事件写入图谱。
+基于 Graphiti 构建时序知识图谱，将命中黑名单的事件写入图谱。低风险事件暂存到 Redis，待中/高风险同人员再次出现时批量构图。
 
 **核心功能**:
 - `init_graphiti()`: 初始化 Graphiti 客户端（连接 Neo4j、配置 LLM/Embedder）
@@ -223,25 +237,23 @@ python -m uvicorn dashboard:app --reload --port 8000
 ### 1. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+uv sync --dev
 ```
 
 ### 2. 配置环境变量
 
-> **⚠️ 默认配置变更 (2026-05-18)**
-> 
-> 本次更新将默认 LLM 提供商从 `SiliconFlow` 改为 `OpenAI (gpt-4o)`。
-> 
-> **影响**：
-> - 未配置 `.env` 的用户将默认使用 OpenAI API
-> - gpt-4o 费用显著高于 DeepSeek-V3.2
-> 
-> **回退方法**：
-> 在 `.env` 中设置 `LLM_PROVIDER=siliconflow` 并配置对应 API Key
-
 复制 `.env.example` 为 `.env`，填入实际配置:
 
 ```env
+# Redis 配置
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+BLACKLIST_REDIS_DB=1
+KV_TTL_DAYS=90
+BATCH_MAX_PER_PERSON=20
+
 # RabbitMQ 配置
 RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
@@ -269,21 +281,27 @@ RISK_THRESHOLD=0.7
 
 ### 3. 启动依赖服务
 
+```bash
+docker compose up -d
+```
+
 确保以下服务已运行:
+- **Redis**: `localhost:6379` (黑名单存储 + 事件暂存)
 - **Neo4j**: `localhost:7687` (知识图谱存储)
+- **RabbitMQ**: `localhost:5672` (消息队列)
 
 ### 4. 启动系统
 
 #### 方式一：终端 Pipeline（分析消息）
 
 ```bash
-python main.py
+uv run main.py
 ```
 
 #### 方式二：Web 看板（可视化界面）
 
 ```bash
-python -m uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
+uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 ```
 
 然后访问 http://localhost:8000 查看看板。
@@ -292,7 +310,7 @@ python -m uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 
 ```
 ======================================================================
-  Sentinel Pipeline Flow — CrewAI Flow 驱动
+  Sentinel Pipeline — CrewAI Flow 驱动
   输入消息进行分析 (输入 'quit' 或 'exit' 退出)
 ======================================================================
 
@@ -302,10 +320,12 @@ python -m uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 
 [Flow] 用户输入: 某科技公司因产品质量问题被监管部门立案调查
 [Flow] 标准化事件: event_id=01JQ..., source=news
+[Flow] 黑名单过滤: PASS (命中敏感词) or STASH (暂存到 Redis)
 [Flow] Stage 2: Classification
 [Flow] Stage 3: Graph Build
 [Flow] Stage 4: Risk Evaluation
-[Flow] 非低风险事件，进入 Search
+[Flow] 非低风险事件，进入回捞 + 二次评估
+[Flow] 批量构图: fetched N events for M persons
 [Flow] Stage 5: Search
 [Flow] Stage 6: Dashboard
 
@@ -330,6 +350,7 @@ python -m uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 |------|----------|
 | Agent 框架 | CrewAI (Flow + Agent + Crew) |
 | 知识图谱 | Graphiti + Neo4j |
+| 黑名单/缓存 | Redis (redis-py) |
 | LLM | SiliconFlow API (DeepSeek-V3) |
 | Embedding | BAAI/bge-m3 (SiliconFlow) |
 | 数据模型 | Pydantic v2 |
@@ -344,6 +365,7 @@ uvicorn          # ASGI 服务器
 crewai           # 多 Agent 框架
 graphiti-core    # 时序知识图谱
 neo4j            # Neo4j 驱动
+redis            # Redis 客户端（黑名单 + KV 暂存）
 pydantic         # 数据模型
 python-dotenv    # 环境变量
 ulid-py          # 唯一 ID 生成

@@ -10,6 +10,7 @@ Sentinel 是一个多源事件实时接入 → AI 分类评级 → 知识图谱�
 - Graphiti + Neo4j — 时序知识图谱
 - FastAPI + Jinja2 — Web 看板
 - RabbitMQ (pika) — 消息队列
+- Redis (redis-py) — 黑名单存储 + 事件暂存/回捞
 - Pydantic v2 — 数据模型
 - httpx — 异步 HTTP 客户端
 - Milvus — 向量数据库（Docker Compose 依赖）
@@ -28,6 +29,14 @@ test_Sentinel/
 ├── dashboard.py                    # Web 看板服务 (FastAPI) — 事件列表、统计、风险分布 API
 ├── graph_service.py                # 知识图谱服务 (Graph) — Graphiti 客户端封装（已声明但待实现）
 ├── log_utils.py                    # 双输出日志系统 — Rich Console 终端输出 + RotatingFileHandler 文件日志
+│
+├── blacklist/                      # 黑名单系统
+│   ├── __init__.py                 # 导出 BlacklistStore, BlacklistFilter
+│   ├── store.py                    # 统一存储：黑名单 CRUD + 事件暂存/回捞/删除
+│   └── filter.py                   # 三合一 OR 匹配器（人员/敏感词/事件相似度）
+│
+├── utils/                          # 工具函数
+│   └── text.py                     # extract_subject_id_numbers() + extract_person_id_numbers()
 │
 ├── graphiti/                       # Graphiti 知识图谱操作层
 │   ├── graphiti_workflow.py        # 核心：客户端初始化、Episode 写入、混合检索、重排序
@@ -81,7 +90,12 @@ test_Sentinel/
 ├── compose/                        # Docker Compose 服务定义
 │   ├── milvus.yaml                 # Milvus + etcd + MinIO + Attu
 │   ├── neo4j.yaml                  # Neo4j 5.26.0
-│   └── rabbitmq.yaml               # RabbitMQ 4.0.9 (management)
+│   ├── rabbitmq.yaml               # RabbitMQ 4.0.9 (management)
+│   └── redis.yaml                  # Redis 7-alpine
+│
+├── scripts/                        # 测试与运维脚本
+│   ├── reset_and_seed_blacklist.py # 重置 Redis 并写入黑名单种子数据
+│   └── run_blacklist_kv_demo.py    # 15 个测试用例自动回放
 │
 ├── docker-compose.yaml             # Compose 入口 (引用 compose/*.yaml)
 ├── .env.example                    # 环境变量示例
@@ -93,8 +107,10 @@ test_Sentinel/
 ```
 用户输入 → main.py (Flow 编排)
            ├── consumer.py (标准化 + 去重)
+           ├── blacklist/filter.py (黑名单过滤 → PASS/STASH)
+           ├── blacklist/store.py (事件暂存/回捞)
            ├── classifier.py (CrewAI 分类 + 风险评估)
-           ├── graphiti/graphiti_workflow.py (Graphiti + Neo4j 构图)
+           ├── graphiti/graphiti_workflow.py (Graphiti + Neo4j 构图 + 批量构图)
            ├── graphiti/graphiti_workflow.py (混合检索 + 重排序)
            └── trend_prediction/ (Jina Rerank 分类 + 领域适配器 + 意图/趋势分析)
 ```
