@@ -1,9 +1,11 @@
-"""清空黑名单 Redis DB 并重新写入测试种子数据。"""
+"""重置 Neo4j、Redis、Milvus 状态并重新写入黑名单测试种子数据。"""
 
 import asyncio
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from redis.asyncio import Redis
@@ -42,13 +44,92 @@ EVENT_SEEDS = [
 ]
 
 
+async def reset_neo4j_graph(
+    *,
+    uri: str,
+    user: str,
+    password: str,
+    database: str,
+    driver_factory: Callable[..., Any] | None = None,
+) -> int:
+    """Delete all nodes and relationships from the configured Neo4j database."""
+    if driver_factory is None:
+        from neo4j import AsyncGraphDatabase
+
+        driver_factory = AsyncGraphDatabase.driver
+
+    driver = driver_factory(uri, auth=(user, password))
+    try:
+        async with driver.session(database=database) as session:
+            result = await session.run(
+                """
+                MATCH (node)
+                WITH collect(node) AS nodes, count(node) AS node_count
+                FOREACH (node IN nodes | DETACH DELETE node)
+                RETURN node_count
+                """
+            )
+            record = await result.single()
+            if record is None:
+                return 0
+            return int(record["node_count"])
+    finally:
+        await driver.close()
+
+
+def reset_milvus_collection(
+    *,
+    uri: str,
+    token: str,
+    collection_name: str,
+    client_factory: Callable[..., Any] | None = None,
+) -> bool:
+    """Drop the Milvus stash collection if it exists."""
+    if client_factory is None:
+        from pymilvus import MilvusClient
+
+        client_factory = MilvusClient
+
+    client = client_factory(uri=uri, token=token or None)
+    try:
+        if not client.has_collection(collection_name):
+            return False
+        client.drop_collection(collection_name)
+        return True
+    finally:
+        close = getattr(client, "close", None)
+        if close is not None:
+            close()
+
+
 async def main() -> None:
     load_dotenv(dotenv_path=ROOT / ".env")
+
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_user = os.getenv("NEO4J_USER", "neo4j")
+    neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
+    neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
 
     host = os.getenv("REDIS_HOST", "localhost")
     port = int(os.getenv("REDIS_PORT", "6379"))
     password = os.getenv("REDIS_PASSWORD") or None
     blacklist_db = int(os.getenv("BLACKLIST_REDIS_DB", "1"))
+
+    milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
+    milvus_token = os.getenv("MILVUS_TOKEN", "")
+    milvus_collection = os.getenv("MILVUS_STASH_COLLECTION", "stashed_events")
+
+    deleted_neo4j_nodes = await reset_neo4j_graph(
+        uri=neo4j_uri,
+        user=neo4j_user,
+        password=neo4j_password,
+        database=neo4j_database,
+    )
+    dropped_milvus_collection = reset_milvus_collection(
+        uri=milvus_uri,
+        token=milvus_token,
+        collection_name=milvus_collection,
+    )
 
     redis = Redis(host=host, port=port, password=password, db=blacklist_db)
     store = BlacklistStore(redis)
@@ -70,11 +151,13 @@ async def main() -> None:
         keyword_stats = await store.get_keyword_stats()
         event_count = await store.get_event_count()
 
-        print("Reset and seeded Redis:")
+        print("Reset databases and seeded blacklist Redis:")
+        print(f"  Neo4j ({neo4j_database}): deleted {deleted_neo4j_nodes} graph nodes")
         print(
             f"  Blacklist DB ({blacklist_db}): cleared {before_blacklist} keys, seeded {len(PERSON_SEEDS)} persons, {len(KEYWORD_SEEDS)} keywords, {len(EVENT_SEEDS)} events"
         )
-        print("  Event stash: managed by Milvus, not Redis")
+        milvus_status = "dropped" if dropped_milvus_collection else "not found"
+        print(f"  Milvus stash ({milvus_collection}): collection {milvus_status}")
         print(f"  Persons : {sorted(person_stats.keys())}")
         print(f"  Keywords count: {len(keyword_stats)}")
         print(f"  Events  : {event_count}")

@@ -1,8 +1,7 @@
-"""按推荐顺序自动回放 blacklist/KV/filter 功能测试样例。"""
+"""按推荐顺序自动回放 blacklist/Milvus/filter 功能测试样例。"""
 
 import asyncio
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -10,20 +9,20 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.reset_and_seed_blacklist import main as reset_blacklist_main
+from scripts.reset_and_seed_blacklist import main as reset_blacklist_main  # noqa: E402
 
 TEST_CASES = [
     {
-        "title": "1. 无人员、无黑名单命中：应结束且不写 person KV",
+        "title": "1. 无人员、无黑名单命中：应暂存但不关联人员",
         "text": "2026年5月20日 10:00 AM，【L17# 北京市海淀区】。【C11# 清河街道办事处】公告。【C11# 清河街道办事处】今日启动春季绿化养护周活动，组织社区志愿者对【L17# 北京市海淀区】辖区内12个小区的公共绿植进行修剪和补种。【C11# 清河街道办事处】表示，本次活动共有80余名居民报名参与，预计将持续一周。养护所需的花卉和苗木由【C12# 海淀区园林局】统一调配，居民无需承担费用。",
         "expect": [
             "不命中黑名单",
             "不进入构图",
-            "不应写入 person:*",
+            "可写入 Milvus 暂存池但 person_ids 为空",
         ],
     },
     {
-        "title": "2. 含机构和地点，但只有一个人员：应只写人员 key",
+        "title": "2. 含机构和地点，但只有一个人员：应只关联人员编号",
         "text": "2026年5月21日 15:00 PM，【P04# 赵敏】前往【C23# 海淀区行政服务中心】办理业务，随后在【L24# 中关村创业大街】参加公开讲座。活动全程公开有序，未发现异常。",
         "expect": [
             "低风险、未命中黑名单",
@@ -45,8 +44,8 @@ TEST_CASES = [
         "text": "2026年5月21日 14:10 PM，【P02# 李四】与【P03# 王五】在【L23# 上海市浦东新区】参加企业公益跑活动，活动由【C22# 浦东青年联合会】发起，现场共有200余人参与，未发生任何异常情况。",
         "expect": [
             "未命中黑名单",
-            "写入 person:P02 和 person:P03",
-            "可用于观察一条事件复制存储到多个 key",
+            "写入 Milvus 暂存池并保留 P02、P03",
+            "可用于观察多人员历史事件回捞",
         ],
     },
     {
@@ -72,7 +71,7 @@ TEST_CASES = [
         "text": "2026年5月18日 16:00 PM，【P06# 周凯】在【L26# 深圳市南山区】某仓储园区短暂停留后离开，期间与【P07# 陈某】有简短交流。现场未发生冲突，工作人员未报告异常。",
         "expect": [
             "若未命中黑名单则暂存",
-            "写入 person:P06 和 person:P07",
+            "Milvus 暂存记录包含 P06 和 P07",
         ],
     },
     {
@@ -88,22 +87,22 @@ TEST_CASES = [
         "text": "2026年5月22日 21:30 PM，【P06# 周凯】在【L28# 深圳市福田区】地下停车场与他人发生激烈争执，现场发现疑似刀具与可燃液体容器，周边群众报警后迅速疏散。涉事人员行为具有明显危险性，警方已介入处置。",
         "expect": [
             "首次风险评估应偏中/高",
-            "查询 person:P06 历史事件",
-            "触发批量构图并在成功后删除对应 KV",
+            "从 Milvus 回捞 P06 相关历史事件",
+            "触发批量构图并在成功后标记历史事件已构图",
         ],
     },
     {
         "title": "8A. 多人员历史事件 1",
         "text": "2026年5月20日 09:10 AM，【P08# 刘波】与【P09# 马会】共同出现在【L29# 武汉市洪山区】某废弃厂房周边，二人停留约二十分钟后分别离开，未见明显异常。",
         "expect": [
-            "写入 person:P08 和 person:P09",
+            "Milvus 暂存记录包含 P08 和 P09",
         ],
     },
     {
         "title": "8B. 多人员历史事件 2",
         "text": "2026年5月21日 19:50 PM，【P08# 刘波】向【P09# 马会】发送多条加密聊天信息，随后两人分别前往【L30# 武汉市江夏区】同一停车场会合，停留时间较长。",
         "expect": [
-            "继续写入 person:P08 和 person:P09",
+            "继续暂存并关联 P08 和 P09",
         ],
     },
     {
@@ -155,7 +154,7 @@ def build_stdin_payload() -> str:
 
 
 async def main() -> None:
-    print("[1/3] 先重置并预置 blacklist Redis 测试数据...\n")
+    print("[1/3] 先重置 Neo4j、Redis、Milvus 并预置黑名单测试数据...\n")
     await reset_blacklist_main()
 
     print("\n[2/3] 输出本次自动回放的测试数据与检查点\n")
@@ -170,7 +169,6 @@ async def main() -> None:
     process = await asyncio.create_subprocess_exec(
         "uv",
         "run",
-        "python",
         str(ROOT / "main.py"),
         cwd=str(ROOT),
         env=env,
