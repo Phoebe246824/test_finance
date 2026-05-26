@@ -23,6 +23,7 @@ from crewai.flow.flow import Flow, listen, router, start
 from redis.asyncio import Redis
 
 from blacklist.filter import BlacklistFilter
+from blacklist.milvus_stash import MilvusStashStore
 from blacklist.store import BlacklistStore
 from graphiti.graphiti_workflow import (
     add_event_to_graph,
@@ -109,8 +110,17 @@ def load_config() -> dict:
             "host": os.getenv("REDIS_HOST") or "localhost",
             "port": int(os.getenv("REDIS_PORT") or "6379"),
             "password": os.getenv("REDIS_PASSWORD") or "",
-            "db": int(os.getenv("REDIS_DB") or "0"),
             "blacklist_db": int(os.getenv("BLACKLIST_REDIS_DB") or "1"),
+        },
+        "milvus": {
+            "uri": os.getenv("MILVUS_URI") or "http://localhost:19530",
+            "token": os.getenv("MILVUS_TOKEN") or "",
+            "stash_collection": os.getenv("MILVUS_STASH_COLLECTION")
+            or "stashed_events",
+            "stash_ttl_days": int(os.getenv("KV_TTL_DAYS") or "90"),
+            "semantic_top_k": int(os.getenv("STASH_SEMANTIC_TOP_K") or "10"),
+            "max_per_person": int(os.getenv("BATCH_MAX_PER_PERSON") or "20"),
+            "embedding_dim": int(os.getenv("EMBEDDING_DIM") or "1024"),
         },
     }
     logger = get_logger("main.config")
@@ -923,21 +933,24 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
 
 async def _maybe_batch_graph_stashed_events(
     config: dict,
-    store: BlacklistStore | None,
+    stash_store: MilvusStashStore | None,
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
 ) -> None:
-    if not id_numbers or store is None:
+    if stash_store is None:
         return
 
-    historical_events = await store.fetch_stashed_events(
+    stash_config = config.get("milvus", {})
+    historical_events = await stash_store.fetch_related_events(
+        normalized_event,
         id_numbers,
-        max_per_person=int(os.getenv("BATCH_MAX_PER_PERSON", "20")),
+        top_k_semantic=int(stash_config.get("semantic_top_k", 10)),
+        max_per_person=int(stash_config.get("max_per_person", 20)),
     )
     if not historical_events:
         return
 
-    print_info(f"从 Redis 取回 {len(historical_events)} 条历史事件，执行批量构图")
+    print_info(f"从 Milvus 取回 {len(historical_events)} 条相关事件，执行批量构图")
     graphiti = None
     try:
         graphiti = await init_graph_client(config)
@@ -950,32 +963,36 @@ async def _maybe_batch_graph_stashed_events(
             }
         ]
         for historical_event in historical_events:
+            reference_time = historical_event.get("created_at") or historical_event.get(
+                "timestamp", datetime.now()
+            )
+            if isinstance(reference_time, str):
+                reference_time = datetime.fromisoformat(reference_time)
             batch_texts.append(
                 {
                     "text": historical_event.get("raw_content", ""),
-                    "reference_time": historical_event.get(
-                        "timestamp", datetime.now()
-                    ),
+                    "reference_time": reference_time,
                 }
             )
 
-        group_id = config.get("graphiti", {}).get(
-            "episode_source_name", "sentinel"
-        )
+        group_id = config.get("graphiti", {}).get("episode_source_name", "sentinel")
         batch_results = await batch_add_to_graph(
             graphiti, batch_texts, group_id, dry_run
         )
 
         all_success = all(r.get("success", True) for r in batch_results)
         if all_success:
-            await store.remove_stashed_events(id_numbers)
-            print_info("批量构图完成，已清理 Redis KV")
+            consumed_event_ids = [
+                event["event_id"]
+                for event in historical_events
+                if event.get("event_id")
+            ]
+            await stash_store.mark_events_graph_built(consumed_event_ids)
+            print_info("批量构图完成，已标记 Milvus 暂存事件为已构图")
         else:
-            failed = sum(
-                1 for r in batch_results if not r.get("success", True)
-            )
+            failed = sum(1 for r in batch_results if not r.get("success", True))
             print_info(
-                f"批量构图部分失败 ({failed}/{len(batch_results)})，KV 保留待重试"
+                f"批量构图部分失败 ({failed}/{len(batch_results)})，Milvus 暂存保留待重试"
             )
     finally:
         if graphiti is not None:
@@ -998,6 +1015,7 @@ class SentinelPipelineFlow(Flow):
         normalized_event=None,
         redis_client=None,
         store=None,
+        stash_store=None,
         id_numbers=None,
     ):
         super().__init__()
@@ -1005,6 +1023,7 @@ class SentinelPipelineFlow(Flow):
         self.normalized_event = normalized_event
         self._redis_client = redis_client
         self._store = store
+        self._stash_store = stash_store
         self._id_numbers = id_numbers or []
         self._log = get_logger("main.flow")
 
@@ -1086,7 +1105,7 @@ class SentinelPipelineFlow(Flow):
 
                 await _maybe_batch_graph_stashed_events(
                     self.config,
-                    self._store,
+                    self._stash_store,
                     self._id_numbers,
                     self.normalized_event,
                 )
@@ -1212,17 +1231,9 @@ async def run_flow(config: dict):
                 normalized_event.source,
             )
 
-            # 黑名单过滤 + KV 暂存
-            redis_client: Redis | None = None
+            # 黑名单过滤 + Milvus 暂存
             blacklist_redis_client: Redis | None = None
             try:
-                redis_client = Redis(
-                    host=config["redis"]["host"],
-                    port=config["redis"]["port"],
-                    password=config["redis"]["password"] or None,
-                    db=config["redis"]["db"],
-                    decode_responses=False,
-                )
                 blacklist_redis_client = Redis(
                     host=config["redis"]["host"],
                     port=config["redis"]["port"],
@@ -1231,7 +1242,8 @@ async def run_flow(config: dict):
                     decode_responses=False,
                 )
 
-                store = BlacklistStore(blacklist_redis_client, redis_client)
+                store = BlacklistStore(blacklist_redis_client)
+                stash_store = MilvusStashStore.from_config(config)
                 bl_filter = BlacklistFilter(store)
 
                 id_numbers = extract_person_id_numbers(normalized_event.raw_content)
@@ -1243,8 +1255,8 @@ async def run_flow(config: dict):
                 ) = await bl_filter.check(normalized_event)
 
                 if not should_proceed:
-                    await store.stash_event(normalized_event, id_numbers or [])
-                    print_info("事件未命中黑名单，已暂存到 Redis")
+                    await stash_store.stash_event(normalized_event, id_numbers or [])
+                    print_info("事件未命中黑名单，已暂存到 Milvus")
                     continue
 
                 for pid in matched_persons:
@@ -1259,7 +1271,12 @@ async def run_flow(config: dict):
 
                 print_info("消息处理开始")
                 flow = SentinelPipelineFlow(
-                    config, normalized_event, redis_client, store, id_numbers
+                    config,
+                    normalized_event,
+                    None,
+                    store,
+                    stash_store,
+                    id_numbers,
                 )
                 await flow.kickoff_async()
                 print_info("消息处理完成")
@@ -1267,8 +1284,6 @@ async def run_flow(config: dict):
             finally:
                 if blacklist_redis_client is not None:
                     await blacklist_redis_client.aclose()
-                if redis_client is not None:
-                    await redis_client.aclose()
 
         except KeyboardInterrupt:
             print("\n退出程序")

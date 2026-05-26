@@ -36,7 +36,7 @@ def sample_event():
 
 @pytest.fixture
 def filter_instance(mock_redis):
-    store = BlacklistStore(mock_redis, mock_redis)
+    store = BlacklistStore(mock_redis)
     return BlacklistFilter(
         store=store,
         similarity_threshold=0.5,
@@ -125,9 +125,12 @@ class TestBlacklistFilterCheck:
         mock_redis.zscore.return_value = None
         mock_redis.zrange.return_value = []
         mock_redis.hlen.return_value = 0
-        should_proceed, matched_persons, matched_keywords, event_hit = (
-            await filter_instance.check(sample_event)
-        )
+        (
+            should_proceed,
+            matched_persons,
+            matched_keywords,
+            event_hit,
+        ) = await filter_instance.check(sample_event)
         assert should_proceed is False
         assert matched_persons == []
         assert matched_keywords == []
@@ -139,9 +142,12 @@ class TestBlacklistFilterCheck:
         mock_redis.zscore.return_value = 2.0
         mock_redis.zrange.return_value = []
         mock_redis.hlen.return_value = 0
-        should_proceed, matched_persons, matched_keywords, event_hit = (
-            await filter_instance.check(sample_event)
-        )
+        (
+            should_proceed,
+            matched_persons,
+            matched_keywords,
+            event_hit,
+        ) = await filter_instance.check(sample_event)
         assert should_proceed is True
         assert matched_persons == ["P01"]
         assert matched_keywords == []
@@ -160,11 +166,14 @@ class TestBlacklistFilterCheck:
         mock_redis.zrange.return_value = ["新产品".encode()]
         mock_redis.hlen.return_value = 0
         filter_instance = BlacklistFilter(
-            BlacklistStore(mock_redis, mock_redis), reranker_api_key=""
+            BlacklistStore(mock_redis), reranker_api_key=""
         )
-        should_proceed, matched_persons, matched_keywords, event_hit = (
-            await filter_instance.check(event)
-        )
+        (
+            should_proceed,
+            matched_persons,
+            matched_keywords,
+            event_hit,
+        ) = await filter_instance.check(event)
         assert should_proceed is True
         assert matched_persons == []
         assert matched_keywords == ["新产品"]
@@ -185,9 +194,12 @@ class TestBlacklistFilterCheck:
         mock_redis.zrange.return_value = ["爆炸".encode(), "制裁".encode()]
         mock_redis.hlen.return_value = 0
 
-        should_proceed, matched_persons, matched_keywords, event_hit = (
-            await filter_instance.check(event)
-        )
+        (
+            should_proceed,
+            matched_persons,
+            matched_keywords,
+            event_hit,
+        ) = await filter_instance.check(event)
 
         assert should_proceed is True
         assert matched_persons == []
