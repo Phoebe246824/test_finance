@@ -25,8 +25,8 @@
 │  OR 逻辑：任一命中 → PASS      全未命中 → STASH                   │
 │            │                       │                             │
 │            ▼                       ▼                             │
-│        进入 Stage 2          存入 Redis KV                       │
-│                          key=person:<id_number>                  │
+│        进入 Stage 2          存入 Milvus 暂存池                   │
+│                          支持人员 ID + 语义召回                  │
 │                                                                 │
 │  PASS 后在 main.py 中自动积累命中记录                              │
 └────────────────────────────┬───────────────────────────────────┘
@@ -57,7 +57,7 @@
               │                             │
               │                          ┌──┴───────────────────────────────────────┐
               │                          │  Stage 4-1  二次评估 + 批量构图            │
-              │                          │  ① 从 Redis KV 召回同人员历史事件           │
+              │                          │  ① 从 Milvus 召回同人/语义相关事件          │
               │                          │  ② 批量构图 (当前 + 历史事件)               │
               │                          │  ③ RiskEvaluator → 二次风险评估            │
               │                          └──┬────────────────────────────────────────┘
@@ -79,16 +79,17 @@
 **数据流说明**:
 1. 用户通过终端或 Web 看板输入消息
 2. Stage 1: 标准化 → NormalizedEvent
-3. Stage 1.5: 黑名单过滤（三合一 OR 匹配）→ PASS 进入 pipeline / STASH 暂存 Redis KV
+3. Stage 1.5: 黑名单过滤（三合一 OR 匹配）→ PASS 进入 pipeline / STASH 暂存 Milvus
 4. Stage 2: 事件分类 + 关键实体提取
 5. Stage 3: 知识图谱构建（单事件 or 批量）
 6. Stage 4: 风险评估，低风险结束，高/中风险进入 Stage 4-1
-7. Stage 4-1: 从 Redis KV 回捞同人员历史事件 → 批量构图 → 二次评估
+7. Stage 4-1: 从 Milvus 回捞同人/语义相关事件 → 批量构图 → 二次评估
 8. Stage 5: 混合检索
 9. Stage 6: Dashboard 意图分析和趋势预测
 
 **核心组件**:
-- **Redis**: 黑名单存储（DB 1）+ 事件暂存/回捞（DB 0）
+- **Redis**: 黑名单存储（人员 / 关键词 / 相似事件）
+- **Milvus**: 未命中事件暂存与同人/语义相关回捞
 - **黑名单过滤器**: 人员监控 + 关键词监控 + 相似事件监控
 - **批量构图**: 中/高风险触发，合并历史事件一次性写入图谱
 
@@ -96,7 +97,7 @@
 
 ```
 test_Sentinel/
-├── main.py                  # 主入口，CrewAI Flow 流水线编排（含黑名单过滤 + KV 暂存 + 批量构图）
+├── main.py                  # 主入口，CrewAI Flow 流水线编排（含黑名单过滤 + Milvus 暂存 + 批量构图）
 ├── models.py                # 共享 Pydantic 数据模型
 ├── consumer.py              # 事件标准化服务
 ├── classifier.py            # 事件分类服务 (CrewAI)
@@ -104,8 +105,9 @@ test_Sentinel/
 ├── graph_service.py         # 知识图谱服务 (Graphiti)
 ├── log_utils.py             # 双输出日志系统
 ├── blacklist/               # 黑名单系统
-│   ├── __init__.py          # BlacklistStore, BlacklistFilter
-│   ├── store.py             # 统一存储：黑名单 CRUD + 事件暂存/回捞
+│   ├── __init__.py          # BlacklistStore, BlacklistFilter, MilvusStashStore
+│   ├── store.py             # Redis 黑名单 CRUD
+│   ├── milvus_stash.py      # Milvus 暂存、回捞、已构图标记
 │   └── filter.py            # 三合一 OR 匹配器
 ├── utils/
 │   └── text.py              # 人员 ID 提取工具
@@ -245,13 +247,18 @@ uv sync --dev
 复制 `.env.example` 为 `.env`，填入实际配置:
 
 ```env
-# Redis 配置
+# Redis 配置（黑名单）
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
-REDIS_DB=0
 BLACKLIST_REDIS_DB=1
+
+# Milvus 配置（事件暂存）
+MILVUS_URI=http://localhost:19530
+MILVUS_TOKEN=
+MILVUS_STASH_COLLECTION=stashed_events
 KV_TTL_DAYS=90
+STASH_SEMANTIC_TOP_K=10
 BATCH_MAX_PER_PERSON=20
 
 # RabbitMQ 配置
@@ -365,7 +372,8 @@ uvicorn          # ASGI 服务器
 crewai           # 多 Agent 框架
 graphiti-core    # 时序知识图谱
 neo4j            # Neo4j 驱动
-redis            # Redis 客户端（黑名单 + KV 暂存）
+redis            # Redis 客户端（黑名单）
+pymilvus         # Milvus 客户端（事件暂存，可按需安装）
 pydantic         # 数据模型
 python-dotenv    # 环境变量
 ulid-py          # 唯一 ID 生成

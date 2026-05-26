@@ -16,6 +16,7 @@
 | `EMBEDDER_MODEL` | 嵌入模型名称 | BAAI/bge-m3 |
 | `EMBEDDER_API_KEY` | 嵌入 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `EMBEDDER_API_BASE` | 嵌入 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
+| `EMBEDDING_DIM` | 嵌入向量维度，需与 Milvus 暂存 collection 维度一致 | 1024 |
 | `RERANKER_MODEL` | 重排序模型 | BAAI/bge-reranker-v2-m3 |
 | `RERANKER_API_KEY` | 重排序 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `RERANKER_BASE_URL` | 重排序 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
@@ -23,8 +24,11 @@
 | `RISK_SEARCH_NUM_RESULTS` | 风险评估搜索返回数 | 20 |
 | `SEARCH_MIN_SCORE` | 搜索相关性阈值（0.0 关闭） | 0.0 |
 | `RISK_THRESHOLD` | 风险评分阈值 | 0.7 |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB` | Redis 连接（KV 暂存使用） | localhost:6379, db=0 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（黑名单使用） | localhost:6379 |
+| `MILVUS_URI` / `MILVUS_TOKEN` | Milvus 连接（事件暂存使用） | http://localhost:19530, 空 |
+| `MILVUS_STASH_COLLECTION` | Milvus 暂存 collection 名称 | stashed_events |
 | `KV_TTL_DAYS` | 暂存事件过期天数 | 90 |
+| `STASH_SEMANTIC_TOP_K` | Milvus 暂存语义召回数量 | 10 |
 | `BATCH_MAX_PER_PERSON` | 批量构图时每人最多取事件数 | 20 |
 | `BLACKLIST_REDIS_DB` | 黑名单使用的 Redis DB 编号 | 1 |
 | `BLACKLIST_EVENT_SIMILARITY_THRESHOLD` | 事件相似度阈值 | 0.5 |

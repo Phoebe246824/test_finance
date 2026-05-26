@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blacklist.store import BlacklistStore
+from blacklist.store import BlacklistStore  # noqa: E402
 
-# P05 仅用于人员黑名单命中测试；P06/P08/P09 需保留给 stash/fetch demo
+# P05 仅用于人员黑名单命中测试；事件暂存已迁移到 Milvus。
 PERSON_SEEDS = [
     "P05",
 ]
@@ -49,17 +49,13 @@ async def main() -> None:
     port = int(os.getenv("REDIS_PORT", "6379"))
     password = os.getenv("REDIS_PASSWORD") or None
     blacklist_db = int(os.getenv("BLACKLIST_REDIS_DB", "1"))
-    stash_db = int(os.getenv("REDIS_DB", "0"))
 
     redis = Redis(host=host, port=port, password=password, db=blacklist_db)
-    stash_redis = Redis(host=host, port=port, password=password, db=stash_db)
     store = BlacklistStore(redis)
 
     try:
         before_blacklist = await redis.dbsize()
         await redis.flushdb()
-        before_stash = await stash_redis.dbsize()
-        await stash_redis.flushdb()
 
         for person_id in PERSON_SEEDS:
             await store.append_person(person_id)
@@ -74,15 +70,16 @@ async def main() -> None:
         keyword_stats = await store.get_keyword_stats()
         event_count = await store.get_event_count()
 
-        print(f"Reset and seeded Redis:")
-        print(f"  Blacklist DB ({blacklist_db}): cleared {before_blacklist} keys, seeded {len(PERSON_SEEDS)} persons, {len(KEYWORD_SEEDS)} keywords, {len(EVENT_SEEDS)} events")
-        print(f"  Stash DB ({stash_db}): cleared {before_stash} keys")
+        print("Reset and seeded Redis:")
+        print(
+            f"  Blacklist DB ({blacklist_db}): cleared {before_blacklist} keys, seeded {len(PERSON_SEEDS)} persons, {len(KEYWORD_SEEDS)} keywords, {len(EVENT_SEEDS)} events"
+        )
+        print("  Event stash: managed by Milvus, not Redis")
         print(f"  Persons : {sorted(person_stats.keys())}")
         print(f"  Keywords count: {len(keyword_stats)}")
         print(f"  Events  : {event_count}")
     finally:
         await redis.aclose()
-        await stash_redis.aclose()
 
 
 if __name__ == "__main__":
