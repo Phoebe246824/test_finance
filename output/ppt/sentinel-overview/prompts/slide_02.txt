@@ -1,0 +1,18 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line,
+spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 黑名单过滤入口逻辑
+
+Central visual: one event card enters a three-way OR gate. The three checks are:
+人员ID
+敏感词
+相似事件
+Show the OR gate output splitting into two clear paths:
+PASS -> 主流程
+STASH -> Redis
+Use blue for normal flow, cyan for STASH, and a small red accent only on PASS risk marker.
+Add a tiny subtitle near the gate: 任一命中即通过.
+
+Keep text sparse and readable. Use Microsoft YaHei-like title and Songti/SimSun-like body labels.
+No extra paragraphs, no watermark, no logo, no slide number, no garbled text.

@@ -1,0 +1,19 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line,
+spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: Graphiti 查询驱动分析
+
+Central visual: a knowledge graph on the left connects to a hybrid search funnel in the middle,
+then outputs evidence cards on the right. The funnel labels should be short:
+语义向量
+BM25
+图遍历
+重排序
+The evidence cards feed two final report blocks:
+意图分析
+趋势预测
+Add a short caption: 分析基于图谱证据，而非单条文本.
+
+Keep text sparse and readable. Use Microsoft YaHei-like title and Songti/SimSun-like body labels.
+No extra paragraphs, no watermark, no logo, no slide number, no garbled text.

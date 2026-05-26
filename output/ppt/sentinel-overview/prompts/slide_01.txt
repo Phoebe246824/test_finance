@@ -1,0 +1,18 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line,
+spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 本次功能增量定位
+
+Central visual: a horizontal Sentinel pipeline, mostly light blue and gray:
+输入事件 -> 标准化 -> 黑名单过滤 -> Redis 暂存 / 回捞 -> Graphiti 构图 -> 意图与趋势.
+Highlight the middle three modules with stronger blue/cyan outlines:
+黑名单过滤, Redis 暂存 / 回捞, Graphiti 构图.
+Add a small branch badge near the highlighted zone: feat/blacklist-kv-filter.
+Add three very short callout labels:
+上次汇报需求
+低危线索不丢弃
+高危触发上下文补全
+
+Keep text sparse and readable. Use Microsoft YaHei-like title and Songti/SimSun-like body labels.
+No extra paragraphs, no watermark, no logo, no slide number, no garbled text.

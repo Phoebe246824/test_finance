@@ -1,0 +1,20 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line,
+spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 未命中事件的 Redis 暂存
+
+Central visual: several low-risk event cards flow into a Redis list structure.
+The event cards should be labeled:
+低危线索
+未命中黑名单
+不构图
+The Redis side should show a cylinder and list keys:
+person:P06
+person:P08
+TTL 90天
+Add a small note at the bottom of the visual: 按人员维度保留历史上下文.
+Use calm cyan/blue colors, no red warning style on this page.
+
+Keep text sparse and readable. Use Microsoft YaHei-like title and Songti/SimSun-like body labels.
+No extra paragraphs, no watermark, no logo, no slide number, no garbled text.

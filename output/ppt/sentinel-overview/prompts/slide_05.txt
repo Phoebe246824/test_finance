@@ -1,0 +1,22 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line,
+spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 当前事件与历史事件批量构图
+
+Central visual: on the left, a bundle of event cards:
+当前高危事件
+历史事件A
+历史事件B
+They flow into a Graphiti processing node labeled Graphiti Episode.
+On the right, draw a clean knowledge graph with nodes:
+人员
+组织
+事件
+因果
+参与
+Add one short caption: 碎片线索 -> 关联图谱.
+Use blue/cyan graph nodes and thin connecting lines.
+
+Keep text sparse and readable. Use Microsoft YaHei-like title and Songti/SimSun-like body labels.
+No extra paragraphs, no watermark, no logo, no slide number, no garbled text.

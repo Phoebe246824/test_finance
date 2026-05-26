@@ -1,0 +1,22 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line,
+spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 闭环价值与验证结果
+
+Central visual: a circular loop with four stages:
+低危暂存
+高危触发
+批量构图
+图谱分析
+In the lower area, show two clean metric cards:
+51 单元测试
+15 Demo 用例
+Add three short value labels around the loop:
+减少噪声
+补全上下文
+支撑研判
+Use blue/white academic style with light cyan accents.
+
+Keep text sparse and readable. Use Microsoft YaHei-like title and Songti/SimSun-like body labels.
+No extra paragraphs, no watermark, no logo, no slide number, no garbled text.
