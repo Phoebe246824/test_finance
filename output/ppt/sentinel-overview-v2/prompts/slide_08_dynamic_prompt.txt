@@ -1,0 +1,19 @@
+Edit this slide framework into a finished Chinese academic PowerPoint page.
+Preserve the same blue-white style, top-left title placement, divider line, spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 动态 Prompt 与自适应分析
+
+Central visual: an event classification card flows into two adaptive controls:
+事件类别
+影响严重度
+Then the controls select a domain adapter panel:
+国际政治 / 科技 / 经济 / 金融
+Finally output two report cards:
+意图分析 Prompt
+趋势预测 Prompt
+
+Add a short caption:
+类别决定分析维度，严重度决定预测时间范围。
+
+Use clean blue/cyan cards and arrows. Keep text sparse and readable.
+No watermark, no logo, no slide number, no garbled text.

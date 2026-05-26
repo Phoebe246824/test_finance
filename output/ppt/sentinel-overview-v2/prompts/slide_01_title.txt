@@ -1,0 +1,19 @@
+Create a Chinese academic PowerPoint cover page, 16:9 landscape, blue and white minimalist research style.
+This is a real title cover, not a normal content slide: do not use the deck's top-left title bar, do not add a title-divider line, and do not use a dense flowchart layout.
+
+Main title text exactly, very large and centered-left:
+黑名单过滤与动态分析闭环
+
+Subtitle text exactly, smaller under the title:
+Sentinel 舆情分析系统阶段功能汇报
+
+Small tag text near the lower-left:
+feat/blacklist-kv-filter
+
+Bottom keyword line, very small:
+Redis 暂存 · 高危回捞 · Graphiti 构图 · 动态 Prompt
+
+Visual direction:
+white background with pale blue technical grid, subtle abstract knowledge graph lines, soft blue geometric depth, academic and restrained.
+Keep lots of whitespace. No body paragraphs. No watermark, no unrelated logo, no slide number.
+Chinese text must be clear, correctly spelled, and not garbled.

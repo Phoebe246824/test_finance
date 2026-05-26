@@ -1,0 +1,24 @@
+Edit the provided slide into an improved Chinese academic PowerPoint page.
+Keep the same blue-white style, title position, divider line, and bottom-right Sentinel tag.
+
+Title text exactly: 黑名单过滤入口逻辑
+
+Keep the main OR gate structure, but make the logic clearer:
+Input: 标准化事件
+Three checks:
+人员ID命中
+敏感词命中
+相似事件命中
+Near the OR gate add this readable explanation:
+任一条件命中 → PASS 进入主流程
+全部未命中 → STASH 暂存 Redis
+
+Add a small right-side maintenance panel titled: 黑名单维护
+Inside it show three compact rows:
+person_blacklist：人员计数
+keyword_blacklist：词频计数
+event_blacklist：高危摘要
+Add a tiny note: PASS 后自动积累
+
+Keep text sparse and readable. Avoid dense paragraphs.
+No watermark, no logo, no slide number, no garbled text.

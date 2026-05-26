@@ -1,0 +1,19 @@
+Edit the provided slide into an improved Chinese academic PowerPoint page.
+Preserve the same blue-white style, title position, divider line, spacious layout, and bottom-right Sentinel tag.
+
+Title text exactly: 高危事件触发回捞
+
+Keep the high-risk event card, Redis KV pool, and returned historical events.
+Clarify the middle trigger node. Replace the trigger text with:
+Stage 4
+首次风险评估
+risk_score > 阈值
+
+Add a small annotation near the left card:
+黑名单命中 ≠ 风险阈值
+
+Add a short bottom caption:
+命中黑名单只决定是否进入主流程；首次风险评估才决定是否回捞历史事件。
+
+Keep text readable, not crowded. Use blue for normal logic, red accent only for high-risk event.
+No watermark, no logo, no slide number, no garbled text.

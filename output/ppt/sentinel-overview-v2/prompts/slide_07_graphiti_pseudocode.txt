@@ -1,0 +1,65 @@
+编辑现有第 7 页图片，保持整套 PPT 的蓝白学术风格、左上标题、标题下分割线和底部 Sentinel 标识。
+
+页面标题固定为：
+Graphiti 查询驱动分析
+
+本页表达目标：
+使用“左侧 Python 风格伪代码 + 右侧小流程图”的方式，说明当前事件如何通过 Graphiti 混合搜索召回图谱上下文，并经 Reranker 筛选后返回相关上下文。不要展示报告生成；报告生成属于下一页动态 Prompt / 分析任务内容。
+
+页面布局：
+左侧约 60% 宽度为大号代码面板，右侧约 40% 宽度为小型流程图。代码面板是主体，流程图是辅助解释。
+
+代码面板标题：
+图谱上下文检索
+
+代码面板中必须使用下面这份伪代码，尽量保持原样、清晰可读：
+严格逐字渲染函数名 retrieve_context，不要写成 netrieve_context 或其他拼写。
+严格逐字渲染方法名 hybrid_search、rank_and_filter。
+
+def retrieve_context(event):
+    # 以当前事件作为查询输入
+    graph_hits = graphiti.hybrid_search(
+        query=event,
+        methods=["vector_similarity", "BM25", "graph_walk"],
+    )
+
+    # 从图谱检索结果中取出关系边和历史事件片段
+    edge_contexts = graph_hits.edges
+    episode_contexts = graph_hits.episodes
+
+    # 合并为候选上下文
+    candidate_contexts = edge_contexts + episode_contexts
+
+    # 根据当前事件相关性进行重排序和筛选
+    relevant_contexts = reranker.rank_and_filter(
+        query=event,
+        candidates=candidate_contexts,
+    )
+
+    # 返回确实相关的图谱上下文
+    return relevant_contexts
+
+右侧小流程图从上到下排列，节点依次为：
+查询事件
+Graphiti 混合搜索
+边 + Episodes
+Reranker 筛选
+相关上下文
+
+在“Graphiti 混合搜索”节点旁边放三个小标签：
+向量相似度
+BM25
+图遍历
+
+在“边 + Episodes”节点中，用简洁图标表示图谱关系边和历史事件片段。
+在“Reranker 筛选”节点中，用排序列表或漏斗图标表示重排序和过滤。
+最后停在“相关上下文”，不要继续画到意图分析、趋势预测或分析报告。
+
+页面底部只放一句简短总结：
+混合搜索负责召回，Reranker 负责筛选，输出相关图谱上下文。
+
+视觉要求：
+不要出现代码以外的变量解释段落。
+不要出现报告生成、意图分析、趋势预测节点。
+中文和代码必须清晰可读，不要乱码。
+不要水印、无关 logo、页码或虚构业务案例。
