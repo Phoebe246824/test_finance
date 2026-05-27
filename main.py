@@ -43,7 +43,6 @@ from log_utils import (
 from models import (
     EventSource,
     NormalizedEvent,
-    RiskLevel,
 )
 from providers.llm_provider import close_all_llms, get_llm
 from trend_prediction.classifier import EventClassifier
@@ -214,7 +213,31 @@ async def classify_event(config: dict, normalized_event: dict) -> dict:
         return None
 
 
-async def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
+def _build_related_events_context(results: dict | None) -> str:
+    reranked_edges = results.get("reranked_edges", []) if results else []
+    reranked_episodes = results.get("reranked_episodes", []) if results else []
+    related_parts = []
+
+    for item in reranked_edges:
+        text = (
+            item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+        )
+        if text:
+            related_parts.append(f"[edge] {text}")
+    for item in reranked_episodes:
+        text = (
+            item.get("text")
+            if isinstance(item, dict)
+            else getattr(item, "content", None)
+        )
+        if text:
+            related_parts.append(f"[episode] {text}")
+    return "\n".join(related_parts)
+
+
+async def evaluate_risk(
+    config: dict, event: NormalizedEvent, results: dict | None = None
+) -> dict:
     logger = get_logger("main.risk_evaluation")
 
     llm = get_llm(
@@ -232,10 +255,12 @@ async def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
         verbose=True,
     )
 
+    related_events = _build_related_events_context(results)
     risk_task = Task(
         name="风险评估",
         description="基于事件信息从人物、物品、组织、地点、事件、重要时间等各角度，进行高标准的评估风险等级，不能忽略任何细微的风险。核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为，只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为一律纳入风险研判，不做无风险默认化判定。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
+        "关联事件信息: {related_events}"
         "请输出 JSON 格式: risk_level (high/medium/low), risk_score (0.0-1.0), reasoning",
         agent=risk_evaluator,
         output_format="json",
@@ -256,6 +281,7 @@ async def evaluate_risk(config: dict, event: NormalizedEvent) -> dict:
             "entities": str(event.structured_data),
             "event_date": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "source": event.source,
+            "related_events": related_events,
         }
     )
 
@@ -931,14 +957,20 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
         )
 
 
-async def _maybe_batch_graph_stashed_events(
+async def batch_graph_event_with_related_stash(
     config: dict,
     stash_store: MilvusStashStore | None,
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
-) -> None:
+) -> dict:
+    summary = {
+        "fetched_count": 0,
+        "batched_count": 0,
+        "success": True,
+        "batch_results": [],
+    }
     if stash_store is None:
-        return
+        return summary
 
     stash_config = config.get("milvus", {})
     historical_events = await stash_store.fetch_related_events(
@@ -947,8 +979,11 @@ async def _maybe_batch_graph_stashed_events(
         top_k_semantic=int(stash_config.get("semantic_top_k", 10)),
         max_per_person=int(stash_config.get("max_per_person", 20)),
     )
+    summary["fetched_count"] = len(historical_events)
+
     if not historical_events:
-        return
+        print_info("Milvus 暂存回捞为空，跳过批量构图")
+        return summary
 
     print_info(f"从 Milvus 取回 {len(historical_events)} 条相关事件，执行批量构图")
     graphiti = None
@@ -956,12 +991,7 @@ async def _maybe_batch_graph_stashed_events(
         graphiti = await init_graph_client(config)
         dry_run = config.get("graphiti", {}).get("dry_run", False)
 
-        batch_texts = [
-            {
-                "text": normalized_event.raw_content,
-                "reference_time": normalized_event.timestamp,
-            }
-        ]
+        batch_texts = []
         for historical_event in historical_events:
             reference_time = historical_event.get("created_at") or historical_event.get(
                 "timestamp", datetime.now()
@@ -979,8 +1009,11 @@ async def _maybe_batch_graph_stashed_events(
         batch_results = await batch_add_to_graph(
             graphiti, batch_texts, group_id, dry_run
         )
+        summary["batch_results"] = batch_results
+        summary["batched_count"] = len(batch_texts)
 
         all_success = all(r.get("success", True) for r in batch_results)
+        summary["success"] = all_success
         if all_success:
             consumed_event_ids = [
                 event["event_id"]
@@ -994,6 +1027,7 @@ async def _maybe_batch_graph_stashed_events(
             print_info(
                 f"批量构图部分失败 ({failed}/{len(batch_results)})，Milvus 暂存保留待重试"
             )
+        return summary
     finally:
         if graphiti is not None:
             await close_graph_client(graphiti)
@@ -1050,10 +1084,10 @@ class SentinelPipelineFlow(Flow):
             )
 
     @listen(classification)
-    async def graph_build(self):
+    async def single_graph_build(self):
         event = self.normalized_event
         self._log.info("=" * 60)
-        self._log.info("Stage 2: Graph — 知识图谱构建")
+        self._log.info("Stage 2: Graph — 单条构图")
         self._log.info("=" * 60)
         self._log.info(
             "input: event_id=%s, event_type=%s",
@@ -1073,14 +1107,40 @@ class SentinelPipelineFlow(Flow):
             result.get("entities_extracted", 0) if result else 0,
             result.get("relations_created", 0) if result else 0,
         )
+        if (
+            result
+            and result.get("success")
+            and self._stash_store is not None
+            and event is not None
+        ):
+            await self._stash_store.mark_events_graph_built([event.event_id])
+            self._log.info("marked current event as graph built: %s", event.event_id)
+        return result
 
-    @listen(graph_build)
-    async def risk_evaluation(self, result):
-        logger = self._log
+    @listen(single_graph_build)
+    async def search_first_risk_context(self, result):
+        event = self.normalized_event
+        self._log.info("=" * 60)
+        self._log.info("Stage 3: Search — 首次风险上下文检索")
+        self._log.info("=" * 60)
+        if event is None:
+            self.state["first_risk_context"] = {}
+            return {}
+        risk_num_results = int(
+            self.config.get("search", {}).get("risk_num_results", 20)
+        )
+        context = await simulate_search(
+            self.config, event, num_results=risk_num_results
+        )
+        self.state["first_risk_context"] = context
+        return context
+
+    @listen(search_first_risk_context)
+    async def first_risk_evaluation(self, result):
         classified_event = self.normalized_event
-        logger.info("=" * 60)
-        logger.info("Stage 3: Risk — 风险评估")
-        logger.info("=" * 60)
+        self._log.info("=" * 60)
+        self._log.info("Stage 4: Risk — 首次风险评估")
+        self._log.info("=" * 60)
         self._log.info(
             "input: event_id=%s, risk_level=%s, risk_score=%s",
             classified_event.event_id if classified_event else None,
@@ -1088,105 +1148,142 @@ class SentinelPipelineFlow(Flow):
             classified_event.risk_score if classified_event else None,
         )
         if classified_event:
-            risk_result = await evaluate_risk(self.config, classified_event)
+            risk_result = await evaluate_risk(
+                self.config, classified_event, self.state.get("first_risk_context")
+            )
             self.normalized_event.risk_level = risk_result["risk_level"]
             self.normalized_event.risk_score = risk_result["risk_score"]
             self.normalized_event.reasoning = risk_result["reasoning"]
-            logger.info(
+            self._log.info(
                 "first risk evaluation: level=%s, score=%.2f",
                 risk_result["risk_level"],
                 risk_result["risk_score"],
             )
-            risk_threshold = self.config["classification"]["risk_threshold"]
-            if risk_result["risk_score"] > risk_threshold:
-                print_info(
-                    f"风险评分 {risk_result['risk_score']} 超过阈值 {risk_threshold}，进行第二次风险评估"
-                )
-
-                await _maybe_batch_graph_stashed_events(
-                    self.config,
-                    self._stash_store,
-                    self._id_numbers,
-                    self.normalized_event,
-                )
-                risk_num_results = int(
-                    self.config.get("search", {}).get("risk_num_results", 20)
-                )
-                results = await simulate_search(
-                    self.config, classified_event, num_results=risk_num_results
-                )
-                risk_result = await second_evaluate_risk(
-                    self.config, classified_event, results
-                )
-                self.normalized_event.risk_level = risk_result["risk_level"]
-                self.normalized_event.risk_score = risk_result["risk_score"]
-                self.normalized_event.reasoning = risk_result["reasoning"]
-                self._log.info(
-                    "second evaluation output: level=%s, score=%.2f",
-                    risk_result["risk_level"],
-                    risk_result["risk_score"],
-                )
-            else:
-                logger.info(
-                    "risk_score=%.2f <= %.2f, skip second evaluation",
-                    risk_result["risk_score"],
-                    risk_threshold,
-                )
         self._log.info(
             "output: risk_level=%s, risk_score=%s",
             self.normalized_event.risk_level if self.normalized_event else None,
             self.normalized_event.risk_score if self.normalized_event else None,
         )
-
         return result
 
-    @router(risk_evaluation)
-    def check_risk_and_continue(self, result):
-        classified_event = self.normalized_event
-        risk_level = classified_event.risk_level
-
-        if risk_level == RiskLevel.LOW:
-            self._log.info("route=complete, risk_level=%s", risk_level)
-            print_info("低风险事件，流程结束")
-            return "complete"
-        else:
-            self._log.info("route=check_risk, risk_level=%s", risk_level)
-            print_info("非低风险事件，进入 Search")
-            return "check_risk"
-
-    @listen("check_risk")
-    async def search(self, result):
+    @router(first_risk_evaluation)
+    def route_post_first_risk(self, result):
         event = self.normalized_event
-        self._log.info("=" * 60)
-        self._log.info("Stage 4: Search — 混合检索")
-        self._log.info("=" * 60)
-        self._log.info(
-            "input: query=%.80s",
-            event.raw_content if event else "",
-        )
         if event is None:
-            self._log.info("output: results_count=%d", 0)
-            return {"results": []}
-        results = await simulate_search(self.config, event)
+            self._log.info("route_post_first_risk=complete, event is None")
+            return "complete"
+        risk_threshold = self.config["classification"]["risk_threshold"]
+        if event.risk_score > risk_threshold:
+            self._log.info(
+                "route_post_first_risk=batch_graph, score=%.2f > %.2f",
+                event.risk_score,
+                risk_threshold,
+            )
+            return "batch_graph"
         self._log.info(
-            "output: results_count=%d",
-            len(results.get("results", [])) if results else 0,
+            "route_post_first_risk=complete, score=%.2f <= %.2f",
+            event.risk_score,
+            risk_threshold,
         )
-        return results
+        return "complete"
 
-    @listen(search)
-    async def dashboard(self, results):
+    @listen("batch_graph")
+    async def batch_graph_build_from_stash(self, result):
         event = self.normalized_event
         self._log.info("=" * 60)
-        self._log.info("Stage 5: Dashboard — 意图分析与趋势预测")
+        self._log.info("Stage 5: Graph — 批量补图")
         self._log.info("=" * 60)
-        self._log.info(
-            "input: results_count=%d", len(results.get("results", [])) if results else 0
+        if event is None:
+            self.state["graph_result"] = None
+            return None
+        batch_summary = await batch_graph_event_with_related_stash(
+            self.config,
+            self._stash_store,
+            self._id_numbers,
+            event,
         )
+        self.state["graph_result"] = batch_summary
+        return batch_summary
+
+    @listen(batch_graph_build_from_stash)
+    async def search_second_risk_context(self, result):
+        event = self.normalized_event
+        self._log.info("=" * 60)
+        self._log.info("Stage 6: Search — 二次风险上下文检索")
+        self._log.info("=" * 60)
+        if event is None:
+            self.state["second_risk_context"] = {}
+            return {}
+        risk_num_results = int(
+            self.config.get("search", {}).get("risk_num_results", 20)
+        )
+        context = await simulate_search(
+            self.config, event, num_results=risk_num_results
+        )
+        self.state["second_risk_context"] = context
+        return context
+
+    @listen(search_second_risk_context)
+    async def second_risk_evaluation_stage(self, result):
+        event = self.normalized_event
+        self._log.info("=" * 60)
+        self._log.info("Stage 7: Risk — 二次风险评估")
+        self._log.info("=" * 60)
+        if event is None:
+            return result
+        context = self.state.get("second_risk_context", {})
+        risk_result = await second_evaluate_risk(self.config, event, context)
+        self.normalized_event.risk_level = risk_result["risk_level"]
+        self.normalized_event.risk_score = risk_result["risk_score"]
+        self.normalized_event.reasoning = risk_result["reasoning"]
+        self.state["second_risk_applied"] = True
+        self._log.info(
+            "second evaluation output: level=%s, score=%.2f",
+            risk_result["risk_level"],
+            risk_result["risk_score"],
+        )
+        return context
+
+    @router(second_risk_evaluation_stage)
+    def route_post_second_risk(self, result):
+        event = self.normalized_event
+        if event is None:
+            self._log.info("route_post_second_risk=complete, event is None")
+            return "complete"
+        risk_threshold = self.config["classification"]["risk_threshold"]
+        if event.risk_score > risk_threshold:
+            self._log.info(
+                "route_post_second_risk=dashboard, score=%.2f > %.2f",
+                event.risk_score,
+                risk_threshold,
+            )
+            return "go_dashboard"
+        self._log.info(
+            "route_post_second_risk=complete, score=%.2f <= %.2f",
+            event.risk_score,
+            risk_threshold,
+        )
+        return "complete"
+
+    @listen("go_dashboard")
+    async def dashboard(self, result):
+        event = self.normalized_event
+        self._log.info("=" * 60)
+        self._log.info("Stage 8: Dashboard — 意图分析与趋势预测")
+        self._log.info("=" * 60)
         if event is None:
             self._log.info("output: complete")
             return "complete"
-        await simulate_dashboard(self.config, event, results)
+        context = self.state.get("second_risk_context") or self.state.get(
+            "first_risk_context"
+        )
+        if context is None:
+            context = {}
+        self._log.info(
+            "input: context_results_count=%d",
+            len(context.get("results", [])) if context else 0,
+        )
+        await simulate_dashboard(self.config, event, context)
         self._log.info("output: complete")
         return "complete"
 

@@ -9,11 +9,14 @@
   └── Flow 编排 — SentinelPipelineFlow 串联所有 Stage，不包含业务逻辑
         ├── 黑名单过滤 (新增) — blacklist/filter.py 三合一 OR 匹配
         ├── Milvus 暂存 — blacklist/milvus_stash.py 同人/语义相关事件池
-        ├── Stage 1: consumer.py — 事件标准化 + 去重（纯函数，可独立测试）
-        ├── Stage 2: classifier.py — CrewAI Agent 分类 + 风险评估
-        ├── Stage 3: graphiti/graphiti_workflow.py — 知识图谱写入 + 批量构图
-        ├── Stage 4: graphiti/graphiti_workflow.py — 混合检索
-        └── Stage 5: trend_prediction/ — Jina Rerank 分类 + 意图/趋势分析
+        ├── Stage 1: classification — CrewAI Agent 分类
+        ├── Stage 2: single_graph_build — 当前事件单条构图
+        ├── Stage 3: search_first_risk_context — 首次风险上下文检索
+        ├── Stage 4: first_risk_evaluation — 首次风险评估
+        ├── Stage 5: route_post_first_risk — 阈值路由（complete/batch_graph）
+        ├── Stage 6: batch_graph_build_from_stash — Milvus 回捞历史事件补图
+        ├── Stage 7: search_second_risk_context + second_risk_evaluation_stage
+        └── Stage 8: dashboard — 意图分析与趋势预测
 ```
 
 - **main.py**: 只负责 Flow 编排和流程控制，不包含具体的业务逻辑实现

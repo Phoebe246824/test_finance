@@ -1,6 +1,6 @@
 # Sentinel 舆情分析系统
 
-多源事件实时接入 → 黑名单过滤 → AI 分类评级 → 知识图谱构建（含批量构图） → 混合检索 → 意图分析 → 趋势预测。
+多源事件实时接入 → 黑名单过滤 → AI 分类评级 → 单条构图 → 风险上下文检索 → 首次风险评估 → （仅超阈值）批量补图 + 二次风险评估 → （仍超阈值）意图分析与趋势预测。
 
 ## 系统架构
 
@@ -39,41 +39,55 @@
                              │
                              ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Stage 3  知识图谱构建 (Graphiti + Neo4j)                        │
-│  单事件写入 or 批量构图（中/高风险时触发）                          │
+│  Stage 3  当前事件单条构图 (Graphiti + Neo4j)                    │
 │  Episode 写入 → LLM 实体/关系提取 → 去重合并 → 向量               │
 └────────────────────────────┬───────────────────────────────────┘
                              │
                              ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Stage 4  风险评估 (CrewAI Agent)                                │
-│  RiskEvaluator Agent → 风险等级 + 风险分数                        │
+│  Stage 4  首次风险上下文检索 (Graphiti)                          │
+│  语义向量 + BM25 + 图遍历                                        │
 └────────────────────────────┬───────────────────────────────────┘
                              │
-              ┌──────────────┴──────────────┐
-              │                             │
-              ▼                             ▼
-        low risk                      high/medium risk
-              │                             │
-              │                          ┌──┴───────────────────────────────────────┐
-              │                          │  Stage 4-1  二次评估 + 批量构图            │
-              │                          │  ① 从 Milvus 召回同人/语义相关事件          │
-              │                          │  ② 批量构图 (当前 + 历史事件)               │
-              │                          │  ③ RiskEvaluator → 二次风险评估            │
-              │                          └──┬────────────────────────────────────────┘
-              │                             │
-              ▼                             ▼
-           流程结束                         ┌────────────────────────────────┐
-                                          │  Stage 5  混合检索 (Graphiti)  │
-                                          │  语义向量 + BM25 + 图遍历       │
-                                          └────────────┬─────────────────┘
-                                                       │
-                                                       ▼
-                                           ┌────────────────────────────────┐
-                                           │  Stage 6  Dashboard            │
-                                           │  事件分类 + 严重度评估           │
-                                           │  意图分析 + 趋势预测 (自适应)    │
-                                           └────────────────────────────────┘
+                             ▼
+┌────────────────────────────────────────────────────────────────┐
+│  Stage 5  首次风险评估 (CrewAI Agent)                            │
+│  RiskEvaluator Agent（使用 Stage 4 上下文）                      │
+└────────────────────────────┬───────────────────────────────────┘
+                             │
+                 ┌───────────┴───────────┐
+                 │                       │
+                 ▼                       ▼
+       score <= threshold         score > threshold
+                 │                       │
+                 │                       ▼
+                 │         ┌──────────────────────────────────────┐
+                 │         │ Stage 6 批量补图 (Milvus 回捞事件)      │
+                 │         │ 仅补历史暂存事件，不重复当前事件          │
+                 │         └────────────────┬─────────────────────┘
+                 │                          │
+                 │                          ▼
+                 │         ┌──────────────────────────────────────┐
+                 │         │ Stage 7 二次风险上下文检索 + 二次评估    │
+                 │         │ (在批量补图后重新检索并评估)             │
+                 │         └────────────────┬─────────────────────┘
+                 │                          │
+                 │              ┌───────────┴───────────┐
+                 │              │                       │
+                 │              ▼                       ▼
+                 │    second_score <= threshold  second_score > threshold
+                 │              │                       │
+                 ▼              ▼                       ▼
+           ┌────────────┐  ┌────────────┐  ┌──────────────────────────────┐
+           │  complete  │  │  complete  │  │ Stage 8 Dashboard            │
+           │  流程结束   │  │  流程结束   │  │ 意图分析 + 趋势预测 (自适应) │
+           └────────────┘  └────────────┘  └──────────────┬───────────────┘
+                                                           │
+                                                           ▼
+                                                     ┌────────────┐
+                                                     │  complete  │
+                                                     │  流程结束   │
+                                                     └────────────┘
 ```
 
 **数据流说明**:
@@ -81,11 +95,13 @@
 2. Stage 1: 标准化 → NormalizedEvent
 3. Stage 1.5: 黑名单过滤（三合一 OR 匹配）→ PASS 进入 pipeline / STASH 暂存 Milvus
 4. Stage 2: 事件分类 + 关键实体提取
-5. Stage 3: 知识图谱构建（单事件 or 批量）
-6. Stage 4: 风险评估，低风险结束，高/中风险进入 Stage 4-1
-7. Stage 4-1: 从 Milvus 回捞同人/语义相关事件 → 批量构图 → 二次评估
-8. Stage 5: 混合检索
-9. Stage 6: Dashboard 意图分析和趋势预测
+5. Stage 3: 当前事件单条构图，并立即将当前事件标记为已构图
+6. Stage 4: 在当前图上检索首次风险上下文
+7. Stage 5: 首次风险评估（使用 Stage 4 上下文）
+8. 若 Stage 5 `score <= threshold`：直接结束流程（不进入 Dashboard）
+9. 若 Stage 5 `score > threshold`：从 Milvus 回捞历史暂存事件并批量补图
+10. Stage 7: 在补图后检索二次风险上下文并执行二次风险评估
+11. 若二次评估 `score > threshold`：进入 Stage 8 Dashboard；否则结束流程
 
 **核心组件**:
 - **Redis**: 黑名单存储（人员 / 关键词 / 相似事件）
@@ -140,13 +156,18 @@ test_Sentinel/
 `SentinelPipelineFlow` (CrewAI Flow):
 
 ```
-标准化 → 黑名单过滤 → Classification → Graph Build → Risk Evaluation → [Router]
-                                              │                    ├── low risk → 结束
-                                              │                    └── high/medium → KV回捞+批量构图
-                                              │                                        │
-                                              └────────────────────────────────────────┘
-                                                                                       │
-                                                                                  Search → Dashboard
+标准化 → 黑名单过滤 → Classification → Single Graph Build
+                                          → Search First Risk Context
+                                          → First Risk Evaluation
+                                          → Router
+                                            ├── complete
+                                            └── batch_graph
+                                                  → Search Second Risk Context
+                                                  → Second Risk Evaluation
+                                                  → Router
+                                                    ├── go_dashboard
+                                                    └── complete
+                                          → Dashboard (仅 go_dashboard) → complete
 ```
 
 **Dashboard 阶段**:
@@ -193,7 +214,7 @@ uv run uvicorn dashboard:app --reload --port 8000
 
 ### graph_service.py — 知识图谱服务
 
-基于 Graphiti 构建时序知识图谱，将命中黑名单的事件写入图谱。低风险事件暂存到 Redis，待中/高风险同人员再次出现时批量构图。
+基于 Graphiti 构建时序知识图谱，将命中黑名单的当前事件先单条入图；若首次风险超阈值，再从 Milvus 回捞历史暂存事件进行批量补图，并基于补图后的新上下文执行二次风险评估。
 
 **核心功能**:
 - `init_graphiti()`: 初始化 Graphiti 客户端（连接 Neo4j、配置 LLM/Embedder）
@@ -327,14 +348,15 @@ uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 
 [Flow] 用户输入: 某科技公司因产品质量问题被监管部门立案调查
 [Flow] 标准化事件: event_id=01JQ..., source=news
-[Flow] 黑名单过滤: PASS (命中敏感词) or STASH (暂存到 Redis)
+[Flow] 黑名单过滤: PASS (命中敏感词) or STASH (暂存到 Milvus)
 [Flow] Stage 2: Classification
-[Flow] Stage 3: Graph Build
-[Flow] Stage 4: Risk Evaluation
-[Flow] 非低风险事件，进入回捞 + 二次评估
-[Flow] 批量构图: fetched N events for M persons
-[Flow] Stage 5: Search
-[Flow] Stage 6: Dashboard
+[Flow] Stage 3: Single Graph Build
+[Flow] Stage 4: Search First Risk Context
+[Flow] Stage 5: First Risk Evaluation
+[Flow] risk_score > threshold: 执行批量补图 + 二次评估
+[Flow] Stage 6: Batch Graph Build from Stash
+[Flow] Stage 7: Search Second Risk Context + Second Risk Evaluation
+[Flow] Stage 8: Dashboard
 
 [dashboard] 分析结果:
 ======================================================================
