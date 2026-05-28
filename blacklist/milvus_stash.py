@@ -1,4 +1,5 @@
 import hashlib
+import json
 import inspect
 import logging
 import os
@@ -175,7 +176,10 @@ class MilvusStashStore:
 
         rows_by_id = {
             row["event_id"]: row
-            for row in self._query_all()
+            for row in self._query_rows(
+                self._event_id_filter(unique_ids),
+                [*self.OUTPUT_FIELDS, "embedding"],
+            )
             if row.get("event_id") in unique_ids
         }
         rows = []
@@ -194,19 +198,28 @@ class MilvusStashStore:
         self, graph_built_retention_days: int | None = None
     ) -> int:
         now = self._now_fn()
-        rows = self._query_all()
         delete_ids = []
-        retention_cutoff = None
+        expired_rows = self._query_rows(
+            f"expire_at <= {self._quote_literal(now.isoformat())}",
+            ["event_id"],
+        )
+        delete_ids.extend(
+            row["event_id"] for row in expired_rows if row.get("event_id")
+        )
         if graph_built_retention_days is not None:
             retention_cutoff = now - timedelta(days=graph_built_retention_days)
-
-        for row in rows:
-            if self._parse_dt(row.get("expire_at")) <= now:
-                delete_ids.append(row["event_id"])
-                continue
-            if retention_cutoff is not None and row.get("is_graph_built"):
-                if self._parse_dt(row.get("created_at")) <= retention_cutoff:
-                    delete_ids.append(row["event_id"])
+            built_rows = self._query_rows(
+                " and ".join(
+                    [
+                        "is_graph_built == true",
+                        f"created_at <= {self._quote_literal(retention_cutoff.isoformat())}",
+                    ]
+                ),
+                ["event_id"],
+            )
+            delete_ids.extend(
+                row["event_id"] for row in built_rows if row.get("event_id")
+            )
 
         if not delete_ids:
             return 0
@@ -217,16 +230,16 @@ class MilvusStashStore:
         return int(result.get("delete_count", len(delete_ids)))
 
     def _eligible_rows(self, current_event_id: str, now: datetime) -> list[dict]:
-        rows = []
-        for row in self._query_all():
-            if row.get("event_id") == current_event_id:
-                continue
-            if row.get("is_graph_built"):
-                continue
-            if self._parse_dt(row.get("expire_at")) <= now:
-                continue
-            rows.append(row)
-        return rows
+        return self._query_rows(
+            " and ".join(
+                [
+                    "is_graph_built == false",
+                    f"expire_at > {self._quote_literal(now.isoformat())}",
+                    f"event_id != {self._quote_literal(current_event_id)}",
+                ]
+            ),
+            self.OUTPUT_FIELDS,
+        )
 
     def _person_matches(
         self,
@@ -282,12 +295,20 @@ class MilvusStashStore:
             rows.append(entity)
         return rows
 
-    def _query_all(self) -> list[dict]:
+    def _query_rows(
+        self,
+        filter_expr: str,
+        output_fields: list[str],
+        limit: int | None = None,
+    ) -> list[dict]:
+        if not filter_expr or not filter_expr.strip():
+            raise ValueError("query filter must be non-empty")
         self._ensure_collection()
         return self._client.query(
             collection_name=self._collection_name,
-            filter="",
-            output_fields=[*self.OUTPUT_FIELDS, "embedding"],
+            filter=filter_expr,
+            output_fields=output_fields,
+            limit=limit,
         )
 
     def _ensure_collection(self) -> None:
@@ -337,3 +358,7 @@ class MilvusStashStore:
     def _event_id_filter(event_ids: list[str]) -> str:
         quoted = ", ".join(f'"{event_id}"' for event_id in event_ids)
         return f"event_id in [{quoted}]"
+
+    @staticmethod
+    def _quote_literal(value: str) -> str:
+        return json.dumps(value)

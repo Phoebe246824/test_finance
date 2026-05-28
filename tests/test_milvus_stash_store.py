@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 
 import pytest
 
@@ -7,9 +8,11 @@ from models import EventSource, NormalizedEvent
 
 
 class FakeMilvusClient:
-    def __init__(self):
+    def __init__(self, reject_empty_query_without_limit: bool = False):
         self.rows: dict[str, dict] = {}
         self.created_collections: list[dict] = []
+        self.query_calls: list[dict] = []
+        self.reject_empty_query_without_limit = reject_empty_query_without_limit
 
     def has_collection(self, collection_name: str) -> bool:
         return bool(self.created_collections)
@@ -35,9 +38,55 @@ class FakeMilvusClient:
         output_fields: list[str],
         limit: int | None = None,
     ) -> list[dict]:
+        self.query_calls.append(
+            {
+                "collection_name": collection_name,
+                "filter": filter,
+                "output_fields": output_fields,
+                "limit": limit,
+            }
+        )
+        if self.reject_empty_query_without_limit and filter == "" and limit is None:
+            raise RuntimeError("empty expression should be used with limit")
+
+        event_ids = None
+        if filter.startswith("event_id in ["):
+            event_ids = [
+                item.strip().strip('"').strip("'")
+                for item in filter.split("[", 1)[1].split("]", 1)[0].split(",")
+                if item.strip()
+            ]
+
+        is_built = None
+        if "is_graph_built == false" in filter:
+            is_built = False
+        elif "is_graph_built == true" in filter:
+            is_built = True
+
+        expire_gt = None
+        expire_lte = None
+        if "expire_at > " in filter:
+            expire_gt = self._extract_quoted_value(filter, "expire_at > ")
+        if "expire_at <= " in filter:
+            expire_lte = self._extract_quoted_value(filter, "expire_at <= ")
+        created_lte = None
+        if "created_at <= " in filter:
+            created_lte = self._extract_quoted_value(filter, "created_at <= ")
+        excluded_event_id = None
+        if "event_id != " in filter:
+            excluded_event_id = self._extract_quoted_value(filter, "event_id != ")
+
         rows = [
             {field: row.get(field) for field in output_fields}
             for row in self.rows.values()
+            if (
+                (event_ids is None or row["event_id"] in event_ids)
+                and (excluded_event_id is None or row["event_id"] != excluded_event_id)
+                and (is_built is None or row.get("is_graph_built") is is_built)
+                and (expire_gt is None or row.get("expire_at", "") > expire_gt)
+                and (expire_lte is None or row.get("expire_at", "") <= expire_lte)
+                and (created_lte is None or row.get("created_at", "") <= created_lte)
+            )
         ]
         return rows[:limit] if limit is not None else rows
 
@@ -79,6 +128,14 @@ class FakeMilvusClient:
                 del self.rows[event_id]
                 deleted += 1
         return {"delete_count": deleted}
+
+    @staticmethod
+    def _extract_quoted_value(filter_expr: str, prefix: str) -> str:
+        remainder = filter_expr.split(prefix, 1)[1].strip()
+        if remainder[0] in {'"', "'"}:
+            quote = remainder[0]
+            return remainder[1:].split(quote, 1)[0]
+        return remainder.split(" ", 1)[0]
 
 
 def fake_embed(text: str) -> list[float]:
@@ -227,3 +284,54 @@ async def test_mark_events_graph_built_prevents_future_recall(store, now):
     )
 
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_mark_events_graph_built_queries_by_event_id_without_full_scan(now):
+    client = FakeMilvusClient(reject_empty_query_without_limit=True)
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    await store.stash_event(make_event("E001", "alpha same person", now), ["P01"])
+    await store.stash_event(make_event("E002", "beta other person", now), ["P02"])
+
+    marked_count = await store.mark_events_graph_built(["E001"])
+
+    assert marked_count == 1
+    assert client.rows["E001"]["is_graph_built"] is True
+    assert client.rows["E002"]["is_graph_built"] is False
+    assert client.query_calls[-1]["filter"] == 'event_id in ["E001"]'
+    assert client.query_calls[-1]["limit"] is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_expired_uses_filtered_queries_without_full_scan(now):
+    client = FakeMilvusClient(reject_empty_query_without_limit=True)
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    await store.stash_event(
+        make_event("EXPIRED", "alpha expired", now - timedelta(days=40)), ["P01"]
+    )
+    await store.stash_event(
+        make_event("BUILT", "alpha built", now - timedelta(days=10)), ["P01"]
+    )
+    await store.mark_events_graph_built(["BUILT"])
+    await store.stash_event(make_event("VALID", "alpha valid", now), ["P01"])
+
+    deleted = await store.cleanup_expired(graph_built_retention_days=7)
+
+    assert deleted == 2
+    assert "EXPIRED" not in client.rows
+    assert "BUILT" not in client.rows
+    assert "VALID" in client.rows
+    assert client.query_calls[-2]["filter"] == 'expire_at <= "2026-05-26T12:00:00"'
+    assert client.query_calls[-1]["filter"] == (
+        'is_graph_built == true and created_at <= "2026-05-19T12:00:00"'
+    )
