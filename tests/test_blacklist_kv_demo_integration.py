@@ -14,10 +14,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
 async def test_blacklist_kv_demo_database_states():
+    load_dotenv(ROOT / ".env")
+
     if os.getenv("RUN_BLACKLIST_DEMO_INTEGRATION") != "1":
         pytest.skip("set RUN_BLACKLIST_DEMO_INTEGRATION=1 to run live blacklist demo integration test")
-
-    load_dotenv(ROOT / ".env")
     await reset_blacklist_main()
 
     import main as sentinel_main
