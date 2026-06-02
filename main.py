@@ -1293,6 +1293,77 @@ class SentinelPipelineFlow(Flow):
         print_info("Pipeline 消息处理完成")
 
 
+async def process_message(message: str, config: dict | None = None) -> None:
+    """Process one user message through the same path used by the CLI loop."""
+    if config is None:
+        config = load_config()
+
+    logger = get_logger("main.flow")
+    logger.info("user input: %s", message)
+
+    payload = {"data": message}
+    normalized_event = await normalize_payload_to_event(payload, config)
+    logger.info(
+        "normalized event: event_id=%s, source=%s",
+        normalized_event.event_id,
+        normalized_event.source,
+    )
+
+    # 黑名单过滤 + Milvus 暂存
+    blacklist_redis_client: Redis | None = None
+    try:
+        blacklist_redis_client = Redis(
+            host=config["redis"]["host"],
+            port=config["redis"]["port"],
+            password=config["redis"]["password"] or None,
+            db=config["redis"]["blacklist_db"],
+            decode_responses=False,
+        )
+
+        store = BlacklistStore(blacklist_redis_client)
+        stash_store = MilvusStashStore.from_config(config)
+        bl_filter = BlacklistFilter(store)
+
+        id_numbers = extract_person_id_numbers(normalized_event.raw_content)
+        (
+            should_proceed,
+            matched_persons,
+            matched_keywords,
+            event_hit,
+        ) = await bl_filter.check(normalized_event)
+
+        if not should_proceed:
+            await stash_store.stash_event(normalized_event, id_numbers or [])
+            print_info("事件未命中黑名单，已暂存到 Milvus")
+            return
+
+        for pid in matched_persons:
+            await store.append_person(pid)
+        for keyword in matched_keywords:
+            await store.append_keyword(keyword)
+        if event_hit:
+            await store.append_event(
+                normalized_event.event_id,
+                normalized_event.summary or normalized_event.raw_content[:200],
+            )
+
+        print_info("消息处理开始")
+        flow = SentinelPipelineFlow(
+            config,
+            normalized_event,
+            None,
+            store,
+            stash_store,
+            id_numbers,
+        )
+        await flow.kickoff_async()
+        print_info("消息处理完成")
+
+    finally:
+        if blacklist_redis_client is not None:
+            await blacklist_redis_client.aclose()
+
+
 async def run_flow(config: dict):
     """
     使用 CrewAI Flow 运行完整 Pipeline
@@ -1317,70 +1388,7 @@ async def run_flow(config: dict):
                 print("退出程序")
                 break
 
-            logger = get_logger("main.flow")
-            logger.info("user input: %s", user_input)
-
-            payload = {"data": user_input}
-            normalized_event = await normalize_payload_to_event(payload, config)
-            logger.info(
-                "normalized event: event_id=%s, source=%s",
-                normalized_event.event_id,
-                normalized_event.source,
-            )
-
-            # 黑名单过滤 + Milvus 暂存
-            blacklist_redis_client: Redis | None = None
-            try:
-                blacklist_redis_client = Redis(
-                    host=config["redis"]["host"],
-                    port=config["redis"]["port"],
-                    password=config["redis"]["password"] or None,
-                    db=config["redis"]["blacklist_db"],
-                    decode_responses=False,
-                )
-
-                store = BlacklistStore(blacklist_redis_client)
-                stash_store = MilvusStashStore.from_config(config)
-                bl_filter = BlacklistFilter(store)
-
-                id_numbers = extract_person_id_numbers(normalized_event.raw_content)
-                (
-                    should_proceed,
-                    matched_persons,
-                    matched_keywords,
-                    event_hit,
-                ) = await bl_filter.check(normalized_event)
-
-                if not should_proceed:
-                    await stash_store.stash_event(normalized_event, id_numbers or [])
-                    print_info("事件未命中黑名单，已暂存到 Milvus")
-                    continue
-
-                for pid in matched_persons:
-                    await store.append_person(pid)
-                for keyword in matched_keywords:
-                    await store.append_keyword(keyword)
-                if event_hit:
-                    await store.append_event(
-                        normalized_event.event_id,
-                        normalized_event.summary or normalized_event.raw_content[:200],
-                    )
-
-                print_info("消息处理开始")
-                flow = SentinelPipelineFlow(
-                    config,
-                    normalized_event,
-                    None,
-                    store,
-                    stash_store,
-                    id_numbers,
-                )
-                await flow.kickoff_async()
-                print_info("消息处理完成")
-
-            finally:
-                if blacklist_redis_client is not None:
-                    await blacklist_redis_client.aclose()
+            await process_message(user_input, config)
 
         except KeyboardInterrupt:
             print("\n退出程序")
