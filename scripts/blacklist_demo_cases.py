@@ -1,0 +1,124 @@
+"""Shared blacklist/Milvus demo cases and expected database states."""
+
+from __future__ import annotations
+
+from typing import Any
+
+DemoCase = dict[str, Any]
+
+TEST_CASES: list[DemoCase] = [
+    {
+        "id": "case_01_no_person_stash",
+        "title": "1. 无人员、无黑名单命中：应暂存但不关联人员",
+        "text": "2026年5月20日 10:00 AM，【L17# 北京市海淀区】。【C11# 清河街道办事处】公告。【C11# 清河街道办事处】今日启动春季绿化养护周活动，组织社区志愿者对【L17# 北京市海淀区】辖区内12个小区的公共绿植进行修剪和补种。【C11# 清河街道办事处】表示，本次活动共有80余名居民报名参与，预计将持续一周。养护所需的花卉和苗木由【C12# 海淀区园林局】统一调配，居民无需承担费用。",
+        "expect": ["不命中黑名单", "不进入构图", "可写入 Milvus 暂存池但 person_ids 为空"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": [], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_02_single_person_stash",
+        "title": "2. 含机构和地点，但只有一个人员：应只关联人员编号",
+        "text": "2026年5月21日 15:00 PM，【P04# 赵敏】前往【C23# 海淀区行政服务中心】办理业务，随后在【L24# 中关村创业大街】参加公开讲座。活动全程公开有序，未发现异常。",
+        "expect": ["低风险、未命中黑名单", "只应提取人员 P04", "不应把 C23 或 L24 当作人员 ID"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P04"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_03_p01_stash",
+        "title": "3. 单人员、低风险：应写入 Milvus 暂存，不构图",
+        "text": "2026年5月21日 09:30 AM，【P01# 张三】在【L22# 北京市朝阳区】社区花园参加绿植认养活动，并与志愿者一起为新种植的月季浇水。活动由【C21# 朝阳社区服务中心】组织，共有30余名居民参与，现场秩序良好。",
+        "expect": ["未命中黑名单", "写入 Milvus 暂存池", "不进入构图"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P01"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_04_multi_person_stash",
+        "title": "4. 多人员、低风险：应写入 Milvus 并保留多个人员 ID",
+        "text": "2026年5月21日 14:10 PM，【P02# 李四】与【P03# 王五】在【L23# 上海市浦东新区】参加企业公益跑活动，活动由【C22# 浦东青年联合会】发起，现场共有200余人参与，未发生任何异常情况。",
+        "expect": ["未命中黑名单", "写入 Milvus 暂存池并保留 P02、P03", "可用于观察多人员历史事件回捞"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P02", "P03"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_05_keyword_pass",
+        "title": "5. 敏感词命中：应 PASS 进入后续 pipeline",
+        "text": "2026年5月22日 08:45 AM，市场传出某跨境贸易企业因涉嫌违反制裁规定，正在接受相关部门调查。多家合作方已暂停付款结算，内部员工对后续经营风险表示担忧。",
+        "expect": ["命中敏感词 制裁", "blacklist PASS", "进入分类 / 构图 / 风险评估"],
+        "expect_state": {"milvus": {"exists": False}, "neo4j": {"content_count": 1}},
+    },
+    {
+        "id": "case_06_person_blacklist_pass",
+        "title": "6. 人员黑名单命中：应 PASS",
+        "text": "2026年5月22日 11:20 AM，【P05# 孙强】被发现在【L25# 广州市天河区】多次出入不同写字楼，并与多名中介人员频繁接触。现场暂无公开冲突，但相关活动引起周边商户关注。",
+        "expect": ["P05 命中人员黑名单", "blacklist PASS", "进入后续 pipeline"],
+        "expect_state": {"milvus": {"exists": False}, "neo4j": {"content_count": 1}},
+    },
+    {
+        "id": "case_07a_p06_history_1",
+        "title": "7A. 先存历史低风险事件 1",
+        "text": "2026年5月18日 16:00 PM，【P06# 周凯】在【L26# 深圳市南山区】某仓储园区短暂停留后离开，期间与【P07# 陈某】有简短交流。现场未发生冲突，工作人员未报告异常。",
+        "expect": ["若未命中黑名单则暂存", "Milvus 暂存记录包含 P06 和 P07"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P06", "P07"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_07b_p06_history_2",
+        "title": "7B. 先存历史低风险事件 2",
+        "text": "2026年5月19日 18:20 PM，【P06# 周凯】再次出现在【L27# 深圳市宝安区】物流园附近，并与两名陌生男子搬运多个封箱纸箱进入一辆无明显标识的厢式货车，随后离开现场。",
+        "expect": ["继续写入 person:P06", "为后续 7C 回捞做准备"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P06"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_07c_p06_high_risk",
+        "title": "7C. 同一人员高风险触发回捞",
+        "text": "2026年5月22日 21:30 PM，【P06# 周凯】在【L28# 深圳市福田区】地下停车场与他人发生激烈争执，现场发现疑似刀具与可燃液体容器，周边群众报警后迅速疏散。涉事人员行为具有明显危险性，警方已介入处置。",
+        "expect": ["首次风险评估应偏中/高", "从 Milvus 回捞 P06 相关历史事件", "触发批量构图并在成功后标记历史事件已构图"],
+        "expect_state": {
+            "milvus": {"exists": False},
+            "neo4j": {"content_count": 1, "no_duplicate_content": True},
+            "after_case": {
+                "case_07a_p06_history_1": {"milvus": {"is_graph_built": True}, "neo4j": {"content_count": 1}},
+                "case_07b_p06_history_2": {"milvus": {"is_graph_built": True}, "neo4j": {"content_count": 1}},
+            },
+        },
+    },
+    {
+        "id": "case_08a_multi_history_1",
+        "title": "8A. 多人员历史事件 1",
+        "text": "2026年5月20日 09:10 AM，【P08# 刘波】与【P09# 马会】共同出现在【L29# 武汉市洪山区】某废弃厂房周边，二人停留约二十分钟后分别离开，未见明显异常。",
+        "expect": ["Milvus 暂存记录包含 P08 和 P09"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P08", "P09"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_08b_multi_history_2",
+        "title": "8B. 多人员历史事件 2",
+        "text": "2026年5月21日 19:50 PM，【P08# 刘波】向【P09# 马会】发送多条加密聊天信息，随后两人分别前往【L30# 武汉市江夏区】同一停车场会合，停留时间较长。",
+        "expect": ["继续暂存并关联 P08 和 P09"],
+        "expect_state": {"milvus": {"exists": True, "person_ids": ["P08", "P09"], "is_graph_built": False}, "neo4j": {"content_count": 0}},
+    },
+    {
+        "id": "case_08c_multi_high_risk",
+        "title": "8C. 多人员高风险触发，观察重复回捞",
+        "text": "2026年5月22日 23:15 PM，【P08# 刘波】与【P09# 马会】在【L31# 武汉市汉阳区】一处临时仓库内被发现大量危险化学品和疑似自制爆炸装置材料，现场情况紧急，警方和消防部门已到场处置。",
+        "expect": ["高风险", "同时查询 person:P08 和 person:P09", "观察是否有重复历史事件被取回"],
+        "expect_state": {
+            "milvus": {"exists": False},
+            "neo4j": {"content_count": 1, "no_duplicate_content": True},
+            "after_case": {
+                "case_08a_multi_history_1": {"milvus": {"is_graph_built": True}, "neo4j": {"content_count": 1}},
+                "case_08b_multi_history_2": {"milvus": {"is_graph_built": True}, "neo4j": {"content_count": 1}},
+            },
+        },
+    },
+    {
+        "id": "case_09_similarity_blacklist_pass",
+        "title": "9. 高危事件相似度命中",
+        "text": "2026年5月23日 00:10 AM，【P10# 高林】在【L32# 成都市高新区】地下车库与他人争执，现场发现疑似管制刀具及装有刺激性液体的瓶罐，多名住户紧急报警撤离。",
+        "expect": ["若 reranker 可用，应可能命中高危事件库", "blacklist PASS"],
+        "expect_state": {"neo4j": {"content_count_at_most": 1, "no_duplicate_content": True}},
+    },
+    {
+        "id": "case_10_keyword_no_person_pass",
+        "title": "10. 无人员但命中敏感词：仍应放行",
+        "text": "2026年5月22日 13:40 PM，某工业园区仓库发生爆炸，现场火势迅速蔓延，多辆消防车赶赴处置，周边企业员工已紧急疏散，事故原因仍在调查中。",
+        "expect": ["无 P 前缀人员编号", "命中敏感词 爆炸", "仍应 PASS，不走丢弃路径"],
+        "expect_state": {"milvus": {"exists": False}, "neo4j": {"content_count": 1}},
+    },
+]
+
+CASES_BY_ID: dict[str, DemoCase] = {case["id"]: case for case in TEST_CASES}
