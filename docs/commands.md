@@ -5,7 +5,7 @@
 ### 安装依赖
 
 ```bash
-uv pip install -r requirements.txt
+uv sync --dev
 ```
 
 ### 启动系统
@@ -98,4 +98,4 @@ uv run ruff check --fix .
 uv run mypy . --ignore-missing-imports
 ```
 
-注意：项目根目录没有 `pyproject.toml` 或 `ruff.toml` 配置文件，lint/format 使用 ruff 默认规则。mypy 缓存目录 `.mypy_cache` 已存在，说明之前运行过类型检查。
+注意：项目根目录已有 `pyproject.toml`，依赖通过 `uv sync --dev` 管理。ruff 规则在 `pyproject.toml` 中配置，mypy 缓存目录 `.mypy_cache` 已存在，说明之前运行过类型检查。

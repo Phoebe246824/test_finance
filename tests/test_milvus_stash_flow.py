@@ -380,3 +380,64 @@ async def test_second_risk_below_threshold_completes_without_dashboard(
     await flow.kickoff_async()
 
     assert dashboard_calls == []
+
+
+# =====================================================================
+# Regression: graphiti_workflow must be import-safe (no ValueError
+# raised at module level when LLM_API_KEY / Neo4j creds are missing).
+# =====================================================================
+
+
+def test_import_graphiti_workflow_without_llm_key():
+    """`import graphiti.graphiti_workflow` must not raise ValueError
+    when LLM_API_KEY is missing from the environment."""
+    import subprocess
+    import sys
+    import os
+
+    workdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = os.environ.copy()
+    env.pop("LLM_API_KEY", None)
+
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "import os; os.environ.pop('LLM_API_KEY', None); "
+         "import sys; sys.path.insert(0, '.'); "
+         "from graphiti import graphiti_workflow; "
+         'print("IMPORT_OK")'],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=workdir,
+        timeout=15,
+    )
+    assert "IMPORT_OK" in proc.stdout, (
+        f"subprocess stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    )
+    assert proc.returncode == 0
+
+
+@pytest.mark.asyncio
+async def test_init_graph_client_rejects_missing_llm_key(monkeypatch):
+    """init_graph_client() must raise ValueError at runtime when
+    LLM_API_KEY is not set — even though the module imports fine."""
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    # Also remove fallback from module-level constant
+    monkeypatch.setattr("graphiti.graphiti_workflow.LLM_API_KEY", "")
+
+    from graphiti.graphiti_workflow import init_graph_client
+
+    with pytest.raises(ValueError, match="LLM_API_KEY"):
+        await init_graph_client()
+
+
+@pytest.mark.asyncio
+async def test_init_graph_client_rejects_missing_neo4j_creds(monkeypatch):
+    """init_graph_client() must raise ValueError at runtime when
+    NEO4J_URI is missing."""
+    monkeypatch.setattr("graphiti.graphiti_workflow.NEO4J_URI", "")
+
+    from graphiti.graphiti_workflow import init_graph_client
+
+    with pytest.raises(ValueError, match="NEO4J_URI"):
+        await init_graph_client()

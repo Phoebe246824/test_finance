@@ -19,7 +19,7 @@ git clone <repo-url> && cd test_Sentinel
 uv venv
 
 # 3. 安装 Python 依赖
-uv pip install -r requirements.txt
+uv sync --dev
 
 # 4. 配置环境变量
 cp .env.example .env

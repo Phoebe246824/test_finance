@@ -12,3 +12,4 @@ httpx
 redis
 pytest
 pytest-asyncio
+pymilvus

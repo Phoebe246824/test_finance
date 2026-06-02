@@ -43,11 +43,7 @@ RERANKER_API_KEY = os.environ.get("RERANKER_API_KEY") or LLM_API_KEY
 RERANKER_BASE_URL = os.environ.get("RERANKER_BASE_URL") or LLM_BASE_URL
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3"
 
-if not NEO4J_URI or not NEO4J_USER or not NEO4J_PASSWORD:
-    raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set")
-
-if not LLM_API_KEY:
-    raise ValueError("LLM_API_KEY must be set and cannot be empty")
+# Credential validation deferred to init_graph_client() — keeps module import-safe.
 
 
 # ========================
@@ -206,6 +202,13 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     reranker_api_key = reranker_config.get("api_key") or RERANKER_API_KEY
     reranker_base_url = reranker_config.get("base_url") or RERANKER_BASE_URL
     reranker_model = reranker_config.get("model") or RERANKER_MODEL
+
+    # ------- runtime credential validation ------ 
+    if not neo4j_uri or not neo4j_user or not neo4j_password:
+        raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set")
+    if not llm_api_key:
+        raise ValueError("LLM_API_KEY must be set and cannot be empty")
+    # ---------------------------------------------
 
     llm_client = OpenAIGenericClient(
         config=LLMConfig(
