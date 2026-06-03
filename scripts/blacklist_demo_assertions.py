@@ -98,8 +98,12 @@ class MilvusCaseInspector:
         self._store = store or MilvusStashStore()
 
     async def inspect_case(self, case: dict[str, Any]) -> dict[str, Any]:
+        event_id = case.get("event_id")
+        if not event_id:
+            return {"exists": False, "person_ids": [], "is_graph_built": None}
+
         rows = self._store._query_rows(
-            f"raw_content == {self._store._quote_literal(case['text'])}",
+            f'event_id in ["{event_id}"]',
             ["event_id", "person_ids", "is_graph_built"],
         )
         if not rows:
@@ -137,8 +141,9 @@ class Neo4jCaseInspector:
             async with driver.session(database=self._database) as session:
                 result = await session.run(
                     """
-                    MATCH (e:Episodic)
-                    WHERE e.content = $content
+                    MATCH (e)
+                    WHERE coalesce(e.content, '') = $content
+                       OR coalesce(e.raw_content, '') = $content
                     RETURN count(e) AS content_count
                     """,
                     content=case["text"],
