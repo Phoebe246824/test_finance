@@ -70,7 +70,7 @@
                  │          ┌───────────────┴───────────────┐
                  │          │                               │
                  │          ▼                               ▼
-                 │   无回捞事件 fetched=0             有回捞事件 fetched>0
+                 │   无新增补图 batched=0             有新增补图 batched>0
                  │          │                               │
                  │          │                               ▼
                  │          │               ┌──────────────────────────────────────┐
@@ -107,8 +107,8 @@
 8. 若 Stage 5 `score <= threshold`：直接结束流程（不进入 Dashboard）
 9. 若 Stage 5 `score > threshold`：从 Milvus 回捞历史暂存事件候选，并先做相关性准入过滤
 10. Stage 6: 共享人员 ID 的历史事件直接进入批量补图；非同人候选需通过 rerank 阈值过滤；Neo4j 已存在相同 Episode 时跳过重复构图并标记 Milvus `is_graph_built=True`
-11. 若 Stage 6 `fetched_count == 0`：跳过二次检索和二次风险评估，直接进入 Stage 8 Dashboard（保留首次风险评估结果）
-12. 若 Stage 6 `fetched_count > 0`：Stage 7 在补图/去重检查后检索二次风险上下文并执行二次风险评估；即使过滤后没有新增构图，也会继续二次检索和二次评估
+11. 若 Stage 6 `batched_count == 0`：说明没有新增候选真正写入 Neo4j（可能无回捞、全部被 rerank 过滤、或全部已存在 Neo4j），跳过二次检索和二次风险评估，直接进入 Stage 8 Dashboard（保留首次风险评估结果）
+12. 若 Stage 6 `batched_count > 0`：Stage 7 在新增补图后检索二次风险上下文并执行二次风险评估
 13. 若二次评估 `score > threshold`：进入 Stage 8 Dashboard；否则结束流程
 
 **核心组件**:
@@ -223,7 +223,7 @@ uv run uvicorn dashboard:app --reload --port 8000
 
 ### graph_service.py — 知识图谱服务
 
-基于 Graphiti 构建时序知识图谱，将命中黑名单的当前事件先单条入图；若 Neo4j 已存在同文本 Episode，则跳过重复单条构图。若首次风险超阈值，再从 Milvus 回捞历史暂存候选：共享人员 ID 的候选直接补图，非同人候选必须通过 rerank 阈值过滤；已存在 Neo4j 的候选只标记 Milvus 已构图，不重复写图。有回捞候选时基于补图/去重后的上下文执行二次风险评估；无回捞候选时跳过二次检索和二次评估，直接进入 Dashboard。
+基于 Graphiti 构建时序知识图谱，将命中黑名单的当前事件先单条入图；若 Neo4j 已存在同文本 Episode，则跳过重复单条构图。若首次风险超阈值，再从 Milvus 回捞历史暂存候选：共享人员 ID 的候选直接补图，非同人候选必须通过 rerank 阈值过滤；已存在 Neo4j 的候选只标记 Milvus 已构图，不重复写图。只有存在新增候选真正进入批量构图时才执行二次检索和二次风险评估；若无回捞、候选均被过滤、或候选均已存在 Neo4j，则跳过二次流程并直接进入 Dashboard。
 
 **核心功能**:
 - `init_graphiti()`: 初始化 Graphiti 客户端（连接 Neo4j、配置 LLM/Embedder）
@@ -364,8 +364,8 @@ uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 [Flow] Stage 5: First Risk Evaluation
 [Flow] risk_score > threshold: 执行 Milvus 回捞 + 批量补图准入过滤
 [Flow] Stage 6: Batch Graph Build from Stash (共享人员直通；非同人候选 rerank 过滤；Neo4j 已存在则跳过重复构图)
-[Flow] fetched_count == 0: 跳过二次检索/二次评估，直接进入 Stage 8
-[Flow] fetched_count > 0: Stage 7 Search Second Risk Context + Second Risk Evaluation
+[Flow] batched_count == 0: 无新增补图，跳过二次检索/二次评估，直接进入 Stage 8
+[Flow] batched_count > 0: Stage 7 Search Second Risk Context + Second Risk Evaluation
 [Flow] Stage 8: Dashboard
 
 [dashboard] 分析结果:

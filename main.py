@@ -1272,7 +1272,7 @@ async def batch_graph_event_with_related_stash(
                 graphiti, batch_texts, group_id, dry_run
             )
         else:
-            print_info("Milvus 回捞事件均已在 Neo4j 中存在，跳过批量构图")
+            print_info("Milvus 回捞后无新增候选需要批量构图")
             batch_results = []
 
         all_results = [*skipped_irrelevant_results, *skipped_existing_results, *batch_results]
@@ -1492,11 +1492,22 @@ class SentinelPipelineFlow(Flow):
 
         batch_summary = result if isinstance(result, dict) else {}
         fetched_count = int(batch_summary.get("fetched_count") or 0)
-        if fetched_count == 0:
+        eligible_count = int(batch_summary.get("eligible_count") or 0)
+        batched_count = int(batch_summary.get("batched_count") or 0)
+        if batched_count == 0:
             self.state["skip_second_risk"] = True
             self.state["second_risk_context"] = None
-            self._log.info("skip second search/evaluation: fetched_count=0")
-            print_info("Milvus 暂存回捞为空，跳过二次检索和二次风险评估")
+            self._log.info(
+                "skip second search/evaluation: fetched_count=%d, eligible_count=%d, batched_count=0",
+                fetched_count,
+                eligible_count,
+            )
+            if fetched_count == 0:
+                print_info("Milvus 暂存回捞为空，跳过二次检索和二次风险评估")
+            elif eligible_count == 0:
+                print_info("Milvus 回捞候选均未通过过滤，跳过二次检索和二次风险评估")
+            else:
+                print_info("Milvus 回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估")
             return self.state.get("first_risk_context", {})
 
         self.state["skip_second_risk"] = False
