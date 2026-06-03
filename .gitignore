@@ -4,6 +4,7 @@ __pycache__/
 .env
 *.log
 .claude/
+.omo/
 
 # Ignore Docker-related files
 volumes/
