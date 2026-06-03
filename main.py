@@ -963,6 +963,7 @@ async def batch_graph_event_with_related_stash(
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
 ) -> dict:
+    logger = get_logger("main.flow")
     summary = {
         "fetched_count": 0,
         "batched_count": 0,
@@ -980,6 +981,11 @@ async def batch_graph_event_with_related_stash(
         max_per_person=int(stash_config.get("max_per_person", 20)),
     )
     summary["fetched_count"] = len(historical_events)
+    logger.info(
+        "Milvus recall fetched_count=%d event_ids=%s",
+        len(historical_events),
+        [event.get("event_id") for event in historical_events if event.get("event_id")],
+    )
 
     if not historical_events:
         print_info("Milvus 暂存回捞为空，跳过批量构图")
