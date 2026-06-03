@@ -1,6 +1,5 @@
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-import json
 
 import pytest
 
@@ -25,6 +24,9 @@ class FakeMilvusClient:
         return None
 
     def load_collection(self, **kwargs) -> None:
+        return None
+
+    def flush(self, **kwargs) -> None:
         return None
 
     def upsert(self, collection_name: str, data: list[dict]) -> dict:
@@ -139,6 +141,28 @@ class FakeMilvusClient:
         return remainder.split(" ", 1)[0]
 
 
+class FakeEventuallyConsistentMilvusClient(FakeMilvusClient):
+    def __init__(self):
+        super().__init__()
+        self.pending_rows: dict[str, dict] = {}
+        self.flush_calls: list[dict] = []
+
+    def upsert(self, collection_name: str, data: list[dict]) -> dict:
+        del collection_name
+        for row in data:
+            self.pending_rows[row["event_id"]] = dict(row)
+        return {"upsert_count": len(data)}
+
+    def flush(self, **kwargs) -> None:
+        self.flush_calls.append(kwargs)
+        self.rows.update(self.pending_rows)
+        self.pending_rows.clear()
+
+
+class FakeNoFlushMilvusClient(FakeMilvusClient):
+    flush = None
+
+
 def fake_embed(text: str) -> list[float]:
     if "alpha" in text:
         return [1.0, 0.0, 0.0]
@@ -237,6 +261,55 @@ async def test_stash_event_allows_empty_person_ids(store, client, now):
 
 
 @pytest.mark.asyncio
+async def test_stash_event_flushes_before_immediate_inspection(now):
+    client = FakeEventuallyConsistentMilvusClient()
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+
+    await store.stash_event(make_event("E001", "alpha no person", now), [])
+
+    inspector_store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    rows = inspector_store._query_rows(
+        'event_id in ["E001"]',
+        ["event_id", "person_ids", "is_graph_built"],
+    )
+
+    assert rows == [
+        {
+            "event_id": "E001",
+            "person_ids": [],
+            "is_graph_built": False,
+        }
+    ]
+    assert client.flush_calls == [{"collection_name": "stashed_events"}]
+
+
+@pytest.mark.asyncio
+async def test_stash_event_supports_clients_without_flush(now):
+    client = FakeNoFlushMilvusClient()
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+
+    result = await store.stash_event(make_event("E001", "alpha no flush", now), ["P01"])
+
+    assert result == 1
+    assert client.rows["E001"]["person_ids"] == ["P01"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_related_events_returns_union_with_match_sources(
     store, client, now
 ):
@@ -290,6 +363,40 @@ async def test_fetch_related_events_filters_semantic_matches_by_rerank_threshold
     assert [item["event_id"] for item in results] == ["E001"]
     assert results[0]["match_source"] == "semantic_match"
     assert results[0]["semantic_score"] == pytest.approx(0.9)
+
+
+@pytest.mark.asyncio
+async def test_fetch_related_events_keeps_multiple_taxonomy_match_sources(client, now):
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        rerank_fn=build_fake_reranker(
+            {
+                "alpha both": 0.95,
+                "alpha semantic": 0.8,
+                "beta person only": 0.1,
+            }
+        ),
+        semantic_score_threshold=0.5,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    await store.stash_event(make_event("E001", "alpha both", now), ["P01"])
+    await store.stash_event(make_event("E002", "alpha semantic", now), ["P99"])
+    await store.stash_event(make_event("E003", "beta person only", now), ["P01"])
+
+    results = await store.fetch_related_events(
+        make_event("E999", "alpha trigger P01", now),
+        ["P01"],
+        top_k_semantic=3,
+        max_per_person=10,
+    )
+
+    assert [(item["event_id"], item["match_source"]) for item in results] == [
+        ("E001", "both"),
+        ("E003", "person_match"),
+        ("E002", "semantic_match"),
+    ]
 
 
 @pytest.mark.asyncio

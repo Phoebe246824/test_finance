@@ -180,8 +180,32 @@ class MilvusStashStore:
         }
         self._ensure_collection()
         self._client.upsert(collection_name=self._collection_name, data=[row])
+        self._flush_collection_visibility()
         logger.info("stashed event_id=%s to Milvus", event.event_id)
         return 1
+
+    def ensure_collection_ready(self) -> None:
+        self._ensure_collection()
+
+    def query_event_rows(
+        self,
+        event_id: str,
+        output_fields: list[str],
+        *,
+        limit: int | None = None,
+    ) -> list[dict]:
+        return self._query_rows(
+            self._event_id_filter([event_id]),
+            output_fields,
+            limit=limit,
+        )
+
+    def count_rows_for_diagnostics(self, *, limit: int = 10000) -> int | None:
+        try:
+            rows = self._query_rows('event_id != ""', ["event_id"], limit=limit)
+        except Exception:
+            return None
+        return len(rows) if rows else 0
 
     async def fetch_related_events(
         self,
@@ -422,6 +446,12 @@ class MilvusStashStore:
         if load_collection is not None:
             load_collection(collection_name=self._collection_name)
         self._collection_ready = True
+
+    def _flush_collection_visibility(self) -> None:
+        flush = getattr(self._client, "flush", None)
+        if flush is None:
+            return
+        flush(collection_name=self._collection_name)
 
     async def _embed_text(self, text: str) -> list[float]:
         embedding = self._embedding_fn(text)
