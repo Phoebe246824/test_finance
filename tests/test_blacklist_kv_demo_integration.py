@@ -26,10 +26,10 @@ async def test_blacklist_kv_demo_database_states():
     processed_cases = []
     try:
         for case in TEST_CASES:
-            await sentinel_main.process_message(case["text"], config=config)
-            processed_cases.append(case)
+            event_id = await sentinel_main.process_message(case["text"], config=config)
+            processed_cases.append({**case, "event_id": event_id})
             snapshot = await collect_case_state_snapshot(processed_cases)
-            failures = assert_case_state(case, snapshot)
+            failures = assert_case_state(processed_cases[-1], snapshot)
             assert failures == []
     finally:
         close_all_llms = getattr(sentinel_main, "close_all_llms", None)

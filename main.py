@@ -1293,7 +1293,7 @@ class SentinelPipelineFlow(Flow):
         print_info("Pipeline 消息处理完成")
 
 
-async def process_message(message: str, config: dict | None = None) -> None:
+async def process_message(message: str, config: dict | None = None) -> str:
     """Process one user message through the same path used by the CLI loop."""
     if config is None:
         config = load_config()
@@ -1334,8 +1334,9 @@ async def process_message(message: str, config: dict | None = None) -> None:
 
         if not should_proceed:
             await stash_store.stash_event(normalized_event, id_numbers or [])
+            print_info(f"EVENT_ID: {normalized_event.event_id}")
             print_info("事件未命中黑名单，已暂存到 Milvus")
-            return
+            return normalized_event.event_id
 
         for pid in matched_persons:
             await store.append_person(pid)
@@ -1357,7 +1358,9 @@ async def process_message(message: str, config: dict | None = None) -> None:
             id_numbers,
         )
         await flow.kickoff_async()
+        print_info(f"EVENT_ID: {normalized_event.event_id}")
         print_info("消息处理完成")
+        return normalized_event.event_id
 
     finally:
         if blacklist_redis_client is not None:

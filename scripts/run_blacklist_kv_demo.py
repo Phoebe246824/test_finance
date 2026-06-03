@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from scripts.reset_and_seed_blacklist import main as reset_blacklist_main  # noq
 PROMPT_TEXT = "请输入消息内容:"
 WAIT_TIMEOUT_SECONDS = 300
 SHUTDOWN_TIMEOUT_SECONDS = 10
+EVENT_ID_PATTERN = re.compile(r"EVENT_ID:\s*([A-Za-z0-9_-]+)")
 
 
 def print_case(case: dict) -> None:
@@ -56,6 +58,13 @@ async def read_until_prompt(process: asyncio.subprocess.Process, context: str) -
             f"等待输入提示超时: {context}; {WAIT_TIMEOUT_SECONDS}s 内未看到 {PROMPT_TEXT!r}"
         ) from exc
     return "".join(output_parts)
+
+
+def extract_event_id(output: str) -> str | None:
+    matches = EVENT_ID_PATTERN.findall(output)
+    if not matches:
+        return None
+    return matches[-1]
 
 
 async def validate_after_case(case: dict, processed_cases: list[dict]) -> None:
@@ -111,9 +120,9 @@ async def main() -> None:
             print_case(case)
             process.stdin.write((case["text"] + "\n").encode("utf-8"))
             await process.stdin.drain()
-            await read_until_prompt(process, f"case {case['id']}")
-            processed_cases.append(case)
-            await validate_after_case(case, processed_cases)
+            output = await read_until_prompt(process, f"case {case['id']}")
+            processed_cases.append({**case, "event_id": extract_event_id(output)})
+            await validate_after_case(processed_cases[-1], processed_cases)
 
         assert process.stdin is not None
         process.stdin.write(b"exit\n")
