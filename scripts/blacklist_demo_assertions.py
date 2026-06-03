@@ -1,4 +1,4 @@
-"""Reusable database-state assertions for the blacklist demo."""
+"""Reusable database-state assertions and diagnostics for the blacklist demo."""
 
 from __future__ import annotations
 
@@ -7,6 +7,169 @@ from dataclasses import dataclass
 from typing import Any
 
 from blacklist.milvus_stash import MilvusStashStore
+
+
+# ── Diagnostics ──────────────────────────────────────────────────────────
+
+
+@dataclass
+class MilvusDiagnostics:
+    """Structured diagnostics to distinguish failure classes for a missing or inaccessible Milvus row.
+
+    Fields
+    ------
+    connectivity_ok
+        ``True`` if a lightweight Milvus API call (e.g. ``has_collection``) succeeded.
+    collection_exists
+        ``True`` if the stash collection exists in Milvus.
+    collection_name
+        The stash collection name that was checked.
+    queried_event_id
+        The *event_id* that was looked up (may be ``None`` if not provided).
+    row_found
+        ``True`` if at least one row matched *queried_event_id*.
+    row_data
+        The first matching row dict, if any.
+    error_type
+        Canonical failure class string. One of:
+        ``None`` (no error), ``"missing_event_id"``, ``"backend_access_failed"``,
+        ``"collection_not_found"``, ``"row_not_found"``.
+    error_message
+        Human-readable summary of the failure.
+    connection_error
+        Raw exception message from the connectivity check, if any.
+    collection_error
+        Raw exception message from the collection / query step, if any.
+    all_rows_count
+        Total rows in the collection (queried with no filter), or ``None``
+        if the query failed.  Helps distinguish ``collection_not_found``
+        from ``row_not_found`` when the collection exists but is empty.
+    """
+
+    connectivity_ok: bool | None = None
+    collection_exists: bool | None = None
+    collection_name: str | None = None
+    queried_event_id: str | None = None
+    row_found: bool | None = None
+    row_data: dict[str, Any] | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    connection_error: str | None = None
+    collection_error: str | None = None
+    all_rows_count: int | None = None
+
+
+async def diagnose_milvus_failure(
+    store: MilvusStashStore | None = None,
+    event_id: str | None = None,
+) -> MilvusDiagnostics:
+    """Diagnose why a Milvus row is missing or inaccessible.
+
+    Returns a :class:`MilvusDiagnostics` with structured fields that
+    distinguish the following failure classes:
+
+    * ``missing_event_id`` – no *event_id* was provided.
+    * ``backend_access_failed`` – cannot reach the Milvus server at all.
+    * ``collection_not_found`` – connection works but the stash collection
+      does not exist.
+    * ``row_not_found`` – collection exists, connection works, but no
+      row matches *event_id*.
+
+    When *event_id* is ``None`` or the store cannot connect, the returned
+    object's fields reflect exactly where the chain broke.
+
+    Uses the store's canonical collection-read path so the diagnostic probes
+    stay aligned with :class:`MilvusCaseInspector` without reaching into the
+    store's private helpers directly.
+    """
+    store = store or MilvusStashStore()
+    collection_name: str = store._collection_name
+    diag = MilvusDiagnostics(
+        collection_name=collection_name,
+        queried_event_id=event_id,
+    )
+
+    # ---- check 1: event_id present ----------------------------------------
+    if not event_id:
+        diag.error_type = "missing_event_id"
+        diag.error_message = "No event_id provided for diagnosis"
+        return diag
+
+    # ---- check 2: connectivity + collection existence ----------------------
+    try:
+        store.ensure_collection_ready()
+        diag.collection_exists = True
+        diag.connectivity_ok = True
+    except Exception as exc:
+        diag.connectivity_ok = False
+        # Distinguish "Milvus server unreachable" from "collection missing"
+        err_msg = str(exc)
+        if "collection not found" in err_msg.lower() or "not exist" in err_msg.lower():
+            diag.collection_exists = False
+            diag.error_type = "collection_not_found"
+        else:
+            diag.error_type = "backend_access_failed"
+        diag.connection_error = err_msg
+        diag.error_message = f"Milvus connectivity / collection check failed: {exc}"
+        return diag
+
+    # ---- check 3: query for specific event_id via store's own path ---------
+    try:
+        raw_rows = store.query_event_rows(
+            event_id,
+            ["event_id", "person_ids", "is_graph_built", "raw_content"],
+        )
+        if not raw_rows:
+            diag.row_found = False
+            diag.error_type = "row_not_found"
+            diag.all_rows_count = store.count_rows_for_diagnostics()
+            diag.error_message = (
+                f"Collection {collection_name!r} exists with "
+                f"{diag.all_rows_count} total rows, but no row found for "
+                f"event_id={event_id!r}"
+            )
+            return diag
+
+        diag.row_found = True
+        # Use the same dict-shape logic as MilvusCaseInspector.inspect_case
+        first = raw_rows[0]
+        diag.row_data = {
+            "event_id": first.get("event_id"),
+            "person_ids": sorted(first.get("person_ids") or []),
+            "is_graph_built": first.get("is_graph_built"),
+        }
+        diag.error_type = None
+        diag.error_message = None
+    except Exception as exc:
+        err_msg = str(exc)
+        if "collection not found" in err_msg.lower() or "not exist" in err_msg.lower():
+            diag.error_type = "collection_not_found"
+            diag.collection_exists = False
+        else:
+            diag.error_type = "backend_access_failed"
+        diag.collection_error = err_msg
+        diag.error_message = (
+            f"Milvus _query_rows error for event_id={event_id!r}: {err_msg}"
+        )
+        return diag
+
+    return diag
+
+
+CASE_TEXT_PERSISTENCE_QUERY = """
+MATCH (e:Episodic)
+WHERE e.content = $content
+RETURN count(e) AS content_count
+"""
+
+EPISODIC_CONTENT_SCHEMA_QUERY = """
+CALL db.labels() YIELD label
+WITH collect(label) AS labels
+CALL db.propertyKeys() YIELD propertyKey
+WITH labels, collect(propertyKey) AS property_keys
+RETURN 'Episodic' IN labels AS episodic_label_exists,
+       'content' IN property_keys AS content_property_exists
+"""
 
 
 @dataclass(frozen=True)
@@ -102,8 +265,8 @@ class MilvusCaseInspector:
         if not event_id:
             return {"exists": False, "person_ids": [], "is_graph_built": None}
 
-        rows = self._store._query_rows(
-            f'event_id in ["{event_id}"]',
+        rows = self._store.query_event_rows(
+            event_id,
             ["event_id", "person_ids", "is_graph_built"],
         )
         if not rows:
@@ -124,11 +287,13 @@ class Neo4jCaseInspector:
         user: str | None = None,
         password: str | None = None,
         database: str | None = None,
+        driver_factory: Any | None = None,
     ):
         self._uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self._user = user or os.getenv("NEO4J_USER", "neo4j")
         self._password = password or os.getenv("NEO4J_PASSWORD")
         self._database = database or os.getenv("NEO4J_DATABASE")
+        self._driver_factory = driver_factory
 
     async def inspect_case(self, case: dict[str, Any]) -> dict[str, Any]:
         from neo4j import AsyncGraphDatabase
@@ -136,24 +301,30 @@ class Neo4jCaseInspector:
         if not self._password:
             raise RuntimeError("NEO4J_PASSWORD is required for demo state validation")
 
-        driver = AsyncGraphDatabase.driver(self._uri, auth=(self._user, self._password))
+        driver_factory = self._driver_factory or AsyncGraphDatabase.driver
+        driver = driver_factory(self._uri, auth=(self._user, self._password))
         try:
             async with driver.session(database=self._database) as session:
-                result = await session.run(
-                    """
-                    MATCH (e)
-                    WHERE coalesce(e.content, '') = $content
-                       OR coalesce(e.raw_content, '') = $content
-                    RETURN count(e) AS content_count
-                    """,
-                    content=case["text"],
-                )
-                record = await result.single()
-                content_count = int(record["content_count"] if record else 0)
+                schema_result = await session.run(EPISODIC_CONTENT_SCHEMA_QUERY)
+                schema_record = await schema_result.single() or {}
+                episodic_label_exists = bool(schema_record.get("episodic_label_exists"))
+                content_property_exists = bool(schema_record.get("content_property_exists"))
+
+                if episodic_label_exists and content_property_exists:
+                    result = await session.run(
+                        CASE_TEXT_PERSISTENCE_QUERY,
+                        content=case["text"],
+                    )
+                    record = await result.single()
+                    content_count = int(record["content_count"] if record else 0)
+                else:
+                    content_count = 0
         finally:
             await driver.close()
 
         return {
             "content_count": content_count,
             "duplicate_content": content_count > 1,
+            "episodic_label_exists": episodic_label_exists,
+            "content_property_exists": content_property_exists,
         }
