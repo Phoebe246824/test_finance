@@ -180,7 +180,7 @@ class MilvusStashStore:
         }
         self._ensure_collection()
         self._client.upsert(collection_name=self._collection_name, data=[row])
-        self._flush_collection_visibility()
+        self._flush_collection()
         logger.info("stashed event_id=%s to Milvus", event.event_id)
         return 1
 
@@ -268,6 +268,7 @@ class MilvusStashStore:
 
         if rows:
             self._client.upsert(collection_name=self._collection_name, data=rows)
+            self._flush_collection()
         logger.info("marked %d stashed events as graph built", len(rows))
         return len(rows)
 
@@ -447,11 +448,10 @@ class MilvusStashStore:
             load_collection(collection_name=self._collection_name)
         self._collection_ready = True
 
-    def _flush_collection_visibility(self) -> None:
+    def _flush_collection(self) -> None:
         flush = getattr(self._client, "flush", None)
-        if flush is None:
-            return
-        flush(collection_name=self._collection_name)
+        if flush is not None:
+            flush(collection_name=self._collection_name)
 
     async def _embed_text(self, text: str) -> list[float]:
         embedding = self._embedding_fn(text)

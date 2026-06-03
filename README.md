@@ -62,26 +62,32 @@
                  │                       │
                  │                       ▼
                  │         ┌──────────────────────────────────────┐
-                 │         │ Stage 6 批量补图 (Milvus 回捞事件)      │
-                 │         │ 仅补历史暂存事件，不重复当前事件          │
+                 │         │ Stage 6 批量补图 (Milvus 回捞候选)      │
+                 │         │ 共享人员直通；非同人候选需通过 rerank    │
+                 │         │ 已构图 Episode 跳过，避免重复写 Neo4j    │
                  │         └────────────────┬─────────────────────┘
                  │                          │
-                 │                          ▼
-                 │         ┌──────────────────────────────────────┐
-                 │         │ Stage 7 二次风险上下文检索 + 二次评估    │
-                 │         │ (在批量补图后重新检索并评估)             │
-                 │         └────────────────┬─────────────────────┘
-                 │                          │
-                 │              ┌───────────┴───────────┐
-                 │              │                       │
-                 │              ▼                       ▼
-                 │    second_score <= threshold  second_score > threshold
-                 │              │                       │
-                 ▼              ▼                       ▼
-           ┌────────────┐  ┌────────────┐  ┌──────────────────────────────┐
-           │  complete  │  │  complete  │  │ Stage 8 Dashboard            │
-           │  流程结束   │  │  流程结束   │  │ 意图分析 + 趋势预测 (自适应) │
-           └────────────┘  └────────────┘  └──────────────┬───────────────┘
+                 │          ┌───────────────┴───────────────┐
+                 │          │                               │
+                 │          ▼                               ▼
+                 │   无回捞事件 fetched=0             有回捞事件 fetched>0
+                 │          │                               │
+                 │          │                               ▼
+                 │          │               ┌──────────────────────────────────────┐
+                 │          │               │ Stage 7 二次风险上下文检索 + 二次评估    │
+                 │          │               │ (有回捞候选时重新检索并评估)             │
+                 │          │               └────────────────┬─────────────────────┘
+                 │          │                                │
+                 │          │                    ┌───────────┴───────────┐
+                 │          │                    │                       │
+                 │          │                    ▼                       ▼
+                 │          │          second_score <= threshold  second_score > threshold
+                 │          │                    │                       │
+                 ▼          ▼                    ▼                       ▼
+           ┌────────────┐  ┌──────────────────────────────┐  ┌────────────┐  ┌──────────────────────────────┐
+           │  complete  │  │ Stage 8 Dashboard            │  │  complete  │  │ Stage 8 Dashboard            │
+           │  流程结束   │  │ 意图分析 + 趋势预测 (自适应) │  │  流程结束   │  │ 意图分析 + 趋势预测 (自适应) │
+           └────────────┘  └──────────────┬───────────────┘  └────────────┘  └──────────────┬───────────────┘
                                                            │
                                                            ▼
                                                      ┌────────────┐
@@ -99,15 +105,18 @@
 6. Stage 4: 在当前图上检索首次风险上下文
 7. Stage 5: 首次风险评估（使用 Stage 4 上下文）
 8. 若 Stage 5 `score <= threshold`：直接结束流程（不进入 Dashboard）
-9. 若 Stage 5 `score > threshold`：从 Milvus 回捞历史暂存事件并批量补图
-10. Stage 7: 在补图后检索二次风险上下文并执行二次风险评估
-11. 若二次评估 `score > threshold`：进入 Stage 8 Dashboard；否则结束流程
+9. 若 Stage 5 `score > threshold`：从 Milvus 回捞历史暂存事件候选，并先做相关性准入过滤
+10. Stage 6: 共享人员 ID 的历史事件直接进入批量补图；非同人候选需通过 rerank 阈值过滤；Neo4j 已存在相同 Episode 时跳过重复构图并标记 Milvus `is_graph_built=True`
+11. 若 Stage 6 `fetched_count == 0`：跳过二次检索和二次风险评估，直接进入 Stage 8 Dashboard（保留首次风险评估结果）
+12. 若 Stage 6 `fetched_count > 0`：Stage 7 在补图/去重检查后检索二次风险上下文并执行二次风险评估；即使过滤后没有新增构图，也会继续二次检索和二次评估
+13. 若二次评估 `score > threshold`：进入 Stage 8 Dashboard；否则结束流程
 
 **核心组件**:
 - **Redis**: 黑名单存储（人员 / 关键词 / 相似事件）
-- **Milvus**: 未命中事件暂存与同人/语义相关回捞
+- **Milvus**: 未命中事件暂存与同人/语义候选回捞，构图后通过 `is_graph_built` 避免重复回捞
 - **黑名单过滤器**: 人员监控 + 关键词监控 + 相似事件监控
-- **批量构图**: 中/高风险触发，合并历史事件一次性写入图谱
+- **Rerank 过滤**: 对非共享人员 ID 的 Milvus 候选做精排过滤，避免语义粗召回噪声进入批量构图
+- **批量构图**: 中/高风险触发，合并通过准入的历史事件一次性写入图谱，并跳过 Neo4j 已存在 Episode
 
 ## 项目结构
 
@@ -214,7 +223,7 @@ uv run uvicorn dashboard:app --reload --port 8000
 
 ### graph_service.py — 知识图谱服务
 
-基于 Graphiti 构建时序知识图谱，将命中黑名单的当前事件先单条入图；若首次风险超阈值，再从 Milvus 回捞历史暂存事件进行批量补图，并基于补图后的新上下文执行二次风险评估。
+基于 Graphiti 构建时序知识图谱，将命中黑名单的当前事件先单条入图；若 Neo4j 已存在同文本 Episode，则跳过重复单条构图。若首次风险超阈值，再从 Milvus 回捞历史暂存候选：共享人员 ID 的候选直接补图，非同人候选必须通过 rerank 阈值过滤；已存在 Neo4j 的候选只标记 Milvus 已构图，不重复写图。有回捞候选时基于补图/去重后的上下文执行二次风险评估；无回捞候选时跳过二次检索和二次评估，直接进入 Dashboard。
 
 **核心功能**:
 - `init_graphiti()`: 初始化 Graphiti 客户端（连接 Neo4j、配置 LLM/Embedder）
@@ -353,9 +362,10 @@ uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 [Flow] Stage 3: Single Graph Build
 [Flow] Stage 4: Search First Risk Context
 [Flow] Stage 5: First Risk Evaluation
-[Flow] risk_score > threshold: 执行批量补图 + 二次评估
-[Flow] Stage 6: Batch Graph Build from Stash
-[Flow] Stage 7: Search Second Risk Context + Second Risk Evaluation
+[Flow] risk_score > threshold: 执行 Milvus 回捞 + 批量补图准入过滤
+[Flow] Stage 6: Batch Graph Build from Stash (共享人员直通；非同人候选 rerank 过滤；Neo4j 已存在则跳过重复构图)
+[Flow] fetched_count == 0: 跳过二次检索/二次评估，直接进入 Stage 8
+[Flow] fetched_count > 0: Stage 7 Search Second Risk Context + Second Risk Evaluation
 [Flow] Stage 8: Dashboard
 
 [dashboard] 分析结果:

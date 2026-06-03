@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from blacklist.milvus_stash import MilvusStashStore
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 # ── Diagnostics ──────────────────────────────────────────────────────────
@@ -258,7 +263,15 @@ async def collect_case_state_snapshot(
 
 class MilvusCaseInspector:
     def __init__(self, store: MilvusStashStore | None = None):
-        self._store = store or MilvusStashStore()
+        self._store = store or self._create_store_from_env()
+
+    @staticmethod
+    def _create_store_from_env() -> MilvusStashStore:
+        return MilvusStashStore(
+            collection_name=os.getenv("MILVUS_STASH_COLLECTION") or "stashed_events",
+            ttl_days=int(os.getenv("KV_TTL_DAYS") or "90"),
+            embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
+        )
 
     async def inspect_case(self, case: dict[str, Any]) -> dict[str, Any]:
         event_id = case.get("event_id")

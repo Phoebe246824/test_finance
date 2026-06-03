@@ -118,6 +118,9 @@ def load_config() -> dict:
             or "stashed_events",
             "stash_ttl_days": int(os.getenv("KV_TTL_DAYS") or "90"),
             "semantic_top_k": int(os.getenv("STASH_SEMANTIC_TOP_K") or "10"),
+            "rerank_min_score": float(os.getenv("STASH_RERANK_MIN_SCORE") or "0.7"),
+            "rerank_enabled": os.getenv("STASH_RERANK_ENABLED", "true").lower()
+            not in ("0", "false", "no"),
             "max_per_person": int(os.getenv("BATCH_MAX_PER_PERSON") or "20"),
             "embedding_dim": int(os.getenv("EMBEDDING_DIM") or "1024"),
         },
@@ -141,6 +144,43 @@ def sanitize_text_input(text: str) -> str:
     for char in zero_width:
         cleaned = cleaned.replace(char, "")
     return "".join(char for char in cleaned if ord(char) >= 32 or char in "\n\r\t")
+
+
+def parse_llm_json_object(raw_output) -> dict:
+    """Parse a JSON object from LLM output, including fenced Markdown JSON."""
+    text = str(raw_output).strip()
+    if not text:
+        raise ValueError("empty LLM output")
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError(f"expected JSON object, got {type(parsed).__name__}")
+    except json.JSONDecodeError:
+        pass
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        fenced_text = "\n".join(lines).strip()
+        if fenced_text:
+            parsed = json.loads(fenced_text)
+            if isinstance(parsed, dict):
+                return parsed
+            raise ValueError(f"expected JSON object, got {type(parsed).__name__}")
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("no JSON object found in LLM output")
+    parsed = json.loads(text[start : end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError(f"expected JSON object, got {type(parsed).__name__}")
+    return parsed
 
 
 # (Ingestion 由外部消息源或用户输入触发，不再使用模拟接入)
@@ -199,8 +239,7 @@ async def classify_event(config: dict, normalized_event: dict) -> dict:
     )
 
     try:
-        result_text = str(result.raw)
-        result_dict = json.loads(result_text)
+        result_dict = parse_llm_json_object(result.raw)
 
         return {
             "event_type": result_dict.get("event_type", "信息传播"),
@@ -286,7 +325,7 @@ async def evaluate_risk(
     )
 
     try:
-        result_dict = json.loads(result.raw)
+        result_dict = parse_llm_json_object(result.raw)
 
         risk_score = result_dict.get("risk_score", 0.5)
         if isinstance(risk_score, str):
@@ -372,7 +411,7 @@ async def second_evaluate_risk(
     )
 
     try:
-        result_dict = json.loads(result.raw)
+        result_dict = parse_llm_json_object(result.raw)
 
         risk_score = result_dict.get("risk_score", 0.5)
         if isinstance(risk_score, str):
@@ -436,6 +475,23 @@ async def get_graphiti_client(config: dict):
     return await init_graph_client(config)
 
 
+async def graph_episode_content_count(graphiti, content: str, group_id: str) -> int:
+    records, _, _ = await graphiti.driver.execute_query(
+        """
+        MATCH (e:Episodic)
+        WHERE e.group_id = $group_id
+          AND (e.content = $content OR e.raw_content = $content)
+        RETURN count(e) AS content_count
+        """,
+        group_id=group_id,
+        content=content,
+        routing_="r",
+    )
+    if not records:
+        return 0
+    return int(records[0].get("content_count", 0))
+
+
 async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
     """
     知识图谱构建：Graphiti Episode 写入 + 实体/关系提取
@@ -471,6 +527,30 @@ async def simulate_graph_build(config: dict, event: NormalizedEvent) -> list:
     timestamp = event.timestamp
 
     try:
+        existing_content_count = await graph_episode_content_count(
+            graphiti, event.raw_content, group_id
+        )
+        if existing_content_count > 0 and not dry_run:
+            print_info("Neo4j 已存在该文本 Episode，跳过单条构图")
+            logger.info(
+                "skip graph write for existing episode: event_id=%s, group_id=%s, content_count=%d",
+                event.event_id,
+                group_id,
+                existing_content_count,
+            )
+            build_results.append(
+                {
+                    "event_id": event.event_id,
+                    "success": True,
+                    "skipped": True,
+                    "skip_reason": "existing_episode_content",
+                    "existing_content_count": existing_content_count,
+                    "entities_extracted": 0,
+                    "relations_created": 0,
+                }
+            )
+            return build_results
+
         result = await add_event_to_graph(
             graphiti=graphiti,
             event_text=event.raw_content,
@@ -923,7 +1003,7 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
 
         result = await crew.kickoff_async()
 
-        result_dict = json.loads(result.raw)
+        result_dict = parse_llm_json_object(result.raw)
         source = result_dict.get("source", "news")
         if isinstance(source, str):
             source = EventSource(source)
@@ -931,7 +1011,7 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
         return NormalizedEvent(
             event_id=str(uuid.uuid4()),
             source=source,
-            raw_content=result_dict.get("raw_content", raw_content),
+            raw_content=raw_content,
             title=result_dict.get("title", ""),
             structured_data=result_dict.get("structured_data", {}),
             timestamp=result_dict.get("timestamp", datetime.now()),
@@ -957,16 +1037,87 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
         )
 
 
+def get_shared_person_ids(
+    historical_event: dict,
+    current_id_numbers: list[str],
+) -> list[str]:
+    current_person_ids = {pid.upper() for pid in current_id_numbers}
+    historical_person_ids = {
+        str(pid).upper() for pid in historical_event.get("person_ids", [])
+    }
+    return sorted(current_person_ids.intersection(historical_person_ids))
+
+
+async def rerank_historical_candidates(
+    query: str,
+    candidates: list[dict],
+    min_score: float,
+) -> dict[str, tuple[bool, str, float]]:
+    if not candidates:
+        return {}
+
+    api_key = os.getenv("RERANKER_API_KEY", "")
+    base_url = os.getenv("RERANKER_BASE_URL", "")
+    model = os.getenv("RERANKER_MODEL", "")
+    if not api_key or not base_url or not model:
+        return {
+            candidate.get("event_id", str(index)): (
+                False,
+                "reranker not configured",
+                0.0,
+            )
+            for index, candidate in enumerate(candidates)
+        }
+
+    import httpx
+
+    documents = [candidate.get("raw_content", "") for candidate in candidates]
+    payload = {
+        "model": model,
+        "query": query,
+        "documents": documents,
+        "top_n": len(documents),
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(
+            f"{base_url.rstrip('/')}/rerank",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    scores_by_index = {
+        int(item.get("index", -1)): float(item.get("relevance_score", 0.0))
+        for item in data.get("results", [])
+        if item.get("index") is not None
+    }
+    results = {}
+    for index, candidate in enumerate(candidates):
+        score = scores_by_index.get(index, 0.0)
+        passed = score >= min_score
+        reason = f"rerank_score={score:.4f} {'>=' if passed else '<'} {min_score:.4f}"
+        results[candidate.get("event_id", str(index))] = (passed, reason, score)
+    return results
+
+
 async def batch_graph_event_with_related_stash(
     config: dict,
     stash_store: MilvusStashStore | None,
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
 ) -> dict:
-    logger = get_logger("main.flow")
+    logger = get_logger("main.graph.batch")
     summary = {
         "fetched_count": 0,
+        "eligible_count": 0,
         "batched_count": 0,
+        "skipped_irrelevant_count": 0,
         "success": True,
         "batch_results": [],
     }
@@ -991,14 +1142,108 @@ async def batch_graph_event_with_related_stash(
         print_info("Milvus 暂存回捞为空，跳过批量构图")
         return summary
 
-    print_info(f"从 Milvus 取回 {len(historical_events)} 条相关事件，执行批量构图")
+    print_info(f"从 Milvus 取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图")
     graphiti = None
     try:
         graphiti = await init_graph_client(config)
         dry_run = config.get("graphiti", {}).get("dry_run", False)
+        group_id = config.get("graphiti", {}).get("episode_source_name", "sentinel")
+
+        rerank_enabled = bool(stash_config.get("rerank_enabled", True))
+        rerank_min_score = float(stash_config.get("rerank_min_score", 0.7))
+        shared_person_events = []
+        rerank_candidate_events = []
+        skipped_irrelevant_results = []
+        for historical_event in historical_events:
+            raw_content = historical_event.get("raw_content", "")
+            if not raw_content:
+                continue
+            shared_person_ids = get_shared_person_ids(historical_event, id_numbers)
+            if shared_person_ids:
+                historical_event["eligibility_reason"] = f"shared_person_ids={shared_person_ids}"
+                shared_person_events.append(historical_event)
+            else:
+                rerank_candidate_events.append(historical_event)
+
+        rerank_results = {}
+        if rerank_candidate_events:
+            if rerank_enabled:
+                rerank_results = await rerank_historical_candidates(
+                    normalized_event.raw_content,
+                    rerank_candidate_events,
+                    rerank_min_score,
+                )
+            else:
+                rerank_results = {
+                    candidate.get("event_id", str(index)): (
+                        False,
+                        "rerank disabled for non-shared-person candidate",
+                        0.0,
+                    )
+                    for index, candidate in enumerate(rerank_candidate_events)
+                }
+
+        eligible_events = list(shared_person_events)
+        for index, historical_event in enumerate(rerank_candidate_events):
+            event_id = historical_event.get("event_id", str(index))
+            passed, reason, score = rerank_results.get(
+                event_id,
+                (False, "missing rerank result", 0.0),
+            )
+            historical_event["rerank_score"] = score
+            historical_event["eligibility_reason"] = reason
+            if passed:
+                eligible_events.append(historical_event)
+                continue
+            skipped_irrelevant_results.append(
+                {
+                    "event_id": historical_event.get("event_id"),
+                    "success": True,
+                    "skipped": True,
+                    "skip_reason": "rerank_filtered_candidate",
+                    "reason": reason,
+                    "match_source": historical_event.get("match_source"),
+                    "semantic_score": historical_event.get("semantic_score"),
+                    "rerank_score": score,
+                }
+            )
+            logger.info(
+                "skip Milvus candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
+                historical_event.get("event_id"),
+                reason,
+                historical_event.get("match_source"),
+                historical_event.get("semantic_score"),
+                score,
+            )
 
         batch_texts = []
-        for historical_event in historical_events:
+        events_to_graph = []
+        skipped_existing_results = []
+        skipped_existing_event_ids = []
+        for historical_event in eligible_events:
+            raw_content = historical_event.get("raw_content", "")
+            existing_content_count = 0
+            if not dry_run:
+                existing_content_count = await graph_episode_content_count(
+                    graphiti, raw_content, group_id
+                )
+            if existing_content_count > 0:
+                event_id = historical_event.get("event_id")
+                if event_id:
+                    skipped_existing_event_ids.append(event_id)
+                skipped_existing_results.append(
+                    {
+                        "event_id": event_id,
+                        "success": True,
+                        "skipped": True,
+                        "skip_reason": "existing_episode_content",
+                        "existing_content_count": existing_content_count,
+                        "entities_extracted": 0,
+                        "relations_created": 0,
+                    }
+                )
+                continue
+
             reference_time = historical_event.get("created_at") or historical_event.get(
                 "timestamp", datetime.now()
             )
@@ -1006,34 +1251,58 @@ async def batch_graph_event_with_related_stash(
                 reference_time = datetime.fromisoformat(reference_time)
             batch_texts.append(
                 {
-                    "text": historical_event.get("raw_content", ""),
+                    "text": raw_content,
                     "reference_time": reference_time,
                 }
             )
+            events_to_graph.append(historical_event)
 
-        group_id = config.get("graphiti", {}).get("episode_source_name", "sentinel")
-        batch_results = await batch_add_to_graph(
-            graphiti, batch_texts, group_id, dry_run
-        )
-        summary["batch_results"] = batch_results
+        if skipped_irrelevant_results:
+            print_info(
+                f"Milvus 回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
+            )
+        if skipped_existing_results:
+            print_info(
+                f"Milvus 回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
+            )
+
+        if batch_texts:
+            print_info(f"{len(batch_texts)} 条历史事件需要执行批量构图")
+            batch_results = await batch_add_to_graph(
+                graphiti, batch_texts, group_id, dry_run
+            )
+        else:
+            print_info("Milvus 回捞事件均已在 Neo4j 中存在，跳过批量构图")
+            batch_results = []
+
+        all_results = [*skipped_irrelevant_results, *skipped_existing_results, *batch_results]
+        summary["batch_results"] = all_results
+        summary["eligible_count"] = len(eligible_events)
         summary["batched_count"] = len(batch_texts)
+        summary["skipped_irrelevant_count"] = len(skipped_irrelevant_results)
+        summary["skipped_existing_count"] = len(skipped_existing_results)
 
-        all_success = all(r.get("success", True) for r in batch_results)
+        all_success = all(r.get("success", True) for r in [*skipped_existing_results, *batch_results])
         summary["success"] = all_success
         if all_success:
             consumed_event_ids = [
                 event["event_id"]
-                for event in historical_events
+                for event in events_to_graph
                 if event.get("event_id")
             ]
+            consumed_event_ids.extend(skipped_existing_event_ids)
             await stash_store.mark_events_graph_built(consumed_event_ids)
-            print_info("批量构图完成，已标记 Milvus 暂存事件为已构图")
+            print_info("批量构图/跳过检查完成，已标记相关 Milvus 暂存事件为已构图")
         else:
-            failed = sum(1 for r in batch_results if not r.get("success", True))
+            failed = sum(1 for r in all_results if not r.get("success", True))
             print_info(
-                f"批量构图部分失败 ({failed}/{len(batch_results)})，Milvus 暂存保留待重试"
+                f"批量构图部分失败 ({failed}/{len(all_results)})，Milvus 暂存保留待重试"
             )
         return summary
+    except Exception as e:
+        print_error(f"批量补图失败: {type(e).__name__}: {e}")
+        logger.error("batch graph from stash failed: %s", e, exc_info=True)
+        raise
     finally:
         if graphiti is not None:
             await close_graph_client(graphiti)
@@ -1220,6 +1489,17 @@ class SentinelPipelineFlow(Flow):
         if event is None:
             self.state["second_risk_context"] = {}
             return {}
+
+        batch_summary = result if isinstance(result, dict) else {}
+        fetched_count = int(batch_summary.get("fetched_count") or 0)
+        if fetched_count == 0:
+            self.state["skip_second_risk"] = True
+            self.state["second_risk_context"] = None
+            self._log.info("skip second search/evaluation: fetched_count=0")
+            print_info("Milvus 暂存回捞为空，跳过二次检索和二次风险评估")
+            return self.state.get("first_risk_context", {})
+
+        self.state["skip_second_risk"] = False
         risk_num_results = int(
             self.config.get("search", {}).get("risk_num_results", 20)
         )
@@ -1237,6 +1517,9 @@ class SentinelPipelineFlow(Flow):
         self._log.info("=" * 60)
         if event is None:
             return result
+        if self.state.get("skip_second_risk"):
+            self._log.info("skip second risk evaluation, keep first risk result")
+            return self.state.get("first_risk_context", {})
         context = self.state.get("second_risk_context", {})
         risk_result = await second_evaluate_risk(self.config, event, context)
         self.normalized_event.risk_level = risk_result["risk_level"]
