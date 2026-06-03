@@ -1,6 +1,6 @@
 import hashlib
-import json
 import inspect
+import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -12,6 +12,7 @@ from models import NormalizedEvent
 logger = logging.getLogger(__name__)
 
 EmbeddingFn = Callable[[str], list[float] | Awaitable[list[float]]]
+RerankFn = Callable[[str, list[str]], list[float] | Awaitable[list[float]]]
 NowFn = Callable[[], datetime]
 
 
@@ -41,6 +42,8 @@ class MilvusStashStore:
         client: Any | None = None,
         collection_name: str | None = None,
         embedding_fn: EmbeddingFn | None = None,
+        rerank_fn: RerankFn | None = None,
+        semantic_score_threshold: float | None = None,
         now_fn: NowFn | None = None,
         ttl_days: int | None = None,
         embedding_dim: int | None = None,
@@ -50,9 +53,15 @@ class MilvusStashStore:
             "MILVUS_STASH_COLLECTION", self.DEFAULT_COLLECTION
         )
         self._embedding_fn = embedding_fn or _default_embedding
+        self._rerank_fn = rerank_fn
         self._now_fn = now_fn or datetime.now
         self._ttl_days = ttl_days or int(os.getenv("KV_TTL_DAYS", "90"))
         self._embedding_dim = embedding_dim or int(os.getenv("EMBEDDING_DIM", "1024"))
+        self._semantic_score_threshold = (
+            semantic_score_threshold
+            if semantic_score_threshold is not None
+            else float(os.getenv("SEARCH_MIN_SCORE", "0.0"))
+        )
         self._collection_ready = False
 
     @classmethod
@@ -65,10 +74,15 @@ class MilvusStashStore:
         client = cls._create_client_from_config(milvus_config)
         if embedding_fn is None:
             embedding_fn = cls._create_embedding_fn(config.get("embedder", {}))
+        rerank_fn = cls._create_rerank_fn(config.get("reranker", {}))
         return cls(
             client=client,
             collection_name=milvus_config.get("stash_collection"),
             embedding_fn=embedding_fn,
+            rerank_fn=rerank_fn,
+            semantic_score_threshold=float(
+                config.get("search", {}).get("min_score", 0.0)
+            ),
             ttl_days=int(milvus_config.get("stash_ttl_days") or 90),
             embedding_dim=int(milvus_config.get("embedding_dim") or 1024),
         )
@@ -93,6 +107,45 @@ class MilvusStashStore:
             "token": os.getenv("MILVUS_TOKEN") or None,
         }
         return MilvusStashStore._create_client_from_config(config)
+
+    @staticmethod
+    def _create_rerank_fn(config: dict) -> RerankFn | None:
+        api_key = config.get("api_key") or os.getenv("RERANKER_API_KEY")
+        if not api_key:
+            return None
+
+        base_url = (
+            config.get("base_url")
+            or os.getenv("RERANKER_BASE_URL")
+            or os.getenv("LLM_BASE_URL")
+            or "https://api.openai.com/v1"
+        )
+        model = (
+            config.get("model")
+            or os.getenv("RERANKER_MODEL")
+            or "BAAI/bge-reranker-v2-m3"
+        )
+
+        async def _rerank(query: str, documents: list[str]) -> list[float]:
+            import httpx
+
+            if not documents:
+                return []
+
+            response_json = await MilvusStashStore._post_rerank_request(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                query=query,
+                documents=documents,
+                httpx_module=httpx,
+            )
+            return MilvusStashStore._extract_rerank_scores(
+                response_json=response_json,
+                document_count=len(documents),
+            )
+
+        return _rerank
 
     @staticmethod
     def _create_client_from_config(config: dict) -> Any:
@@ -293,7 +346,41 @@ class MilvusStashStore:
             entity["event_id"] = event_id
             entity["semantic_score"] = hit.get("distance", 0.0)
             rows.append(entity)
-        return rows
+        return await self._rerank_semantic_matches(event.raw_content, rows)
+
+    async def _rerank_semantic_matches(
+        self,
+        query: str,
+        rows: list[dict],
+    ) -> list[dict]:
+        if not rows:
+            return []
+        if self._rerank_fn is None:
+            logger.warning(
+                "semantic reranker not configured, keeping Milvus semantic matches without rerank filtering"
+            )
+            return rows
+
+        documents = [str(row.get("raw_content", "")) for row in rows]
+        scores = self._rerank_fn(query, documents)
+        if inspect.isawaitable(scores):
+            scores = await scores
+
+        reranked_rows: list[dict] = []
+        for row, score in zip(rows, scores, strict=False):
+            normalized_score = float(score)
+            if normalized_score < self._semantic_score_threshold:
+                continue
+            reranked_rows.append({**row, "semantic_score": normalized_score})
+
+        reranked_rows.sort(
+            key=lambda item: (
+                item.get("semantic_score", 0.0),
+                item.get("created_at", ""),
+            ),
+            reverse=True,
+        )
+        return reranked_rows
 
     def _query_rows(
         self,
@@ -362,3 +449,51 @@ class MilvusStashStore:
     @staticmethod
     def _quote_literal(value: str) -> str:
         return json.dumps(value)
+
+    @staticmethod
+    async def _post_rerank_request(
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        query: str,
+        documents: list[str],
+        httpx_module: Any,
+    ) -> dict[str, Any]:
+        async with httpx_module.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{base_url.rstrip('/')}/rerank",
+                json={
+                    "model": model,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": len(documents),
+                },
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            response_json = response.json()
+        return response_json if isinstance(response_json, dict) else {}
+
+    @staticmethod
+    def _extract_rerank_scores(
+        *,
+        response_json: dict[str, Any],
+        document_count: int,
+    ) -> list[float]:
+        scored_by_index = [0.0] * document_count
+        results = response_json.get("results", [])
+        if not isinstance(results, list):
+            return scored_by_index
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            index = item.get("index")
+            if not isinstance(index, int) or not 0 <= index < document_count:
+                continue
+            scored_by_index[index] = float(item.get("relevance_score", 0.0))
+        return scored_by_index

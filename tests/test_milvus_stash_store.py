@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 import json
 
@@ -146,6 +147,16 @@ def fake_embed(text: str) -> list[float]:
     return [0.0, 0.0, 1.0]
 
 
+def build_fake_reranker(
+    scores: dict[str, float],
+) -> Callable[[str, list[str]], list[float] | Awaitable[list[float]]]:
+    async def _rerank(query: str, documents: list[str]) -> list[float]:
+        del query
+        return [scores.get(document, 0.0) for document in documents]
+
+    return _rerank
+
+
 @pytest.fixture
 def now() -> datetime:
     return datetime(2026, 5, 26, 12, 0, 0)
@@ -247,6 +258,64 @@ async def test_fetch_related_events_returns_union_with_match_sources(
         "person_match",
         "semantic_match",
     ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_related_events_filters_semantic_matches_by_rerank_threshold(
+    client, now
+):
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        rerank_fn=build_fake_reranker(
+            {
+                "alpha strong semantic": 0.9,
+                "alpha weak semantic": 0.2,
+            }
+        ),
+        semantic_score_threshold=0.5,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    await store.stash_event(make_event("E001", "alpha strong semantic", now), ["P99"])
+    await store.stash_event(make_event("E002", "alpha weak semantic", now), ["P98"])
+
+    results = await store.fetch_related_events(
+        make_event("E999", "alpha trigger", now),
+        [],
+        top_k_semantic=2,
+        max_per_person=10,
+    )
+
+    assert [item["event_id"] for item in results] == ["E001"]
+    assert results[0]["match_source"] == "semantic_match"
+    assert results[0]["semantic_score"] == pytest.approx(0.9)
+
+
+@pytest.mark.asyncio
+async def test_fetch_related_events_keeps_person_matches_when_rerank_below_threshold(
+    client, now
+):
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        rerank_fn=build_fake_reranker({"alpha same person": 0.1}),
+        semantic_score_threshold=0.5,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    await store.stash_event(make_event("E001", "alpha same person", now), ["P01"])
+
+    results = await store.fetch_related_events(
+        make_event("E999", "alpha trigger P01", now),
+        ["P01"],
+        top_k_semantic=1,
+        max_per_person=10,
+    )
+
+    assert [item["event_id"] for item in results] == ["E001"]
+    assert results[0]["match_source"] == "person_match"
+    assert "semantic_score" not in results[0]
 
 
 @pytest.mark.asyncio
