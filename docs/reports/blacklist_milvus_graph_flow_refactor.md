@@ -65,10 +65,10 @@ Milvus 回捞结果现在先作为候选集，不再默认全部批量构图。
 
 首次风险评估超阈值后进入 Stage 6。
 
-- 若 Stage 6 `fetched_count == 0`：跳过二次检索和二次风险评估，保留首次风险评估结果，直接进入 Stage 8 Dashboard。
-- 若 Stage 6 `fetched_count > 0`：继续 Stage 7 二次检索和二次风险评估；即使过滤后没有新增构图，也不跳过二次流程。
+- 若 Stage 6 `batched_count == 0`：没有新增候选真正写入 Neo4j，跳过二次检索和二次风险评估，保留首次风险评估结果，直接进入 Stage 8 Dashboard。
+- 若 Stage 6 `batched_count > 0`：继续 Stage 7 二次检索和二次风险评估。
 
-该行为符合“只有没有回捞数据才跳过二次检索/评估”的预期。
+该行为符合“只有新增补图后才需要二次检索/评估”的预期。
 
 ### 6. 自动回放脚本增强
 
@@ -101,13 +101,13 @@ Milvus 记录不物理删除，而是使用 `is_graph_built` 标记：
 1. 运行语法检查：
 
 ```bash
-python -m py_compile main.py scripts/run_blacklist_kv_demo.py
+uv run python -m py_compile main.py scripts/run_blacklist_kv_demo.py
 ```
 
 2. 运行 demo 回放：
 
 ```bash
-python scripts/run_blacklist_kv_demo.py
+uv run python scripts/run_blacklist_kv_demo.py
 ```
 
 3. 重点检查日志：

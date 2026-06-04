@@ -54,11 +54,13 @@ async def test_batch_graph_marks_only_consumed_stashed_events_on_success(
             {
                 "event_id": "E001",
                 "raw_content": "history one",
+                "person_ids": ["P01"],
                 "created_at": "2026-05-25T12:00:00",
             },
             {
                 "event_id": "E002",
                 "raw_content": "history two",
+                "person_ids": ["P01"],
                 "created_at": "2026-05-24T12:00:00",
             },
         ]
@@ -133,6 +135,7 @@ async def test_batch_graph_keeps_stashed_events_unmarked_on_failure(
             {
                 "event_id": "E001",
                 "raw_content": "history one",
+                "person_ids": ["P01"],
                 "created_at": "2026-05-25T12:00:00",
             }
         ]
