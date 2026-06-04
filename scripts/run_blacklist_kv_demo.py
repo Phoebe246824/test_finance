@@ -379,6 +379,9 @@ async def main() -> int:
         if process is not None:
             _report_child_failure(e, process)
         return 1
+    except AssertionError as e:
+        log_print(f"\n[ERROR] 数据库校验失败: {e}")
+        return 1
     except RuntimeError as e:
         log_print(f"\n[ERROR] 子进程异常退出: {e}")
         return 1
@@ -401,17 +404,25 @@ async def main() -> int:
 def _report_child_failure(err: ReadPromptError, process: asyncio.subprocess.Process) -> None:
     """Print a structured failure report for a subprocess crash / timeout."""
     exit_str = str(err.returncode) if err.returncode is not None else "仍在运行 (timeout)"
-    print("\n" + "!" * 70, file=sys.stderr)
-    print(f"[ERROR] 子进程异常 — {err.reason}", file=sys.stderr)
-    print(f"[ERROR] 上下文: {err.context}", file=sys.stderr)
-    print(f"[ERROR] 子进程状态: {exit_str}", file=sys.stderr)
+    report_lines = [
+        "\n" + "!" * 70,
+        f"[ERROR] 子进程异常 — {err.reason}",
+        f"[ERROR] 上下文: {err.context}",
+        f"[ERROR] 子进程状态: {exit_str}",
+    ]
     if err.accumulated:
         summary = err.accumulated
         if len(summary) > 3000:
             summary = "(最后 3000 字符)\n" + summary[-3000:]
-        print(f"[ERROR] 子进程最后输出 ({len(err.accumulated)} chars):", file=sys.stderr)
-        print(summary, file=sys.stderr)
-    print("!" * 70, file=sys.stderr)
+        report_lines.append(f"[ERROR] 子进程最后输出 ({len(err.accumulated)} chars):")
+        report_lines.append(summary)
+    report_lines.append("!" * 70)
+    report = "\n".join(report_lines) + "\n"
+    print(report, end="", file=sys.stderr)
+    if RUN_LOGGER is not None:
+        RUN_LOGGER.write(report)
+    if CASE_LOGGER is not None:
+        CASE_LOGGER.write(report)
 
 
 if __name__ == "__main__":
