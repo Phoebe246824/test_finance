@@ -52,6 +52,13 @@ class FakeMilvusClient:
         if self.reject_empty_query_without_limit and filter == "" and limit is None:
             raise RuntimeError("empty expression should be used with limit")
 
+        rows = [
+            {field: row.get(field) for field in output_fields}
+            for row in self._filter_rows(filter)
+        ]
+        return rows[:limit] if limit is not None else rows
+
+    def _filter_rows(self, filter: str) -> list[dict]:
         event_ids = None
         if filter.startswith("event_id in ["):
             event_ids = [
@@ -79,8 +86,8 @@ class FakeMilvusClient:
         if "event_id != " in filter:
             excluded_event_id = self._extract_quoted_value(filter, "event_id != ")
 
-        rows = [
-            {field: row.get(field) for field in output_fields}
+        return [
+            row
             for row in self.rows.values()
             if (
                 (event_ids is None or row["event_id"] in event_ids)
@@ -91,7 +98,6 @@ class FakeMilvusClient:
                 and (created_lte is None or row.get("created_at", "") <= created_lte)
             )
         ]
-        return rows[:limit] if limit is not None else rows
 
     def search(
         self,
@@ -107,7 +113,8 @@ class FakeMilvusClient:
         def score(row: dict) -> float:
             return sum(a * b for a, b in zip(query_vector, row["embedding"]))
 
-        ranked = sorted(self.rows.values(), key=score, reverse=True)
+        filtered_rows = self._filter_rows(filter)
+        ranked = sorted(filtered_rows, key=score, reverse=True)
         hits = []
         for row in ranked[:limit]:
             hits.append(
@@ -423,6 +430,30 @@ async def test_fetch_related_events_keeps_person_matches_when_rerank_below_thres
     assert [item["event_id"] for item in results] == ["E001"]
     assert results[0]["match_source"] == "person_match"
     assert "semantic_score" not in results[0]
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_filters_eligible_rows_before_top_k(client, now):
+    store = MilvusStashStore(
+        client=client,
+        embedding_fn=fake_embed,
+        rerank_fn=build_fake_reranker({"beta eligible": 0.9}),
+        semantic_score_threshold=0.5,
+        now_fn=lambda: now,
+        ttl_days=30,
+    )
+    await store.stash_event(make_event("BUILT", "alpha already built", now), ["P99"])
+    await store.mark_events_graph_built(["BUILT"])
+    await store.stash_event(make_event("VALID", "beta eligible", now), ["P98"])
+
+    results = await store.fetch_related_events(
+        make_event("CURRENT", "alpha trigger", now),
+        [],
+        top_k_semantic=1,
+        max_per_person=10,
+    )
+
+    assert [item["event_id"] for item in results] == ["VALID"]
 
 
 @pytest.mark.asyncio

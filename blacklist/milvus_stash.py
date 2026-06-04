@@ -358,7 +358,7 @@ class MilvusStashStore:
             collection_name=self._collection_name,
             data=[await self._embed_text(event.raw_content)],
             anns_field="embedding",
-            filter="",
+            filter=self._event_id_filter(sorted(eligible_event_ids)),
             limit=top_k,
             output_fields=self.OUTPUT_FIELDS,
         )
