@@ -1,5 +1,4 @@
 import asyncio
-
 import pytest
 
 from scripts import run_blacklist_kv_demo as demo
@@ -84,28 +83,81 @@ async def test_main_catches_assertion_failure(monkeypatch, capsys):
     assert prompts_seen == 2
 
 
-def test_child_failure_report_writes_to_configured_logs(tmp_path, capsys):
-    run_log_path = tmp_path / "run.log"
-    case_log_path = tmp_path / "case.log"
-    demo.RUN_LOGGER = demo.DemoRunLogger(run_log_path)
-    demo.CASE_LOGGER = demo.DemoRunLogger(case_log_path)
-    try:
-        err = demo.ReadPromptError(
-            reason="timeout",
-            context="case case_01",
-            accumulated="child output",
-            returncode=None,
-        )
+def test_child_failure_report_prints_child_output_to_stderr(capsys):
+    err = demo.ReadPromptError(
+        reason="timeout",
+        context="case case_01",
+        accumulated="child output",
+        returncode=None,
+    )
 
-        demo._report_child_failure(err, FakeProcess())
-    finally:
-        demo.CASE_LOGGER.close()
-        demo.CASE_LOGGER = None
-        demo.RUN_LOGGER.close()
-        demo.RUN_LOGGER = None
+    demo._report_child_failure(err, FakeProcess())
 
     captured = capsys.readouterr()
     assert "[ERROR] 子进程异常 — timeout" in captured.err
+    assert "[ERROR] 子进程最后输出 (12 chars):" in captured.err
     assert "child output" in captured.err
-    assert "[ERROR] 子进程异常 — timeout" in run_log_path.read_text(encoding="utf-8")
-    assert "child output" in case_log_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_main_launches_child_with_unbuffered_stdout(monkeypatch):
+    fake_process = FakeProcess()
+    launch = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        launch["args"] = args
+        launch["kwargs"] = kwargs
+        return fake_process
+
+    async def fake_read_until_prompt(process, context):
+        if context == "initial startup":
+            raise demo.ReadPromptError(
+                reason="timeout",
+                context=context,
+                accumulated="",
+                returncode=None,
+            )
+        return ""
+
+    monkeypatch.setattr(
+        demo,
+        "TEST_CASES",
+        [{"id": "case_01", "title": "Case", "text": "hello", "expect": []}],
+    )
+    monkeypatch.setattr(
+        demo,
+        "reset_demo_state_preserve_neo4j",
+        lambda: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
+        demo,
+        "collect_neo4j_baseline",
+        lambda cases: asyncio.sleep(0, result={"case_01": 0}),
+    )
+    monkeypatch.setattr(demo, "read_until_prompt", fake_read_until_prompt)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    assert await demo.main() == 1
+
+    assert launch["args"][1] == "-u"
+    assert launch["kwargs"]["env"]["PYTHONUNBUFFERED"] == "1"
+
+
+def test_print_case_writes_details_to_stdout(capsys):
+    demo.print_case(
+        {
+            "title": "Case title",
+            "text": "case body",
+            "expect": ["checkpoint"],
+        }
+    )
+
+    captured = capsys.readouterr()
+    assert "Case title" in captured.out
+    assert "case body" in captured.out
+    assert "checkpoint" in captured.out
+
+
+def test_demo_script_reuses_log_utils_logging():
+    assert not hasattr(demo, "DemoRunLogger")
+    assert demo.get_logger.__module__ == "log_utils"

@@ -4,7 +4,6 @@ import asyncio
 import os
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from blacklist.store import BlacklistStore  # noqa: E402
+from log_utils import get_logger  # noqa: E402
 from scripts.blacklist_demo_cases import TEST_CASES  # noqa: E402
 from scripts.blacklist_demo_assertions import (  # noqa: E402
     Neo4jCaseInspector,
@@ -33,23 +33,13 @@ SHUTDOWN_TIMEOUT_SECONDS = 10
 EVENT_ID_PATTERN = re.compile(r"EVENT_ID:\s*([A-Za-z0-9_-]+)")
 
 
-class DemoRunLogger:
-    def __init__(self, log_path: Path) -> None:
-        self.log_path = log_path
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = self.log_path.open("w", encoding="utf-8")
+DETAIL_LOGGER = get_logger("scripts.blacklist_kv_demo")
 
-    def write(self, text: str) -> None:
-        self._file.write(text)
-        self._file.flush()
 
-    def print(self, *args: object, sep: str = " ", end: str = "\n") -> None:
-        text = sep.join(str(arg) for arg in args) + end
-        print(text, end="")
-        self.write(text)
-
-    def close(self) -> None:
-        self._file.close()
+def log_detail(*args: object, sep: str = " ", end: str = "\n") -> None:
+    text = sep.join(str(arg) for arg in args) + end
+    if text:
+        DETAIL_LOGGER.info("%s", text.rstrip("\n"))
 
 
 class ReadPromptError(Exception):
@@ -72,28 +62,15 @@ class ReadPromptError(Exception):
         super().__init__("; ".join(parts))
 
 
-RUN_LOGGER: DemoRunLogger | None = None
-CASE_LOGGER: DemoRunLogger | None = None
-
-
-def log_print(*args: object, sep: str = " ", end: str = "\n") -> None:
-    text = sep.join(str(arg) for arg in args) + end
-    print(text, end="")
-    if RUN_LOGGER is not None:
-        RUN_LOGGER.write(text)
-    if CASE_LOGGER is not None:
-        CASE_LOGGER.write(text)
-
-
 def print_case(case: dict) -> None:
     separator = "=" * 100
-    log_print(separator)
-    log_print(case["title"])
-    log_print("- 输入文本:")
-    log_print(case["text"])
-    log_print("- 预期检查点:")
+    print(separator)
+    print(case["title"])
+    print("- 输入文本:")
+    print(case["text"])
+    print("- 预期检查点:")
     for item in case["expect"]:
-        log_print(f"  - {item}")
+        print(f"  - {item}")
 
 
 async def read_until_prompt(process: asyncio.subprocess.Process, context: str) -> str:
@@ -113,7 +90,7 @@ async def read_until_prompt(process: asyncio.subprocess.Process, context: str) -
                     )
                     if remaining:
                         text = remaining.decode("utf-8", errors="replace")
-                        log_print(text, end="")
+                        print(text, end="")
                         output_parts.append(text)
                         accumulated += text
                 except (asyncio.TimeoutError, Exception):
@@ -131,7 +108,7 @@ async def read_until_prompt(process: asyncio.subprocess.Process, context: str) -
                     returncode=exit_code,
                 )
             text = chunk.decode("utf-8", errors="replace")
-            log_print(text, end="")
+            print(text, end="")
             output_parts.append(text)
             accumulated += text
             if PROMPT_TEXT in accumulated:
@@ -190,7 +167,7 @@ async def validate_after_case(
 
         if before_count > 0:
             if after_count == before_count:
-                log_print(
+                log_detail(
                     f"- Neo4j baseline 校验通过 [{failure.case_id}]: "
                     f"before={before_count}, after={after_count}，未重复构图"
                 )
@@ -211,20 +188,20 @@ async def validate_after_case(
         filtered_failures.append(failure)
 
     state = snapshot["cases"].get(case["id"], {})
-    log_print("- 数据库状态快照:")
-    log_print(f"  Milvus: {state.get('milvus')}")
-    log_print(f"  Neo4j: {state.get('neo4j')}")
+    log_detail("- 数据库状态快照:")
+    log_detail(f"  Milvus: {state.get('milvus')}")
+    log_detail(f"  Neo4j: {state.get('neo4j')}")
     if filtered_failures or neo4j_duplicate_failures:
-        log_print("- 校验结果: FAIL")
+        log_detail("- 校验结果: FAIL")
         for failure in filtered_failures:
-            log_print(
+            log_detail(
                 f"  [{failure.case_id}] {failure.path}: "
                 f"expected={failure.expected!r}, observed={failure.observed!r}"
             )
         for failure in neo4j_duplicate_failures:
-            log_print(f"  {failure}")
+            log_detail(f"  {failure}")
         raise AssertionError(f"case {case['id']} database validation failed")
-    log_print("- 校验结果: PASS")
+    log_detail("- 校验结果: PASS")
 
 
 async def reset_demo_state_preserve_neo4j() -> None:
@@ -259,14 +236,14 @@ async def reset_demo_state_preserve_neo4j() -> None:
             collection_name=milvus_collection,
         )
 
-        log_print("Reset demo state and seeded blacklist Redis:")
-        log_print("  Neo4j: preserved existing graph nodes")
-        log_print(
+        log_detail("Reset demo state and seeded blacklist Redis:")
+        log_detail("  Neo4j: preserved existing graph nodes")
+        log_detail(
             f"  Blacklist DB ({blacklist_db}): cleared {before_blacklist} keys, "
             f"seeded {len(PERSON_SEEDS)} persons, {len(KEYWORD_SEEDS)} keywords, {len(EVENT_SEEDS)} events"
         )
         milvus_status = "dropped" if dropped_milvus_collection else "not found"
-        log_print(f"  Milvus stash ({milvus_collection}): collection {milvus_status}")
+        log_detail(f"  Milvus stash ({milvus_collection}): collection {milvus_status}")
     finally:
         await redis.aclose()
 
@@ -292,40 +269,34 @@ def reset_milvus_collection(
 
 
 async def main() -> int:
-    global CASE_LOGGER, RUN_LOGGER
-
     logs_dir = ROOT / "logs"
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    demo_log_path = logs_dir / f"blacklist_kv_demo_{run_id}.log"
-    case_log_dir = logs_dir / f"blacklist_kv_demo_cases_{run_id}"
     main_log_dir = logs_dir / "blacklist_kv_demo_main"
-    RUN_LOGGER = DemoRunLogger(demo_log_path)
 
     process = None
     try:
-        log_print(f"自动回放总览日志文件: {demo_log_path}")
-        log_print(f"每条测试文本日志目录: {case_log_dir}")
-        log_print(f"main.py 流程日志目录: {main_log_dir}")
-        log_print("[1/3] 保留 Neo4j，重置 Redis、Milvus 并预置黑名单测试数据...\n")
+        print(f"main.py 流程日志目录: {main_log_dir}")
+        print("[1/3] 保留 Neo4j，重置 Redis、Milvus 并预置黑名单测试数据...\n")
         await reset_demo_state_preserve_neo4j()
 
-        log_print("\n[2/3] 输出本次自动回放的测试数据与检查点\n")
+        print("\n[2/3] 输出本次自动回放的测试数据与检查点\n")
         for case in TEST_CASES:
             print_case(case)
 
-        log_print("\n记录 Neo4j 运行前 baseline，用于判断是否新增重复构图\n")
+        print("\n记录 Neo4j 运行前 baseline，用于判断是否新增重复构图\n")
         neo4j_baseline = await collect_neo4j_baseline(TEST_CASES)
         for case in TEST_CASES:
-            log_print(
+            log_detail(
                 f"  [{case['id']}] neo4j.content_count.before={neo4j_baseline[case['id']]}"
             )
 
-        log_print("\n[3/3] 启动 main.py 并按顺序自动写入测试数据\n")
+        print("\n[3/3] 启动 main.py 并按顺序自动写入测试数据\n")
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUNBUFFERED", "1")
 
         process = await asyncio.create_subprocess_exec(
             sys.executable,
+            "-u",
             str(ROOT / "main.py"),
             "--log-dir",
             str(main_log_dir),
@@ -344,20 +315,14 @@ async def main() -> int:
         processed_cases: list[dict] = []
         for index, case in enumerate(TEST_CASES, start=1):
             assert process.stdin is not None
-            case_log_path = case_log_dir / f"{index:02d}_{case['id']}.log"
-            CASE_LOGGER = DemoRunLogger(case_log_path)
-            try:
-                log_print(f"单条测试文本日志文件: {case_log_path}")
-                print_case(case)
-                process.stdin.write((case["text"] + "\n").encode("utf-8"))
-                await process.stdin.drain()
-                output = await read_until_prompt(process, f"case {case['id']}")
-                processed_case = {**case, "event_id": extract_event_id(output)}
-                processed_cases.append(processed_case)
-                await validate_after_case(processed_case, processed_cases, neo4j_baseline)
-            finally:
-                CASE_LOGGER.close()
-                CASE_LOGGER = None
+            print(f"[{index}/{len(TEST_CASES)}] 运行 {case['id']}")
+            print_case(case)
+            process.stdin.write((case["text"] + "\n").encode("utf-8"))
+            await process.stdin.drain()
+            output = await read_until_prompt(process, f"case {case['id']}")
+            processed_case = {**case, "event_id": extract_event_id(output)}
+            processed_cases.append(processed_case)
+            await validate_after_case(processed_case, processed_cases, neo4j_baseline)
 
         assert process.stdin is not None
         process.stdin.write(b"exit\n")
@@ -368,22 +333,19 @@ async def main() -> int:
         if returncode != 0:
             raise RuntimeError(f"main.py exited with code {returncode}")
 
-        log_print("=" * 100)
-        log_print("自动回放完成，请结合日志与 Redis 检查结果")
-        log_print(f"自动回放总览日志文件: {demo_log_path}")
-        log_print(f"每条测试文本日志目录: {case_log_dir}")
-        log_print(f"main.py 流程日志目录: {main_log_dir}")
-        log_print("=" * 100)
+        print("=" * 100)
+        print("自动回放完成，请结合日志与 Redis 检查结果")
+        print("=" * 100)
         return 0
     except ReadPromptError as e:
         if process is not None:
             _report_child_failure(e, process)
         return 1
     except AssertionError as e:
-        log_print(f"\n[ERROR] 数据库校验失败: {e}")
+        print(f"\n[ERROR] 数据库校验失败: {e}")
         return 1
     except RuntimeError as e:
-        log_print(f"\n[ERROR] 子进程异常退出: {e}")
+        print(f"\n[ERROR] 子进程异常退出: {e}")
         return 1
     finally:
         if process is not None and process.returncode is None:
@@ -393,12 +355,6 @@ async def main() -> int:
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
-        if CASE_LOGGER is not None:
-            CASE_LOGGER.close()
-            CASE_LOGGER = None
-        if RUN_LOGGER is not None:
-            RUN_LOGGER.close()
-            RUN_LOGGER = None
 
 
 def _report_child_failure(err: ReadPromptError, process: asyncio.subprocess.Process) -> None:
@@ -419,10 +375,7 @@ def _report_child_failure(err: ReadPromptError, process: asyncio.subprocess.Proc
     report_lines.append("!" * 70)
     report = "\n".join(report_lines) + "\n"
     print(report, end="", file=sys.stderr)
-    if RUN_LOGGER is not None:
-        RUN_LOGGER.write(report)
-    if CASE_LOGGER is not None:
-        CASE_LOGGER.write(report)
+    DETAIL_LOGGER.error("%s", report.rstrip("\n"))
 
 
 if __name__ == "__main__":
