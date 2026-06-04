@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from blacklist.store import BlacklistStore  # noqa: E402
-from log_utils import get_logger  # noqa: E402
+from log_utils import get_logger, setup_file_logging  # noqa: E402
 from scripts.blacklist_demo_cases import TEST_CASES  # noqa: E402
 from scripts.blacklist_demo_assertions import (  # noqa: E402
     Neo4jCaseInspector,
@@ -270,10 +270,13 @@ def reset_milvus_collection(
 
 async def main() -> int:
     logs_dir = ROOT / "logs"
+    detail_log_dir = logs_dir / "blacklist_kv_demo"
     main_log_dir = logs_dir / "blacklist_kv_demo_main"
+    detail_log_path = setup_file_logging(str(detail_log_dir))
 
     process = None
     try:
+        print(f"自动回放详细日志文件: {detail_log_path}")
         print(f"main.py 流程日志目录: {main_log_dir}")
         print("[1/3] 保留 Neo4j，重置 Redis、Milvus 并预置黑名单测试数据...\n")
         await reset_demo_state_preserve_neo4j()

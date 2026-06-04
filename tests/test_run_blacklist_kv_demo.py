@@ -161,3 +161,52 @@ def test_print_case_writes_details_to_stdout(capsys):
 def test_demo_script_reuses_log_utils_logging():
     assert not hasattr(demo, "DemoRunLogger")
     assert demo.get_logger.__module__ == "log_utils"
+
+
+@pytest.mark.asyncio
+async def test_main_configures_file_logging_for_detail_logs(monkeypatch, tmp_path, capsys):
+    fake_process = FakeProcess()
+    configured_log_dirs = []
+    detail_log_path = tmp_path / "sentinel.log"
+
+    def fake_setup_file_logging(log_dir=None):
+        configured_log_dirs.append(log_dir)
+        return str(detail_log_path)
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        return fake_process
+
+    async def fake_read_until_prompt(process, context):
+        if context == "initial startup":
+            raise demo.ReadPromptError(
+                reason="timeout",
+                context=context,
+                accumulated="",
+                returncode=None,
+            )
+        return ""
+
+    monkeypatch.setattr(demo, "setup_file_logging", fake_setup_file_logging)
+    monkeypatch.setattr(
+        demo,
+        "TEST_CASES",
+        [{"id": "case_01", "title": "Case", "text": "hello", "expect": []}],
+    )
+    monkeypatch.setattr(
+        demo,
+        "reset_demo_state_preserve_neo4j",
+        lambda: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
+        demo,
+        "collect_neo4j_baseline",
+        lambda cases: asyncio.sleep(0, result={"case_01": 0}),
+    )
+    monkeypatch.setattr(demo, "read_until_prompt", fake_read_until_prompt)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    assert await demo.main() == 1
+
+    assert configured_log_dirs == [str(demo.ROOT / "logs" / "blacklist_kv_demo")]
+    captured = capsys.readouterr()
+    assert f"自动回放详细日志文件: {detail_log_path}" in captured.out
