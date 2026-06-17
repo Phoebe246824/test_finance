@@ -105,6 +105,17 @@ def load_config() -> dict:
         "classification": {
             "risk_threshold": float(os.getenv("RISK_THRESHOLD") or "0.2"),
         },
+        "risk_scoring": {
+            "dimensions": {
+                "person": float(os.getenv("RISK_WEIGHT_PERSON") or "0.25"),
+                "behavior": float(os.getenv("RISK_WEIGHT_BEHAVIOR") or "0.25"),
+                "object": float(os.getenv("RISK_WEIGHT_OBJECT") or "0.20"),
+                "location": float(os.getenv("RISK_WEIGHT_LOCATION") or "0.10"),
+                "organization": float(os.getenv("RISK_WEIGHT_ORGANIZATION") or "0.10"),
+                "time": float(os.getenv("RISK_WEIGHT_TIME") or "0.05"),
+                "context": float(os.getenv("RISK_WEIGHT_CONTEXT") or "0.05"),
+            }
+        },
         "redis": {
             "host": os.getenv("REDIS_HOST") or "localhost",
             "port": int(os.getenv("REDIS_PORT") or "6379"),
@@ -183,6 +194,71 @@ def parse_llm_json_object(raw_output) -> dict:
     return parsed
 
 
+def _normalize_risk_weights(config: dict) -> dict[str, float]:
+    weights = config.get("risk_scoring", {}).get("dimensions", {})
+    normalized = {name: max(float(weight), 0.0) for name, weight in weights.items()}
+    total = sum(normalized.values())
+    if total <= 0:
+        return {name: 1.0 / len(normalized) for name in normalized} if normalized else {}
+    return {name: weight / total for name, weight in normalized.items()}
+
+
+def _coerce_dimension_score(value) -> float:
+    if isinstance(value, dict):
+        value = value.get("score", 0.0)
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        score = 0.0
+    return min(max(score, 0.0), 1.0)
+
+
+def _risk_level_from_score(score: float) -> str:
+    if score >= 0.7:
+        return "high"
+    if score >= 0.35:
+        return "medium"
+    return "low"
+
+
+def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
+    weights = _normalize_risk_weights(config)
+    dimension_scores = result_dict.get("dimension_scores", {})
+    weighted_parts = {}
+    weighted_score = 0.0
+    for dimension, weight in weights.items():
+        score = _coerce_dimension_score(dimension_scores.get(dimension, 0.0))
+        weighted_parts[dimension] = {
+            "score": score,
+            "weight": weight,
+            "weighted_score": round(score * weight, 4),
+        }
+        weighted_score += score * weight
+
+    calculated_score = round(min(max(weighted_score, 0.0), 1.0), 4)
+    calculated_level = _risk_level_from_score(calculated_score)
+
+    agent_score = result_dict.get("risk_score", calculated_score)
+    try:
+        final_score = round(min(max(float(agent_score), 0.0), 1.0), 4)
+    except (TypeError, ValueError):
+        final_score = calculated_score
+
+    final_level = result_dict.get("risk_level") or _risk_level_from_score(final_score)
+    if abs(final_score - calculated_score) > 0.01:
+        final_score = calculated_score
+        final_level = calculated_level
+
+    return {
+        "risk_level": final_level,
+        "risk_score": final_score,
+        "dimension_scores": weighted_parts,
+        "calculated_risk_score": calculated_score,
+        "calculated_risk_level": calculated_level,
+        "reasoning": result_dict.get("reasoning", ""),
+    }
+
+
 # (Ingestion 由外部消息源或用户输入触发，不再使用模拟接入)
 
 
@@ -212,10 +288,10 @@ async def classify_event(config: dict, normalized_event: dict) -> dict:
     classify_task = Task(
         name="事件分类",
         description="分析以下事件内容，识别事件类型并提取关键实体(人物、组织、地点)，不提取中性物品、无关人物、主观情绪、背景常识。"
-        "事件内容: {event_content}。 "
-        "请输出 JSON 格式, 包含 event_type:str, key_entities:dict, summary:str 字段。不要markdown格式和任何解释",
+        "事件内容: {event_content}。 ",
         agent=type_classifier,
-        expected_output="JSON 格式的分类结果",
+        output_format="json",
+        expected_output="JSON 格式：{event_type:string, key_entities:object, summary:string}",
     )
 
     crew = Crew(
@@ -295,15 +371,22 @@ async def evaluate_risk(
     )
 
     related_events = _build_related_events_context(results)
+    weights = _normalize_risk_weights(config)
+    dimension_instruction = "、".join(
+        f"{name}(权重{weight:.2f})" for name, weight in weights.items()
+    )
     risk_task = Task(
         name="风险评估",
-        description="基于事件信息从人物、物品、组织、地点、事件、重要时间等各角度，进行高标准的评估风险等级，不能忽略任何细微的风险。核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为，只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为一律纳入风险研判，不做无风险默认化判定。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
+        description="基于事件信息从多个风险维度分别打分，并按给定权重公式计算最终 risk_score 和 risk_level。"
+        "建议维度包括：person 人员风险、behavior 行为风险、object 物品风险、location 地点风险、organization 组织风险、time 时间风险、context 上下文/关联事件风险。"
+        "核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为；只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为都应纳入风险研判。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
-        "关联事件信息: {related_events}"
-        "请输出 JSON 格式: risk_level (high/medium/low), risk_score (0.0-1.0), reasoning",
+        "关联事件信息: {related_events}。"
+        "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
+        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。",
         agent=risk_evaluator,
         output_format="json",
-        expected_output="JSON 格式的风险评估结果",
+        expected_output="JSON 格式：{dimension_scores:{person:number,behavior:number,object:number,location:number,organization:number,time:number,context:number}, risk_score:number, risk_level:string, reasoning:string}",
     )
 
     crew = Crew(
@@ -321,21 +404,13 @@ async def evaluate_risk(
             "event_date": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "source": event.source,
             "related_events": related_events,
+            "dimension_instruction": dimension_instruction,
         }
     )
 
     try:
         result_dict = parse_llm_json_object(result.raw)
-
-        risk_score = result_dict.get("risk_score", 0.5)
-        if isinstance(risk_score, str):
-            risk_score = float(risk_score)
-
-        return {
-            "risk_level": result_dict.get("risk_level", "medium"),
-            "risk_score": risk_score,
-            "reasoning": result_dict.get("reasoning", ""),
-        }
+        return build_weighted_risk_result(result_dict, config)
     except Exception as e:
         print_error("风险评估结果解析失败")
         logger.error("parse risk evaluation result failed: %s", e, exc_info=True)
@@ -380,15 +455,23 @@ async def second_evaluate_risk(
             related_events_parts.append(f"[episode] {text}")
 
     related_events = "\n".join(related_events_parts)
+    weights = _normalize_risk_weights(config)
+    dimension_instruction = "、".join(
+        f"{name}(权重{weight:.2f})" for name, weight in weights.items()
+    )
     risk_task = Task(
         name="二次风险评估",
-        description="基于事件信息从人物、组织、地点、事件、重要时间等各角度，进行风险评估。"
+        description="基于新增补图后的关联上下文，对多个风险维度分别重新打分，并给定权重公式计算最终 risk_score 和 risk_level。"
+        "建议维度包括：person 人员风险、behavior 行为风险、object 物品风险、location 地点风险、organization 组织风险、time 时间风险、context 上下文/关联事件风险。"
+        "核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为；只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为都应纳入风险研判。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
-        "关联事件信息: {related_events}"
-        "请输出 JSON 格式: risk_level (high/medium/low), risk_score (0.0-1.0), reasoning",
+        "关联事件信息: {related_events}。"
+        "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
+        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。"
+        "不要输出 markdown。",
         agent=risk_evaluator,
         output_format="json",
-        expected_output="JSON 格式的风险评估结果",
+        expected_output="JSON 格式：{dimension_scores:{person:number,behavior:number,object:number,location:number,organization:number,time:number,context:number}, reasoning:string}",
     )
 
     crew = Crew(
@@ -407,21 +490,13 @@ async def second_evaluate_risk(
             "event_date": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "source": event.source,
             "related_events": related_events,
+            "dimension_instruction": dimension_instruction,
         }
     )
 
     try:
         result_dict = parse_llm_json_object(result.raw)
-
-        risk_score = result_dict.get("risk_score", 0.5)
-        if isinstance(risk_score, str):
-            risk_score = float(risk_score)
-
-        final_result = {
-            "risk_level": result_dict.get("risk_level", "medium"),
-            "risk_score": risk_score,
-            "reasoning": result_dict.get("reasoning", ""),
-        }
+        final_result = build_weighted_risk_result(result_dict, config)
         print_info(
             f'第二次风险评估完成: risk_level="{final_result["risk_level"]}", risk_score={final_result["risk_score"]}'
         )
@@ -976,8 +1051,8 @@ def create_normalize_task(agent: Agent, raw_content: str) -> Task:
                     不要出现markdown格式的文本
                     """,
         agent=agent,
-        output_pydantic=NormalizedEvent,
-        expected_output="JSON 格式的 NormalizedEvent 对象",
+        output_format="json",
+        expected_output="JSON 格式：{source:string, raw_content:string, title:string, timestamp:string}",
     )
 
 
@@ -1013,12 +1088,12 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
             source=source,
             raw_content=raw_content,
             title=result_dict.get("title", ""),
-            structured_data=result_dict.get("structured_data", {}),
+            structured_data={},
             timestamp=result_dict.get("timestamp", datetime.now()),
             ingestion_time=result_dict.get("ingestion_time", datetime.now()),
             trace_id=result_dict.get("trace_id", ""),
             content_type=result_dict.get("content_type", "text"),
-            event_type=result_dict.get("event_type", ""),
+            event_type="",
         )
     except Exception as e:
         print_error("事件标准化失败")

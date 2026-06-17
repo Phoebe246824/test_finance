@@ -1,4 +1,38 @@
-# Sentinel 舆情分析系统
+# Sentinel Edge 端侧风险智能体
+
+面向“基于 AMD 锐龙 AI MAX+ 平台的端侧 AI 智能体与垂直行业创新应用”赛题的参赛项目。Sentinel Edge 将现有 Sentinel 舆情/风控流水线改造成金融与企业安全场景下的本地风险研判智能体：核心事件数据在本机或企业内网完成处理，通过本地 LLM、Redis、Milvus、Neo4j/Graphiti 和 CrewAI Flow 串联成可演示的闭环。
+
+## 参赛亮点
+
+- **垂直行业场景**: 金融/企业风控、园区安保、合规事件研判。
+- **端侧部署价值**: 内部事件、人员编号、交易摘要、安保记录不上传云端，适合弱网、专网和隐私敏感环境。
+- **智能体闭环**: 标准化 → 黑名单过滤 → 本地 LLM 分类 → 知识图谱构图 → RAG 检索 → 风险评估 → 历史回捞 → 二次研判 → 趋势分析。
+- **AMD 平台适配**: GPU 承担本地 LLM/Embedding/Rerank 高吞吐推理，NPU 可承担低功耗预筛或常驻监控，CPU 负责调度和数据服务，统一内存支撑多模型并发。
+- **提交材料**: 参赛方案见 [docs/competition_plan.md](/Users/phoebe/project/test_Sentinel/docs/competition_plan.md)，论文大纲见 [docs/competition_paper_outline.md](/Users/phoebe/project/test_Sentinel/docs/competition_paper_outline.md)，视频脚本见 [docs/demo_script.md](/Users/phoebe/project/test_Sentinel/docs/demo_script.md)。
+
+## 快速参赛运行
+
+```bash
+# 安装依赖并启动 Redis/Milvus/Neo4j 等服务
+uv sync --dev
+docker compose up -d
+
+# 复制配置，默认示例已指向本地 OpenAI-compatible LLM endpoint
+cp .env.example .env
+
+# 生成参赛硬件画像和 Demo 报告
+uv run python scripts/sentinel_competition_demo.py
+
+# 依赖服务和本地 LLM 就绪后，执行真实 pipeline 用例
+uv run python scripts/sentinel_competition_demo.py --run-pipeline
+
+# 交互式演示
+uv run python main.py
+```
+
+输出报告默认写入 `output/competition/sentinel_edge_demo_report.json`，可作为论文和 PPT 中“本地部署与硬件环境”证据来源。
+
+## 原系统能力
 
 多源事件实时接入 → 黑名单过滤 → AI 分类评级 → 单条构图 → 风险上下文检索 → 首次风险评估 → （仅超阈值）批量补图 + 二次风险评估 → （仍超阈值）意图分析与趋势预测。
 
@@ -130,6 +164,7 @@ test_Sentinel/
 ├── dashboard.py             # Web 看板服务 (FastAPI)
 ├── graph_service.py         # 知识图谱服务 (Graphiti)
 ├── log_utils.py             # 双输出日志系统
+├── sentinel_edge/           # AMD 端侧环境画像与基准记录工具
 ├── blacklist/               # 黑名单系统
 │   ├── __init__.py          # BlacklistStore, BlacklistFilter, MilvusStashStore
 │   ├── store.py             # Redis 黑名单 CRUD
@@ -151,7 +186,8 @@ test_Sentinel/
 │   └── embedder_provider.py # Embedder 提供商
 ├── scripts/
 │   ├── reset_and_seed_blacklist.py  # 重置并写入测试种子数据
-│   └── run_blacklist_kv_demo.py     # 15 个测试用例自动回放
+│   ├── run_blacklist_kv_demo.py     # 15 个测试用例自动回放
+│   └── sentinel_competition_demo.py # 参赛硬件画像与 Demo 报告生成
 ├── tests/                   # 单元测试（51 tests）
 ├── compose/                 # Docker Compose 服务定义
 ├── .env                     # 环境变量配置

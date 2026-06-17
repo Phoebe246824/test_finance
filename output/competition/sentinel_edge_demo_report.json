@@ -1,0 +1,106 @@
+{
+  "project": "Sentinel Edge",
+  "generated_at": "2026-06-17T21:36:33",
+  "competition_track": "基于 AMD 锐龙 AI MAX+ 平台的端侧 AI 智能体与垂直行业创新应用",
+  "scenario": "金融/企业本地风险研判智能体",
+  "hardware_profile": {
+    "target_platform": "AMD Ryzen AI MAX+ 395 Mini AI Workstation",
+    "os": "Darwin 24.5.0",
+    "python": "3.13.13",
+    "cpu": "Apple M4",
+    "memory_gb": 24.0,
+    "gpu_backend": "not-detected",
+    "gpu_detected": false,
+    "npu_backend": "not-detected",
+    "npu_detected": false,
+    "gpu_details": [],
+    "npu_details": [],
+    "local_llm_endpoint": "http://127.0.0.1:11434/v1",
+    "local_llm_model": "qwen3.5",
+    "local_embedder_model": "BAAI/bge-m3",
+    "notes": [
+      "GPU tools were not found; set SENTINEL_GPU_BACKEND after ROCm is installed.",
+      "NPU tools were not found; set RYZEN_AI_HOME or SENTINEL_NPU_BACKEND after Ryzen AI SDK is installed."
+    ]
+  },
+  "selected_cases": [
+    "case_03_p01_stash",
+    "case_07c_p06_high_risk",
+    "case_10_keyword_no_person_pass"
+  ],
+  "pipeline_executed": true,
+  "pipeline_results": [
+    {
+      "case_id": "case_03_p01_stash",
+      "title": "3. 单人员、低风险：应写入 Milvus 暂存，不构图",
+      "event_id": null,
+      "error": "MilvusException: <MilvusException: (code=2, message=Fail connecting to server on localhost:19530, illegal connection params or server unavailable)>",
+      "timing": {
+        "total_measured_ms": 214475.47,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-17T21:36:45",
+            "elapsed_ms": 214475.47,
+            "metadata": {
+              "case_id": "case_03_p01_stash"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "未命中黑名单",
+        "写入 Milvus 暂存池",
+        "不进入构图"
+      ]
+    },
+    {
+      "case_id": "case_07c_p06_high_risk",
+      "title": "7C. 同一人员高风险触发回捞",
+      "event_id": null,
+      "error": "MilvusException: <MilvusException: (code=2, message=Fail connecting to server on localhost:19530, illegal connection params or server unavailable)>",
+      "timing": {
+        "total_measured_ms": 149942.11,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-17T21:40:20",
+            "elapsed_ms": 149942.11,
+            "metadata": {
+              "case_id": "case_07c_p06_high_risk"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "首次风险评估应偏中/高",
+        "从 Milvus 回捞 P06 相关历史事件",
+        "触发批量构图并在成功后标记历史事件已构图"
+      ]
+    },
+    {
+      "case_id": "case_10_keyword_no_person_pass",
+      "title": "10. 无人员但命中敏感词：仍应放行",
+      "event_id": null,
+      "error": "MilvusException: <MilvusException: (code=2, message=Fail connecting to server on localhost:19530, illegal connection params or server unavailable)>",
+      "timing": {
+        "total_measured_ms": 220301.42,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-17T21:42:50",
+            "elapsed_ms": 220301.42,
+            "metadata": {
+              "case_id": "case_10_keyword_no_person_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "无 P 前缀人员编号",
+        "命中敏感词 爆炸",
+        "仍应 PASS，不走丢弃路径"
+      ]
+    }
+  ]
+}
