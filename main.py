@@ -393,7 +393,7 @@ async def evaluate_risk(
         agents=[risk_evaluator],
         tasks=[risk_task],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
     )
 
     result = await crew.kickoff_async(
@@ -478,7 +478,7 @@ async def second_evaluate_risk(
         agents=[risk_evaluator],
         tasks=[risk_task],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
     )
 
     print_info("开始第二次风险评估")

@@ -1,11 +1,11 @@
 # Sentinel Edge 端侧风险智能体
 
-面向“基于 AMD 锐龙 AI MAX+ 平台的端侧 AI 智能体与垂直行业创新应用”赛题的参赛项目。Sentinel Edge 将现有 Sentinel 舆情/风控流水线改造成金融与企业安全场景下的本地风险研判智能体：核心事件数据在本机或企业内网完成处理，通过本地 LLM、Redis、Milvus、Neo4j/Graphiti 和 CrewAI Flow 串联成可演示的闭环。
+面向“基于 AMD 锐龙 AI MAX+ 平台的端侧 AI 智能体与垂直行业创新应用”赛题的参赛项目。Sentinel Edge 将现有 Sentinel 舆情/风控流水线改造成**银行零售业务端侧反欺诈与反洗钱预警助手**：客户交易、账户关系、贷前资料和可疑行为在本机或银行内网完成处理，通过本地 LLM、Redis、Milvus、Neo4j/Graphiti 和 CrewAI Flow 串联成可演示的闭环。
 
 ## 参赛亮点
 
-- **垂直行业场景**: 金融/企业风控、园区安保、合规事件研判。
-- **端侧部署价值**: 内部事件、人员编号、交易摘要、安保记录不上传云端，适合弱网、专网和隐私敏感环境。
+- **垂直行业场景**: 银行零售反欺诈、反洗钱、贷前风控和可疑交易复核。
+- **端侧部署价值**: 客户交易、账户关系、设备指纹、贷前资料不上传云端，适合银行内网、专网和隐私敏感环境。
 - **智能体闭环**: 标准化 → 黑名单过滤 → 本地 LLM 分类 → 知识图谱构图 → RAG 检索 → 风险评估 → 历史回捞 → 二次研判 → 趋势分析。
 - **AMD 平台适配**: GPU 承担本地 LLM/Embedding/Rerank 高吞吐推理，NPU 可承担低功耗预筛或常驻监控，CPU 负责调度和数据服务，统一内存支撑多模型并发。
 - **提交材料**: 参赛方案见 [docs/competition_plan.md](/Users/phoebe/project/test_Sentinel/docs/competition_plan.md)，论文大纲见 [docs/competition_paper_outline.md](/Users/phoebe/project/test_Sentinel/docs/competition_paper_outline.md)，视频脚本见 [docs/demo_script.md](/Users/phoebe/project/test_Sentinel/docs/demo_script.md)。
@@ -23,7 +23,8 @@ cp .env.example .env
 # 生成参赛硬件画像和 Demo 报告
 uv run python scripts/sentinel_competition_demo.py
 
-# 依赖服务和本地 LLM 就绪后，执行真实 pipeline 用例
+# 依赖服务、本地 LLM 和金融黑名单种子就绪后，执行真实 pipeline 用例
+uv run python scripts/reset_and_seed_blacklist.py
 uv run python scripts/sentinel_competition_demo.py --run-pipeline
 
 # 交互式演示
@@ -31,6 +32,8 @@ uv run python main.py
 ```
 
 输出报告默认写入 `output/competition/sentinel_edge_demo_report.json`，可作为论文和 PPT 中“本地部署与硬件环境”证据来源。
+
+默认 Demo 用例位于 [scripts/finance_demo_cases.py](/Users/phoebe/project/test_Sentinel/scripts/finance_demo_cases.py:1)，覆盖正常交易暂存、疑似分拆交易历史线索、涉诈账户转账、反洗钱历史回捞和贷款欺诈资料复核。
 
 ## 原系统能力
 
