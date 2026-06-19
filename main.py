@@ -87,13 +87,13 @@ def load_config() -> dict:
         "rabbitmq": {
             "host": os.getenv("RABBITMQ_HOST") or "localhost",
             "port": int(os.getenv("RABBITMQ_PORT") or "5672"),
-            "user": os.getenv("RABBITMQ_USER") or "guest",
-            "password": os.getenv("RABBITMQ_PASSWORD") or "password",
+            "user": os.getenv("RABBITMQ_USER") or "root",
+            "password": os.getenv("RABBITMQ_PASSWORD") or "pa55w0rd",
         },
         "neo4j": {
             "uri": os.getenv("NEO4J_URI") or "bolt://localhost:7687",
             "user": os.getenv("NEO4J_USER") or "neo4j",
-            "password": os.getenv("NEO4J_PASSWORD") or "password",
+            "password": os.getenv("NEO4J_PASSWORD") or "pa55w0rd",
         },
         "llm": {
             "api_key": os.getenv("LLM_API_KEY") or "",

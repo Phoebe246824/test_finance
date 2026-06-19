@@ -6,13 +6,13 @@ services:
     restart: always
     hostname: rabbitserver
     environment:
-      RABBITMQ_DEFAULT_VHOST: admin_vhost
-      RABBITMQ_DEFAULT_USER: root
-      RABBITMQ_DEFAULT_PASS: pa55w0rd
+      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-root}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pa55w0rd}
       RABBITMQ_PLUGINS_DIR: "/plugins:/myplugins"
     ports:
-      - "5672:5672"     # AMQP 协议
-      - "15672:15672"   # Management UI
+      - "${RABBITMQ_PORT:-5672}:5672"     # AMQP 协议
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"   # Management UI
     volumes:
       - ./volumes/rabbitmq/data:/var/lib/rabbitmq
       - ./volumes/rabbitmq/myplugins:/myplugins

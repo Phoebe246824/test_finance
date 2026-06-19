@@ -6,8 +6,12 @@
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | RabbitMQ 连接 | localhost:5672 |
-| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 连接 | bolt://localhost:7687 |
+| `BACKEND_HOST` / `BACKEND_PORT` | 本地 FastAPI 启动地址 | 127.0.0.1:8000 |
+| `VITE_API_BASE_URL` | 前端访问后端 API 的地址 | http://127.0.0.1:8000 |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | RabbitMQ 连接 | localhost:5672, root/pa55w0rd |
+| `RABBITMQ_MANAGEMENT_PORT` | RabbitMQ Management UI 宿主机端口 | 15672 |
+| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 连接 | bolt://localhost:7687, neo4j/pa55w0rd |
+| `NEO4J_HTTP_PORT` / `NEO4J_BOLT_PORT` | Neo4j Browser / Bolt 宿主机端口 | 7474 / 7687 |
 | `GRAPHITI_DRY_RUN` | 设为 true 跳过 Neo4j 写入，LLM 提取仍会执行 | false |
 | `LLM_PROVIDER` | LLM 提供商 (openai / siliconflow) | openai |
 | `LLM_MODEL` | 聊天模型名称 | gpt-4o |
@@ -25,6 +29,10 @@
 | `SEARCH_MIN_SCORE` | 搜索相关性阈值（0.0 关闭） | 0.0 |
 | `RISK_THRESHOLD` | 风险评分阈值 | 0.7 |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（黑名单使用） | localhost:6379 |
+| `MINIO_API_PORT` / `MINIO_CONSOLE_PORT` | MinIO API / Console 宿主机端口 | 9000 / 9001 |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | MinIO 访问凭证 | minioadmin / minioadmin |
+| `MILVUS_GRPC_PORT` / `MILVUS_HTTP_PORT` | Milvus gRPC / HTTP WebUI 宿主机端口 | 19530 / 9091 |
+| `ATTU_PORT` | Attu 宿主机端口，默认避开 FastAPI 的 8000 | 8002 |
 | `MILVUS_URI` / `MILVUS_TOKEN` | Milvus 连接（事件暂存使用） | http://localhost:19530, 空 |
 | `MILVUS_STASH_COLLECTION` | Milvus 暂存 collection 名称 | stashed_events |
 | `KV_TTL_DAYS` | 暂存事件过期天数 | 90 |

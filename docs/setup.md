@@ -31,6 +31,7 @@ docker compose up -d
 # 6. 验证各服务连接（浏览器访问）
 # http://localhost:7474 — Neo4j Browser (neo4j/pa55w0rd)
 # http://localhost:15672 — RabbitMQ Management (root/pa55w0rd)
+# http://localhost:8002 — Milvus Attu
 # http://localhost:9091/webui/ — Milvus WebUI
 
 # 7. 运行系统

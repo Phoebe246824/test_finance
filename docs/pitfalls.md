@@ -42,4 +42,4 @@
 ### 消息队列
 
 - **`pika` 是惰性导入**：`consumer.py` 中 `pika` 是可选依赖，未安装时不影响 `normalize_event()` 等纯函数使用
-- **Docker Compose 中的 RabbitMQ 凭证**与 `.env.example` 中的默认值**不一致**：Compose 使用 `root/pa55w0rd` + vhost `admin_vhost`，`.env.example` 使用 `guest/password`
+- **RabbitMQ 初始化数据会持久化**：`.env.example` 与 Compose 默认使用 `root/pa55w0rd` 和 `/` vhost。若本地已有旧的 `compose/volumes/rabbitmq/data`，修改 `.env` 后需要清理旧数据目录或重建容器数据，RabbitMQ 才会重新初始化默认用户。
