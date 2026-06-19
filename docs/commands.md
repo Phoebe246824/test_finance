@@ -118,6 +118,25 @@ uv run python scripts/sentinel_competition_demo.py
 uv run python scripts/sentinel_competition_demo.py --run-pipeline
 ```
 
+### PPT 证据采集
+
+```bash
+# 不运行真实 pipeline，只生成环境画像、sidecar 合并结果、CSV 和 PNG 图表
+uv run python scripts/collect_ppt_evidence.py \
+  --sidecar docs/competition/evidence_sidecar.example.yaml \
+  --output-dir output/competition/evidence/smoke
+
+# 运行单条金融用例，适合先验证 finance_04 回捞链路
+uv run python scripts/collect_ppt_evidence.py \
+  --run-pipeline \
+  --case finance_04_aml_high_risk_recall
+
+# 在 AMD 实测环境运行完整 10 条金融用例
+uv run python scripts/collect_ppt_evidence.py \
+  --run-pipeline \
+  --sidecar docs/competition/evidence_sidecar.example.yaml
+```
+
 ### 代码质量
 
 ```bash
