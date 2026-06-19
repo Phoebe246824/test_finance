@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a PPT evidence collector that creates JSON/CSV plus PPT-ready PNG charts from existing Sentinel demo cases, hardware discovery, one-shot runtime sampling, and sidecar metrics.
+**Goal:** Build a PPT evidence collector that creates JSON/CSV plus Plotly HTML charts and PPT-ready PNG screenshots from existing Sentinel demo cases, hardware discovery, one-shot runtime sampling, and sidecar metrics.
 
-**Architecture:** Add a focused `sentinel_edge/evidence/` package around the existing pipeline and demo case modules. The collector keeps business flow changes minimal: pure modules handle models, aggregation, sidecar merge, hardware sampling, charting, and file output; a thin CLI script wires them together.
+**Architecture:** Add a focused `sentinel_edge/evidence/` package around the existing pipeline and demo case modules. Plotly HTML is the chart source of truth; PNG files are browser screenshots of the same HTML via Playwright/Chromium, matching the planned HTML-slide-to-image pipeline.
 
-**Tech Stack:** Python 3.13, dataclasses, pytest, matplotlib with Agg backend for PNG charts, PyYAML for sidecar files, existing `sentinel_edge.metrics`, `sentinel_edge.hardware`, and `scripts.finance_demo_cases`.
+**Tech Stack:** Python 3.13, dataclasses, pytest, Plotly for chart figures, Playwright/Chromium for HTML-to-PNG rendering, PyYAML for sidecar files, existing `sentinel_edge.metrics`, `sentinel_edge.hardware`, and `scripts.finance_demo_cases`.
 
 ---
 
@@ -20,7 +20,8 @@ Create:
 - `sentinel_edge/evidence/sidecar.py` loads and merges YAML/JSON manual evidence.
 - `sentinel_edge/evidence/hardware_sampler.py` samples and parses ROCm hardware metrics.
 - `sentinel_edge/evidence/writer.py` writes JSON and CSV output files.
-- `sentinel_edge/evidence/charts.py` renders PNG charts.
+- `sentinel_edge/evidence/chart_specs.py` documents and exposes data-to-chart decisions.
+- `sentinel_edge/evidence/charts.py` renders Plotly HTML charts and browser-screenshot PNG charts.
 - `sentinel_edge/evidence/case_runner.py` runs selected finance demo cases through `process_message_detailed()`.
 - `scripts/collect_ppt_evidence.py` is the CLI entry point.
 - `docs/competition/evidence_sidecar.example.yaml` documents manually filled fields.
@@ -28,20 +29,36 @@ Create:
 - `tests/test_ppt_evidence_aggregator.py`
 - `tests/test_ppt_evidence_sidecar.py`
 - `tests/test_ppt_evidence_hardware_sampler.py`
+- `tests/test_ppt_evidence_chart_specs.py`
 - `tests/test_ppt_evidence_writer_charts.py`
 - `tests/test_ppt_evidence_case_runner.py`
 - `tests/test_collect_ppt_evidence_cli.py`
 
 Modify:
 
-- `pyproject.toml` add `matplotlib` and `pyyaml`.
-- `requirements.txt` add `matplotlib` and `pyyaml`.
+- `pyproject.toml` add `plotly`, `playwright`, and `pyyaml`.
+- `requirements.txt` add `plotly`, `playwright`, and `pyyaml`.
 - `sentinel_edge/__init__.py` stays unchanged in this plan; evidence helpers are exported from `sentinel_edge/evidence/__init__.py`.
 
 Do not modify:
 
 - `graphiti_core/`
 - Existing pipeline behavior in `main.py`, except a later follow-up if a separate plan adds fine-grained spans.
+
+---
+
+## Chart Selection Analysis
+
+The implementation must not blindly use the same chart type for every metric.
+
+| Data | Properties | Unsuitable Format | Required Format |
+|---|---|---|---|
+| Case latency | Few positive continuous values, likely long-tailed | Vertical bar chart | Sorted horizontal Plotly bar with mean/P95 reference lines |
+| Stage timing | Compositional only when detailed spans exist | Empty stacked bar with no data | Stacked horizontal bar when spans exist; availability state chart when absent |
+| Hardware samples | Time series with different units | Single peak bar | Faceted Plotly time-series lines for GPU %, VRAM MB, power W |
+| Baseline comparison | Mixed units and directions | Grouped bar across units | Plotly scorecard/table with baseline, optimized, delta, direction |
+| Risk consistency | Repeated categorical outcomes | Single unexplained percentage | Stacked bar or matrix plus consistency metric |
+| Evidence availability | Source enum per metric | Bar chart | Matrix/status chart by PPT page and source |
 
 ---
 
@@ -56,14 +73,16 @@ Do not modify:
 Edit `pyproject.toml` dependencies to include:
 
 ```toml
-    "matplotlib>=3.10.0",
+    "playwright>=1.56.0",
+    "plotly>=6.1.0",
     "pyyaml>=6.0.2",
 ```
 
 Edit `requirements.txt` to include:
 
 ```text
-matplotlib
+playwright
+plotly
 pyyaml
 ```
 
@@ -72,7 +91,7 @@ pyyaml
 Run:
 
 ```bash
-uv run python -c "import matplotlib; import yaml; print('evidence deps ok')"
+uv run python -c "import plotly; import playwright; import yaml; print('evidence deps ok')"
 ```
 
 Expected:
@@ -834,7 +853,128 @@ git commit -m "feat: sample ROCm hardware evidence"
 
 ---
 
-### Task 6: Evidence Writer and Charts
+### Task 6: Chart Selection Specs
+
+**Files:**
+- Create: `tests/test_ppt_evidence_chart_specs.py`
+- Create: `sentinel_edge/evidence/chart_specs.py`
+
+- [ ] **Step 1: Write failing chart spec tests**
+
+Create `tests/test_ppt_evidence_chart_specs.py`:
+
+```python
+from sentinel_edge.evidence.chart_specs import CHART_SPECS, chart_spec_for
+
+
+def test_chart_specs_capture_data_fit_decisions():
+    assert chart_spec_for("case_latency").chart_type == "sorted_horizontal_bar"
+    assert chart_spec_for("stage_breakdown").fallback_chart_type == "measurement_availability"
+    assert chart_spec_for("hardware_timeseries").chart_type == "faceted_timeseries"
+    assert chart_spec_for("baseline_comparison").chart_type == "scorecard_table"
+
+
+def test_every_chart_spec_has_reasoning():
+    for spec in CHART_SPECS.values():
+        assert spec.data_properties
+        assert spec.why_not_default_bar
+        assert spec.chart_type
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+uv run pytest tests/test_ppt_evidence_chart_specs.py -v
+```
+
+Expected: FAIL with missing `sentinel_edge.evidence.chart_specs`.
+
+- [ ] **Step 3: Implement chart specs**
+
+Create `sentinel_edge/evidence/chart_specs.py`:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class ChartSpec:
+    key: str
+    chart_type: str
+    data_properties: str
+    why_not_default_bar: str
+    fallback_chart_type: str = "empty_state"
+
+
+CHART_SPECS: dict[str, ChartSpec] = {
+    "case_latency": ChartSpec(
+        key="case_latency",
+        chart_type="sorted_horizontal_bar",
+        data_properties="Small set of positive continuous durations; values can be long-tailed.",
+        why_not_default_bar="Vertical bars make long case ids hard to read and one slow case can visually flatten the rest.",
+    ),
+    "stage_breakdown": ChartSpec(
+        key="stage_breakdown",
+        chart_type="stacked_horizontal_bar",
+        data_properties="Compositional timing data that is valid only when fine-grained spans exist.",
+        why_not_default_bar="A normal bar would imply stage data exists even when only whole-case timing was collected.",
+        fallback_chart_type="measurement_availability",
+    ),
+    "hardware_timeseries": ChartSpec(
+        key="hardware_timeseries",
+        chart_type="faceted_timeseries",
+        data_properties="Runtime samples over time with different units for GPU, VRAM, and power.",
+        why_not_default_bar="A single peak bar hides whether hardware was used during the actual run.",
+    ),
+    "baseline_comparison": ChartSpec(
+        key="baseline_comparison",
+        chart_type="scorecard_table",
+        data_properties="Few metrics with mixed units and mixed better-directions.",
+        why_not_default_bar="Grouped bars across percent, seconds, and watts would compare unlike units.",
+    ),
+    "risk_consistency": ChartSpec(
+        key="risk_consistency",
+        chart_type="stacked_category_matrix",
+        data_properties="Repeated categorical outcomes summarized as consistency.",
+        why_not_default_bar="A single percentage hides which risk levels drifted.",
+    ),
+    "evidence_availability": ChartSpec(
+        key="evidence_availability",
+        chart_type="source_status_matrix",
+        data_properties="Source labels per PPT metric: measured, derived, sidecar, or not_available.",
+        why_not_default_bar="Counts by source do not show which PPT claim is unsupported.",
+    ),
+}
+
+
+def chart_spec_for(key: str) -> ChartSpec:
+    return CHART_SPECS[key]
+```
+
+- [ ] **Step 4: Run chart spec tests**
+
+Run:
+
+```bash
+uv run pytest tests/test_ppt_evidence_chart_specs.py -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add sentinel_edge/evidence/chart_specs.py tests/test_ppt_evidence_chart_specs.py
+git commit -m "feat: document PPT evidence chart choices"
+```
+
+---
+
+### Task 7: Evidence Writer and Plotly Charts
 
 **Files:**
 - Create: `tests/test_ppt_evidence_writer_charts.py`
@@ -848,7 +988,11 @@ Create `tests/test_ppt_evidence_writer_charts.py`:
 ```python
 import json
 
-from sentinel_edge.evidence.charts import write_case_latency_chart
+from sentinel_edge.evidence.charts import (
+    build_baseline_comparison_figure,
+    build_case_latency_figure,
+    write_case_latency_chart,
+)
 from sentinel_edge.evidence.models import CaseEvidence, EvidencePack
 from sentinel_edge.evidence.writer import write_evidence_pack
 
@@ -869,18 +1013,42 @@ def test_write_evidence_pack_outputs_json_and_csv(tmp_path):
     assert (tmp_path / "ppt_metrics.json").exists()
     assert "finance_01" in (tmp_path / "case_results.csv").read_text(encoding="utf-8")
     assert (tmp_path / "hardware_samples.csv").exists()
+    assert (tmp_path / "charts" / "html").is_dir()
+    assert (tmp_path / "charts" / "png").is_dir()
 
 
-def test_write_case_latency_chart_creates_png(tmp_path):
-    output = tmp_path / "chart.png"
+def test_case_latency_figure_uses_horizontal_bars():
+    fig = build_case_latency_figure([
+        CaseEvidence(case_id="finance_02", title="B", elapsed_ms=300.0),
+        CaseEvidence(case_id="finance_01", title="A", elapsed_ms=100.0),
+    ])
 
+    assert fig.data[0].orientation == "h"
+    assert list(fig.data[0].y) == ["finance_01", "finance_02"]
+
+
+def test_baseline_comparison_uses_table_for_mixed_units():
+    fig = build_baseline_comparison_figure({
+        "p11": {
+            "baseline": {"pass_rate": {"value": 0.8, "unit": ""}},
+            "optimized": {"pass_rate": {"value": 0.9, "unit": ""}},
+        }
+    })
+
+    assert fig.data[0].type == "table"
+
+
+def test_write_case_latency_chart_creates_plotly_html(tmp_path):
+    output = tmp_path / "case_latency.html"
     write_case_latency_chart(
         [CaseEvidence(case_id="a", title="A", elapsed_ms=100.0)],
         output,
     )
 
     assert output.exists()
-    assert output.stat().st_size > 100
+    text = output.read_text(encoding="utf-8")
+    assert "plotly" in text.lower()
+    assert "End-to-End Case Latency" in text
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -910,7 +1078,8 @@ from sentinel_edge.evidence.models import EvidencePack, to_plain_data
 def write_evidence_pack(pack: EvidencePack, output_dir: str | Path) -> Path:
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
-    (root / "charts").mkdir(exist_ok=True)
+    (root / "charts" / "html").mkdir(parents=True, exist_ok=True)
+    (root / "charts" / "png").mkdir(parents=True, exist_ok=True)
     (root / "logs").mkdir(exist_ok=True)
 
     data = to_plain_data(pack)
@@ -969,59 +1138,254 @@ Create `sentinel_edge/evidence/charts.py`:
 from __future__ import annotations
 
 from pathlib import Path
+from statistics import mean
+from typing import Any
 
-import matplotlib
+import plotly.graph_objects as go
+from playwright.sync_api import sync_playwright
 
-matplotlib.use("Agg")
+from sentinel_edge.evidence.aggregator import percentile
+from sentinel_edge.evidence.models import CaseEvidence, HardwareSample
 
-from matplotlib import pyplot as plt  # noqa: E402
-
-from sentinel_edge.evidence.models import CaseEvidence
-
-
-def _save_empty_chart(output_path: Path, title: str, message: str) -> None:
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.set_title(title)
-    ax.text(0.5, 0.5, message, ha="center", va="center", transform=ax.transAxes)
-    ax.set_axis_off()
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=160)
-    plt.close(fig)
+CHART_WIDTH = 1600
+CHART_HEIGHT = 900
 
 
-def write_case_latency_chart(cases: list[CaseEvidence], output_path: str | Path) -> Path:
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
+def _apply_theme(fig: go.Figure, title: str) -> go.Figure:
+    fig.update_layout(
+        title={"text": title, "x": 0.02, "xanchor": "left"},
+        template="plotly_white",
+        width=CHART_WIDTH,
+        height=CHART_HEIGHT,
+        margin={"l": 120, "r": 80, "t": 100, "b": 90},
+        font={"family": "Noto Sans CJK SC, Arial, sans-serif", "size": 22, "color": "#172033"},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        showlegend=True,
+    )
+    return fig
+
+
+def empty_state_figure(title: str, message: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        x=0.5,
+        y=0.5,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font={"size": 30, "color": "#596579"},
+        align="center",
+    )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    return _apply_theme(fig, title)
+
+
+def build_case_latency_figure(cases: list[CaseEvidence]) -> go.Figure:
     measured = [case for case in cases if case.elapsed_ms is not None and case.succeeded]
     if not measured:
-        _save_empty_chart(output, "Case Latency", "No successful case timings available")
-        return output
+        return empty_state_figure("End-to-End Case Latency", "No successful case timings available")
 
-    labels = [case.case_id.replace("finance_", "f") for case in measured]
-    seconds = [float(case.elapsed_ms) / 1000 for case in measured]
-    fig, ax = plt.subplots(figsize=(10, 5.6))
-    ax.bar(labels, seconds, color="#4C78A8")
-    ax.set_title("End-to-End Case Latency")
-    ax.set_ylabel("seconds")
-    ax.tick_params(axis="x", labelrotation=35)
-    fig.tight_layout()
-    fig.savefig(output, dpi=160)
-    plt.close(fig)
-    return output
+    measured = sorted(measured, key=lambda case: float(case.elapsed_ms or 0))
+    labels = [case.case_id for case in measured]
+    seconds = [round(float(case.elapsed_ms) / 1000, 2) for case in measured if case.elapsed_ms is not None]
+    avg = round(mean(seconds), 2)
+    p95 = percentile(seconds, 95)
+
+    fig = go.Figure()
+    fig.add_bar(
+        x=seconds,
+        y=labels,
+        orientation="h",
+        marker={"color": "#2F6FED"},
+        hovertemplate="%{y}<br>%{x:.2f}s<extra></extra>",
+        name="case latency",
+    )
+    fig.add_vline(x=avg, line_dash="dash", line_color="#E07A5F", annotation_text=f"mean {avg:.2f}s")
+    if p95 is not None:
+        fig.add_vline(x=p95, line_dash="dot", line_color="#7B2CBF", annotation_text=f"P95 {p95:.2f}s")
+    fig.update_xaxes(title_text="seconds")
+    fig.update_yaxes(title_text="", automargin=True)
+    return _apply_theme(fig, "End-to-End Case Latency")
 
 
-def write_stage_breakdown_chart(output_path: str | Path) -> Path:
+def build_stage_breakdown_figure(stage_rows: list[dict[str, Any]]) -> go.Figure:
+    if not stage_rows:
+        return empty_state_figure(
+            "Stage Timing Availability",
+            "Detailed stage spans were not collected in this run.<br>Use whole-case latency for the current PPT draft.",
+        )
+
+    fig = go.Figure()
+    stages = sorted({str(row["stage"]) for row in stage_rows})
+    case_ids = sorted({str(row["case_id"]) for row in stage_rows})
+    for stage in stages:
+        values = [
+            next(
+                (
+                    float(row["elapsed_ms"]) / 1000
+                    for row in stage_rows
+                    if row["case_id"] == case_id and row["stage"] == stage
+                ),
+                0.0,
+            )
+            for case_id in case_ids
+        ]
+        fig.add_bar(y=case_ids, x=values, name=stage, orientation="h")
+    fig.update_layout(barmode="stack")
+    fig.update_xaxes(title_text="seconds")
+    return _apply_theme(fig, "Pipeline Stage Breakdown")
+
+
+def build_hardware_timeseries_figure(samples: list[HardwareSample]) -> go.Figure:
+    measured = [sample for sample in samples if sample.timestamp]
+    if not measured:
+        return empty_state_figure("Hardware Runtime Samples", "No runtime hardware samples available")
+
+    fig = go.Figure()
+    timestamps = [sample.timestamp for sample in measured]
+    series = [
+        ("GPU util %", [sample.gpu_util_percent.value for sample in measured], "#2F6FED"),
+        ("VRAM MB", [sample.vram_used_mb.value for sample in measured], "#00A676"),
+        ("Power W", [sample.power_watts.value for sample in measured], "#E07A5F"),
+    ]
+    for name, values, color in series:
+        if any(value is not None for value in values):
+            fig.add_scatter(x=timestamps, y=values, mode="lines+markers", name=name, line={"color": color})
+    if not fig.data:
+        return empty_state_figure("Hardware Runtime Samples", "GPU, VRAM, and power samples are not available")
+    fig.update_xaxes(title_text="time")
+    fig.update_yaxes(title_text="value")
+    return _apply_theme(fig, "Hardware Runtime Samples")
+
+
+def _metric_text(metric: dict[str, Any] | None) -> str:
+    if not isinstance(metric, dict):
+        return "not_available"
+    value = metric.get("value")
+    unit = metric.get("unit", "")
+    source = metric.get("source", "")
+    if value is None:
+        return f"not_available ({source})" if source else "not_available"
+    suffix = f" {unit}" if unit else ""
+    return f"{value}{suffix} ({source})" if source else f"{value}{suffix}"
+
+
+def build_baseline_comparison_figure(ppt_metrics: dict[str, Any]) -> go.Figure:
+    p11 = ppt_metrics.get("p11", {})
+    baseline = p11.get("baseline", {})
+    optimized = p11.get("optimized", {})
+    rows = [
+        ("Pass rate", baseline.get("pass_rate"), optimized.get("pass_rate"), "higher is better"),
+        ("Risk consistency", baseline.get("risk_level_consistency"), optimized.get("risk_level_consistency"), "higher is better"),
+        ("Average latency", baseline.get("average_latency_ms"), optimized.get("average_latency_ms"), "lower is better"),
+        ("Average power", baseline.get("average_power_watts"), optimized.get("average_power_watts"), "lower is better"),
+    ]
+    fig = go.Figure(
+        data=[
+            go.Table(
+                header={
+                    "values": ["Metric", "Baseline", "Optimized", "Direction"],
+                    "fill_color": "#172033",
+                    "font": {"color": "white", "size": 22},
+                    "align": "left",
+                },
+                cells={
+                    "values": [
+                        [row[0] for row in rows],
+                        [_metric_text(row[1]) for row in rows],
+                        [_metric_text(row[2]) for row in rows],
+                        [row[3] for row in rows],
+                    ],
+                    "fill_color": "#F7FAFC",
+                    "font": {"size": 20, "color": "#172033"},
+                    "align": "left",
+                    "height": 46,
+                },
+            )
+        ]
+    )
+    return _apply_theme(fig, "Baseline vs Local Optimized Model")
+
+
+def write_figure_html(fig: go.Figure, output_path: str | Path) -> Path:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    _save_empty_chart(output, "Stage Breakdown", "Detailed stage spans not collected in this run")
+    html = fig.to_html(
+        full_html=True,
+        include_plotlyjs=True,
+        config={"displayModeBar": False, "responsive": False},
+    )
+    output.write_text(html, encoding="utf-8")
     return output
 
 
-def write_baseline_comparison_chart(output_path: str | Path) -> Path:
-    output = Path(output_path)
+def render_html_to_png(html_path: str | Path, png_path: str | Path) -> Path:
+    source = Path(html_path).resolve()
+    output = Path(png_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    _save_empty_chart(output, "Baseline Comparison", "Baseline sidecar metrics not available")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": CHART_WIDTH, "height": CHART_HEIGHT})
+        page.goto(source.as_uri())
+        page.locator(".plotly-graph-div").wait_for(timeout=10000)
+        page.screenshot(path=output, full_page=True)
+        browser.close()
     return output
+
+
+def write_case_latency_chart(
+    cases: list[CaseEvidence],
+    html_path: str | Path,
+    png_path: str | Path | None = None,
+    *,
+    render_png: bool = False,
+) -> Path:
+    html = write_figure_html(build_case_latency_figure(cases), html_path)
+    if render_png and png_path is not None:
+        render_html_to_png(html, png_path)
+    return html
+
+
+def write_stage_breakdown_chart(
+    stage_rows: list[dict[str, Any]],
+    html_path: str | Path,
+    png_path: str | Path | None = None,
+    *,
+    render_png: bool = False,
+) -> Path:
+    html = write_figure_html(build_stage_breakdown_figure(stage_rows), html_path)
+    if render_png and png_path is not None:
+        render_html_to_png(html, png_path)
+    return html
+
+
+def write_hardware_timeseries_chart(
+    samples: list[HardwareSample],
+    html_path: str | Path,
+    png_path: str | Path | None = None,
+    *,
+    render_png: bool = False,
+) -> Path:
+    html = write_figure_html(build_hardware_timeseries_figure(samples), html_path)
+    if render_png and png_path is not None:
+        render_html_to_png(html, png_path)
+    return html
+
+
+def write_baseline_comparison_chart(
+    ppt_metrics: dict[str, Any],
+    html_path: str | Path,
+    png_path: str | Path | None = None,
+    *,
+    render_png: bool = False,
+) -> Path:
+    html = write_figure_html(build_baseline_comparison_figure(ppt_metrics), html_path)
+    if render_png and png_path is not None:
+        render_html_to_png(html, png_path)
+    return html
 ```
 
 - [ ] **Step 5: Run writer and chart tests**
@@ -1038,12 +1402,12 @@ Expected: PASS.
 
 ```bash
 git add sentinel_edge/evidence/writer.py sentinel_edge/evidence/charts.py tests/test_ppt_evidence_writer_charts.py
-git commit -m "feat: write PPT evidence files and charts"
+git commit -m "feat: write Plotly PPT evidence charts"
 ```
 
 ---
 
-### Task 7: Case Runner
+### Task 8: Case Runner
 
 **Files:**
 - Create: `tests/test_ppt_evidence_case_runner.py`
@@ -1194,7 +1558,7 @@ git commit -m "feat: run finance cases for PPT evidence"
 
 ---
 
-### Task 8: CLI Integration
+### Task 9: CLI Integration
 
 **Files:**
 - Create: `tests/test_collect_ppt_evidence_cli.py`
@@ -1266,6 +1630,7 @@ from sentinel_edge.evidence.case_runner import run_cases  # noqa: E402
 from sentinel_edge.evidence.charts import (  # noqa: E402
     write_baseline_comparison_chart,
     write_case_latency_chart,
+    write_hardware_timeseries_chart,
     write_stage_breakdown_chart,
 )
 from sentinel_edge.evidence.hardware_sampler import sample_once  # noqa: E402
@@ -1322,9 +1687,30 @@ async def main_async(args: argparse.Namespace) -> Path:
         ppt_metrics=ppt_metrics,
     )
     output_dir = write_evidence_pack(pack, build_output_dir(args.output_dir))
-    write_case_latency_chart(cases, output_dir / "charts" / "case_latency.png")
-    write_stage_breakdown_chart(output_dir / "charts" / "stage_breakdown.png")
-    write_baseline_comparison_chart(output_dir / "charts" / "baseline_comparison.png")
+    write_case_latency_chart(
+        cases,
+        output_dir / "charts" / "html" / "case_latency.html",
+        output_dir / "charts" / "png" / "case_latency.png",
+        render_png=True,
+    )
+    write_stage_breakdown_chart(
+        [],
+        output_dir / "charts" / "html" / "stage_breakdown.html",
+        output_dir / "charts" / "png" / "stage_breakdown.png",
+        render_png=True,
+    )
+    write_hardware_timeseries_chart(
+        hardware_samples,
+        output_dir / "charts" / "html" / "hardware_timeseries.html",
+        output_dir / "charts" / "png" / "hardware_timeseries.png",
+        render_png=True,
+    )
+    write_baseline_comparison_chart(
+        ppt_metrics,
+        output_dir / "charts" / "html" / "baseline_comparison.html",
+        output_dir / "charts" / "png" / "baseline_comparison.png",
+        render_png=True,
+    )
     print(json.dumps({"output_dir": str(output_dir)}, ensure_ascii=False))
     return output_dir
 
@@ -1366,7 +1752,10 @@ Then verify:
 ```bash
 test -f output/competition/evidence/smoke/evidence.json
 test -f output/competition/evidence/smoke/ppt_metrics.json
-test -f output/competition/evidence/smoke/charts/case_latency.png
+test -f output/competition/evidence/smoke/charts/html/case_latency.html
+test -f output/competition/evidence/smoke/charts/png/case_latency.png
+test -f output/competition/evidence/smoke/charts/html/hardware_timeseries.html
+test -f output/competition/evidence/smoke/charts/png/hardware_timeseries.png
 ```
 
 Expected: all `test -f` commands exit 0.
@@ -1380,7 +1769,7 @@ git commit -m "feat: add PPT evidence collector CLI"
 
 ---
 
-### Task 9: Public Exports and Focused Test Run
+### Task 10: Public Exports and Focused Test Run
 
 **Files:**
 - Modify: `sentinel_edge/evidence/__init__.py`
@@ -1393,6 +1782,7 @@ Update `sentinel_edge/evidence/__init__.py`:
 """PPT evidence collection helpers for Sentinel competition materials."""
 
 from sentinel_edge.evidence.aggregator import build_ppt_metrics
+from sentinel_edge.evidence.chart_specs import CHART_SPECS, ChartSpec, chart_spec_for
 from sentinel_edge.evidence.hardware_sampler import sample_once
 from sentinel_edge.evidence.models import (
     CaseEvidence,
@@ -1411,7 +1801,10 @@ __all__ = [
     "HardwareSample",
     "MetricValue",
     "Source",
+    "CHART_SPECS",
+    "ChartSpec",
     "build_ppt_metrics",
+    "chart_spec_for",
     "load_sidecar",
     "sample_once",
     "to_plain_data",
@@ -1431,6 +1824,7 @@ uv run pytest \
   tests/test_ppt_evidence_aggregator.py \
   tests/test_ppt_evidence_sidecar.py \
   tests/test_ppt_evidence_hardware_sampler.py \
+  tests/test_ppt_evidence_chart_specs.py \
   tests/test_ppt_evidence_writer_charts.py \
   tests/test_ppt_evidence_case_runner.py \
   tests/test_collect_ppt_evidence_cli.py \
@@ -1448,7 +1842,7 @@ git commit -m "chore: export PPT evidence helpers"
 
 ---
 
-### Task 10: Documentation and Final Verification
+### Task 11: Documentation and Final Verification
 
 **Files:**
 - Modify: `docs/commands.md`
@@ -1488,6 +1882,7 @@ uv run pytest \
   tests/test_ppt_evidence_aggregator.py \
   tests/test_ppt_evidence_sidecar.py \
   tests/test_ppt_evidence_hardware_sampler.py \
+  tests/test_ppt_evidence_chart_specs.py \
   tests/test_ppt_evidence_writer_charts.py \
   tests/test_ppt_evidence_case_runner.py \
   tests/test_collect_ppt_evidence_cli.py \
@@ -1510,9 +1905,14 @@ Expected: exits 0 and writes:
 - `output/competition/evidence/smoke/ppt_metrics.json`
 - `output/competition/evidence/smoke/case_results.csv`
 - `output/competition/evidence/smoke/hardware_samples.csv`
-- `output/competition/evidence/smoke/charts/case_latency.png`
-- `output/competition/evidence/smoke/charts/stage_breakdown.png`
-- `output/competition/evidence/smoke/charts/baseline_comparison.png`
+- `output/competition/evidence/smoke/charts/html/case_latency.html`
+- `output/competition/evidence/smoke/charts/html/stage_breakdown.html`
+- `output/competition/evidence/smoke/charts/html/hardware_timeseries.html`
+- `output/competition/evidence/smoke/charts/html/baseline_comparison.html`
+- `output/competition/evidence/smoke/charts/png/case_latency.png`
+- `output/competition/evidence/smoke/charts/png/stage_breakdown.png`
+- `output/competition/evidence/smoke/charts/png/hardware_timeseries.png`
+- `output/competition/evidence/smoke/charts/png/baseline_comparison.png`
 
 - [ ] **Step 3: Inspect generated metrics**
 

@@ -6,14 +6,15 @@
 
 `docs/competition_ppt_outline.md` 已经把决赛 PPT 需要替换为实测值的示例数据集中列出，尤其是 P8、P10、P11、P13 的硬件、性能、对比实验和 Demo 证据。当前仓库已有 `scripts/sentinel_competition_demo.py`，可以运行 10 条金融 Demo 用例并生成 JSON 报告；`sentinel_edge.metrics.BenchmarkRecorder` 能记录整条 case 的耗时；`sentinel_edge.hardware.collect_hardware_profile()` 能发现基础硬件环境。
 
-缺口在于：现有报告还没有面向 PPT 的聚合指标、CSV、PNG 图表、运行时 GPU/显存/功耗采样，也没有把手工实测的 TTFT、tokens/s、llama.cpp offload 日志和截图路径纳入统一证据包。
+缺口在于：现有报告还没有面向 PPT 的聚合指标、CSV、Plotly 图表、运行时 GPU/显存/功耗采样，也没有把手工实测的 TTFT、tokens/s、llama.cpp offload 日志和截图路径纳入统一证据包。
 
 本设计的首要目标是服务 PPT 静态数据与图表，不优先支持现场一键长时间复现实测。
 
 ## 已确认决策
 
 - 交付目标：先满足 PPT 静态数据表和图表。
-- 输出形态：生成 `JSON/CSV`，同时生成 PPT 可直接使用的 `PNG` 图表。
+- 输出形态：生成 `JSON/CSV`，同时生成 Plotly `HTML` 图表和 PPT 可直接使用的 `PNG` 图表。
+- 图表渲染路线：Plotly HTML 是图表事实来源，PNG 由同一份 HTML 通过 Playwright/Chromium 截图生成；Kaleido 不是默认路径。
 - 硬件与推理指标来源：脚本优先自动采集；自动采不到的字段允许由 sidecar 文件补齐。
 - 数据真实性：每个关键字段必须带来源标记，区分 `measured`、`derived`、`sidecar`、`not_available`。
 - 实现路线：采用模块化 evidence collector，不把业务 pipeline 改造成性能测试框架。
@@ -21,7 +22,7 @@
 ## 目标
 
 1. 新增一个清晰的 PPT 证据采集边界，围绕现有 Demo case、pipeline 入口、硬件画像和 benchmark 记录做编排。
-2. 为 PPT 产出一份 evidence pack，包含原始证据、聚合指标、CSV 明细和 PNG 图表。
+2. 为 PPT 产出一份 evidence pack，包含原始证据、聚合指标、CSV 明细、Plotly HTML 图表和 PNG 图表。
 3. 将自动采集值、派生计算值、手工补充值和不可用字段明确标注来源。
 4. 在非 AMD 环境、ROCm 工具缺失或依赖服务未启动时仍能产出可审计报告，而不是静默失败或伪造数据。
 5. 为后续实现详细阶段埋点预留接口，但第一版不做大范围业务流程改造。
@@ -39,12 +40,25 @@
 | PPT 页 | 数据需求 | 采集方式 | 产物 |
 |---|---|---|---|
 | P5 系统总体架构 | 模块数、测试用例数、金融 Demo 用例数 | 静态仓库扫描 + `finance_demo_cases.py` | `ppt_metrics.json` |
-| P8 AMD 硬件利用 | 硬件画像、GPU/NPU 可用性、GPU 利用率、VRAM、功耗、llama.cpp offload 日志路径 | `collect_hardware_profile()` + runtime sampler + sidecar | `hardware_samples.csv`、`ppt_metrics.json` |
-| P10 本地推理性能 | 端到端延迟均值/P95、TTFT、tokens/s、批量补图耗时、GPU 峰值、VRAM 峰值、阶段耗时拆解图 | case runner + sampler + sidecar + 聚合 | `case_results.csv`、`stage_timings.csv`、`charts/stage_breakdown.png` |
-| P11 精度/能效/稳定性对比 | 基线 vs 本地优化模型：通过率、风险等级一致率、平均延迟、平均功耗 | 自动聚合 + sidecar 基线数据 | `ppt_metrics.json`、`charts/baseline_comparison.png` |
+| P8 AMD 硬件利用 | 硬件画像、GPU/NPU 可用性、GPU 利用率、VRAM、功耗、llama.cpp offload 日志路径 | `collect_hardware_profile()` + runtime sampler + sidecar | `hardware_samples.csv`、`ppt_metrics.json`、`charts/html/hardware_timeseries.html`、`charts/png/hardware_timeseries.png` |
+| P10 本地推理性能 | 端到端延迟均值/P95、TTFT、tokens/s、批量补图耗时、GPU 峰值、VRAM 峰值、阶段耗时拆解图 | case runner + sampler + sidecar + 聚合 | `case_results.csv`、`stage_timings.csv`、`charts/html/case_latency.html`、`charts/png/case_latency.png`、`charts/html/stage_breakdown.html`、`charts/png/stage_breakdown.png` |
+| P11 精度/能效/稳定性对比 | 基线 vs 本地优化模型：通过率、风险等级一致率、平均延迟、平均功耗 | 自动聚合 + sidecar 基线数据 | `ppt_metrics.json`、`charts/html/baseline_comparison.html`、`charts/png/baseline_comparison.png` |
 | P12 隐私与安全 | 日志脱敏截图、隐私证据路径 | sidecar 记录素材路径和说明 | `evidence.json` |
 | P13 Demo 演示 | 选中 case、event_id、日志路径、错误、截图素材路径 | case runner + sidecar | `evidence.json`、`case_results.csv` |
 | P14 落地价值 | 研判时间对比、组合风险发现率、试点材料 | sidecar 记录人工确认值和来源 | `ppt_metrics.json` |
+
+## 图表数据性质与呈现判断
+
+当前图表不应只按文件名固定为“普通柱状图”。不同数据的尺度、单位和缺失情况不同，图表类型需要按数据性质选择：
+
+| 数据 | 数据性质 | 原始普通图表是否合适 | 采用图表 |
+|---|---|---|---|
+| 10 条 case 端到端延迟 | 正连续值，样本少，可能长尾；历史样例中最大值远大于最小值 | 普通竖向柱状图不合适，长 case 会压扁其他 case，标签也容易拥挤 | Plotly 横向排序条形/棒棒糖图，按耗时升序排列，显示均值与 P95 参考线；若最大/最小跨度过大，在图注中说明长尾 |
+| 阶段耗时拆解 | 组成型时间数据，只有 pipeline 暴露细粒度 span 时才真实存在 | 无阶段数据时生成“空阶段图”容易误导 | 有阶段 span 时用堆叠横条；没有阶段 span 时输出 measurement availability 图，明确标注阶段耗时未采集 |
+| GPU 利用率、VRAM、功耗 | 时间序列，单位不同，峰值和趋势都重要 | 单个峰值柱状图只能证明局部，不适合展示运行过程 | Plotly 分面折线图或小多图：GPU %、VRAM MB、Power W 分开 y 轴，保留峰值标注 |
+| 基线 vs 本地优化 | 指标少但单位混合：通过率/一致率是百分比，延迟/功耗越低越好 | 分组柱状图不合适，混合单位会误导 | Plotly scorecard/table：每行一个指标，列出基线、优化、变化方向；必要时增加归一化改善条 |
+| 风险等级一致率 | 重复运行产生的分类一致性，属于类别/比例数据 | 单一百分比不够解释波动来源 | 堆叠条或热力矩阵展示 expected vs observed risk level，同时保留一致率大数字 |
+| 证据可用性 | 字段来源枚举：measured/derived/sidecar/not_available | 柱状图意义不大 | 矩阵/清单图，按 PPT 页和指标列出来源状态，防止把不可用字段当实测 |
 
 ## 模块设计
 
@@ -84,9 +98,11 @@
 
 `charts.py`
 
-- 生成 PPT 可直接使用的 PNG。
-- 第一版图表包括阶段耗时拆解、case 延迟分布、基线 vs 本地优化对比。
-- 缺少数据时生成可审计的空状态图，图中说明对应指标不可用，避免误导。
+- 使用 Plotly 生成图表对象。
+- 每张图同时输出 `charts/html/*.html` 和 `charts/png/*.png`。
+- HTML 使用本地内嵌 Plotly.js，作为后续 HTML slide 的可复用素材；PNG 由 Playwright/Chromium 打开 HTML 后截图生成，保证与最终 slide 截图链路一致。
+- 第一版图表包括 case 延迟排序图、阶段耗时拆解/可用性图、硬件采样时间序列、基线 vs 优化 scorecard。
+- 缺少数据时生成可审计的 HTML/PNG 状态图，图中说明对应指标不可用，避免误导。
 
 `writer.py`
 
@@ -126,9 +142,16 @@ output/competition/evidence/<timestamp>/
 ├── stage_timings.csv
 ├── hardware_samples.csv
 ├── charts/
-│   ├── stage_breakdown.png
-│   ├── case_latency.png
-│   └── baseline_comparison.png
+│   ├── html/
+│   │   ├── case_latency.html
+│   │   ├── stage_breakdown.html
+│   │   ├── hardware_timeseries.html
+│   │   └── baseline_comparison.html
+│   └── png/
+│       ├── case_latency.png
+│       ├── stage_breakdown.png
+│       ├── hardware_timeseries.png
+│       └── baseline_comparison.png
 └── logs/
     ├── 00_run.log
     └── <case>.log
@@ -138,7 +161,7 @@ output/competition/evidence/<timestamp>/
 
 `ppt_metrics.json` 面向 PPT 使用，按页码组织关键值，例如 `p10.end_to_end_latency_mean_ms`、`p10.end_to_end_latency_p95_ms`、`p10.gpu_peak_util_percent`、`p11.optimized.pass_rate`。
 
-CSV 文件用于图表复核和人工二次整理。
+CSV 文件用于图表复核和人工二次整理。Plotly HTML 用于浏览器预览和嵌入 HTML slide；PNG 用于直接贴入传统 PPTX。
 
 ## Sidecar 规则
 
@@ -168,7 +191,8 @@ sidecar 是自动采集的补充，不是默认事实来源。
 - `rocm-smi` 不存在：硬件采样字段写 `not_available`，硬件画像保留已有 notes。
 - `rocm-smi` 输出格式不兼容：保存原始命令摘要，解析字段写 `not_available`。
 - sidecar 格式错误：CLI 失败并指出文件路径和字段位置，避免生成混合了错误人工数据的报告。
-- 图表数据不足：生成空状态 PNG，并在 `ppt_metrics.json` 写清不可用原因。
+- 图表数据不足：生成空状态 HTML/PNG，并在 `ppt_metrics.json` 写清不可用原因。
+- Playwright/Chromium 不可用：保留 Plotly HTML，PNG 生成失败信息写入 `chart_render_errors.json`；不得生成伪 PNG。
 
 ## 测试策略
 
@@ -184,8 +208,8 @@ sidecar 是自动采集的补充，不是默认事实来源。
 
 文件输出测试：
 
-- 使用临时目录生成 `evidence.json`、`ppt_metrics.json`、CSV 和 PNG。
-- 验证 PNG 文件存在且非空。
+- 使用临时目录生成 `evidence.json`、`ppt_metrics.json`、CSV、Plotly HTML 和 PNG。
+- 验证 HTML 文件包含 Plotly 图表容器，PNG 文件存在且非空。
 - 验证 `ppt_metrics.json` 包含 P5、P8、P10、P11、P12、P13、P14 的顶层键。
 
 手动验证命令：
@@ -199,7 +223,7 @@ sidecar 是自动采集的补充，不是默认事实来源。
 1. 运行默认 CLI 能生成 evidence pack 目录。
 2. `ppt_metrics.json` 按 PPT 页码组织关键指标，并为缺失字段写明 `not_available`。
 3. `case_results.csv` 能列出每个 case 的状态、耗时、风险等级和错误。
-4. `charts/` 至少生成阶段耗时、case 延迟、基线对比三类 PNG。
+4. `charts/html/` 与 `charts/png/` 至少生成 case 延迟、阶段耗时/可用性、硬件时间序列、基线对比四类图。
 5. sidecar 能补齐 TTFT、tokens/s、功耗、截图路径和基线对比数据。
 6. 无 ROCm 工具的机器上脚本仍可生成报告，且不会虚报 GPU/NPU 实测。
 7. 默认测试不依赖真实 Milvus、Neo4j、LLM 或 AMD 硬件。
@@ -210,6 +234,6 @@ sidecar 是自动采集的补充，不是默认事实来源。
 2. 增加 sidecar 读取与合并。
 3. 增加硬件采样器和 `rocm-smi` 解析。
 4. 增加 CLI 脚本和输出目录结构。
-5. 增加 PNG 图表生成。
+5. 增加 Plotly HTML 图表和 Playwright PNG 截图生成。
 6. 为纯逻辑与文件输出补测试。
 7. 根据实测报告再决定是否给 `main.py` 增加更细粒度阶段 span。
