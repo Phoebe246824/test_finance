@@ -1,4 +1,5 @@
-"""LLM提供商配置管理"""
+"""LLM 提供商配置与按工作流 stage 路由。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,33 +13,100 @@ load_dotenv()
 
 _ACTIVE_LLMS: list[LLM] = []
 
+STAGE_TIERS: dict[str, str] = {
+    'normalize': 'extract',
+    'classify': 'extract',
+    'graphiti': 'extract',
+    'risk_first': 'reason',
+    'risk_second': 'reason',
+    'dashboard': 'reason',
+}
+
+_TIER_ENV_PREFIXES: dict[str, str] = {
+    'extract': 'LLM_EXTRACT',
+    'reason': 'LLM_REASON',
+}
+
+REASON_MAX_ATTEMPTS = int(os.getenv('REASON_MAX_ATTEMPTS') or '2')
+
+
+def _tier_for_stage(stage: str) -> str:
+    """返回 stage 对应的模型档位，未知 stage 直接失败。"""
+    try:
+        return STAGE_TIERS[stage]
+    except KeyError as exc:
+        known_stages = ', '.join(sorted(STAGE_TIERS))
+        raise ValueError(
+            f'unknown LLM stage: {stage}. Known stages: {known_stages}'
+        ) from exc
+
+
+def _tier_env(tier: str, name: str) -> str | None:
+    """读取某档位的环境变量，未设置时回退到基础 LLM_*。"""
+    prefix = _TIER_ENV_PREFIXES[tier]
+    return os.getenv(f'{prefix}_{name}') or os.getenv(f'LLM_{name}')
+
+
+def _stage_llm_config(stage: str) -> dict[str, str]:
+    """解析 stage 对应的 OpenAI-compatible LLM 连接配置。"""
+    tier = _tier_for_stage(stage)
+    return {
+        'model': _tier_env(tier, 'MODEL') or 'gpt-4o',
+        'api_key': _tier_env(tier, 'API_KEY') or '',
+        'base_url': _tier_env(tier, 'BASE_URL') or 'https://api.openai.com/v1',
+    }
+
 
 def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None):
-    """获取硅基流动LLM实例"""
-    # 确保模型名称不为空
+    """获取硅基流动或 OpenAI-compatible LLM 实例。"""
     if not model:
-        model = os.getenv("LLM_MODEL") or "gpt-4o"
+        model = os.getenv('LLM_MODEL') or 'gpt-4o'
     llm = LLM(
         model=model,
-        # max_tokens=5120,
         max_completion_tokens=8192,
         top_p=0.85,
-        api_key=api_key or os.getenv("LLM_API_KEY") or "",
-        base_url=base_url or os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1",
+        api_key=api_key or os.getenv('LLM_API_KEY') or '',
+        base_url=base_url or os.getenv('LLM_BASE_URL') or 'https://api.openai.com/v1',
         temperature=temperature,
-        provider="openai"
+        provider='openai',
     )
     _ACTIVE_LLMS.append(llm)
     return llm
 
 
+def get_llm_for(stage: str, temperature: float | None = None) -> LLM:
+    """按工作流 stage 获取 LLM，call site 只声明语义 stage。"""
+    llm_config = _stage_llm_config(stage)
+    return get_siliconflow_llm(
+        model=llm_config['model'],
+        temperature=0.7 if temperature is None else temperature,
+        api_key=llm_config['api_key'],
+        base_url=llm_config['base_url'],
+    )
+
+
+def reasoning_kwargs_for(stage: str) -> dict[str, int | bool]:
+    """返回 CrewAI Agent reasoning 参数；抽取档保持默认关闭。"""
+    tier = _tier_for_stage(stage)
+    if tier != 'reason':
+        return {}
+    return {
+        'reasoning': True,
+        'max_reasoning_attempts': REASON_MAX_ATTEMPTS,
+    }
+
+
 def get_llm(model=None, temperature=0.7, provider=None, api_key=None, base_url=None):
-    """根据提供商获取LLM实例"""
-    provider = provider or os.getenv("LLM_PROVIDER") or "openai"
-    if provider in ("siliconflow", "openai"):
-        return get_siliconflow_llm(model=model, temperature=temperature, api_key=api_key, base_url=base_url)
-    else:
-        raise ValueError(f"不支持的LLM提供商: {provider}")
+    """根据提供商获取 LLM 实例，保留旧入口向后兼容。"""
+    provider = provider or os.getenv('LLM_PROVIDER') or 'openai'
+    if provider in ('siliconflow', 'openai'):
+        return get_siliconflow_llm(
+            model=model,
+            temperature=temperature,
+            api_key=api_key,
+            base_url=base_url,
+        )
+    raise ValueError(f'不支持的LLM提供商: {provider}')
 
 
 async def close_all_llms() -> None:
@@ -53,15 +121,17 @@ async def close_all_llms() -> None:
         seen.add(llm_id)
         try:
             async_client = llm._get_async_client()
-            if async_client is not None and not getattr(async_client, "is_closed", True):
-                if hasattr(async_client, "aclose"):
+            if async_client is not None and not getattr(
+                async_client, 'is_closed', True
+            ):
+                if hasattr(async_client, 'aclose'):
                     await async_client.aclose()
                 else:
                     close_result = async_client.close()
                     if asyncio.iscoroutine(close_result):
                         await close_result
         except RuntimeError as e:
-            if "Event loop is closed" not in str(e):
+            if 'Event loop is closed' not in str(e):
                 raise
         except Exception:
             # 退出清理阶段尽量静默，不影响主流程结束
