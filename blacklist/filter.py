@@ -12,6 +12,7 @@ OR 逻辑：任一维度命中 → PASS (True)；全未命中 → STASH (False)�
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import Optional
 
 import httpx
@@ -20,6 +21,35 @@ from blacklist.store import BlacklistStore
 from models import NormalizedEvent
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EventSimilarityHit:
+    hit: bool = False
+    score: float = 0.0
+    event_id: str = ""
+    summary: str = ""
+    threshold: float = 0.0
+
+
+@dataclass
+class BlacklistCheckResult:
+    should_proceed: bool
+    matched_persons: list[str] = field(default_factory=list)
+    matched_keywords: list[str] = field(default_factory=list)
+    event_similarity: EventSimilarityHit = field(default_factory=EventSimilarityHit)
+
+    @property
+    def event_hit(self) -> bool:
+        return self.event_similarity.hit
+
+    def as_legacy_tuple(self) -> tuple[bool, list[str], list[str], bool]:
+        return (
+            self.should_proceed,
+            self.matched_persons,
+            self.matched_keywords,
+            self.event_hit,
+        )
 
 
 class BlacklistFilter:
@@ -43,7 +73,12 @@ class BlacklistFilter:
         )
         self._reranker_model = reranker_model or os.getenv("RERANKER_MODEL", "")
 
-    async def check(self, event: NormalizedEvent) -> tuple[bool, list[str], list[str], bool]:
+    async def check(
+        self, event: NormalizedEvent
+    ) -> tuple[bool, list[str], list[str], bool]:
+        return (await self.check_with_details(event)).as_legacy_tuple()
+
+    async def check_with_details(self, event: NormalizedEvent) -> BlacklistCheckResult:
         """
         执行三合一 OR 匹配。
 
@@ -56,22 +91,31 @@ class BlacklistFilter:
         """
         matched_persons = await self._check_persons(event)
         matched_keywords = await self._check_keywords(event)
-        event_hit = await self._check_event_similarity(event)
+        event_similarity = await self._check_event_similarity_details(event)
 
-        should_proceed = bool(matched_persons or matched_keywords or event_hit)
+        should_proceed = bool(
+            matched_persons or matched_keywords or event_similarity.hit
+        )
 
         if should_proceed:
             logger.info(
-                "blacklist PASS: event_id=%s, persons=%s, keywords=%s, event_sim=%s",
+                "blacklist PASS: event_id=%s, persons=%s, keywords=%s, event_sim=%s, event_sim_score=%.4f, event_sim_id=%s",
                 event.event_id,
                 matched_persons,
                 matched_keywords,
-                event_hit,
+                event_similarity.hit,
+                event_similarity.score,
+                event_similarity.event_id,
             )
         else:
             logger.info("blacklist STASH: event_id=%s, no matches", event.event_id)
 
-        return should_proceed, matched_persons, matched_keywords, event_hit
+        return BlacklistCheckResult(
+            should_proceed=should_proceed,
+            matched_persons=matched_persons,
+            matched_keywords=matched_keywords,
+            event_similarity=event_similarity,
+        )
 
     async def _check_persons(self, event: NormalizedEvent) -> list[str]:
         """从事件文本中提取人员 ID 并比对黑名单。"""
@@ -100,45 +144,64 @@ class BlacklistFilter:
         return matched_keywords
 
     async def _check_event_similarity(self, event: NormalizedEvent) -> bool:
+        return (await self._check_event_similarity_details(event)).hit
+
+    async def _check_event_similarity_details(
+        self, event: NormalizedEvent
+    ) -> EventSimilarityHit:
         """
         使用 Jina Rerank API 比对事件黑名单中的摘要。
         最高分 > 阈值则判定为命中。
         """
+        miss = EventSimilarityHit(threshold=self._similarity_threshold)
         event_count = await self._store.get_event_count()
         if event_count == 0:
-            return False
+            return miss
 
         event_summaries = await self._store.get_event_summaries()
         if not event_summaries:
-            return False
+            return miss
 
-        summaries: list[str] = []
+        candidates: list[tuple[str, str]] = []
         for payload in event_summaries.values():
             try:
-                summaries.append(json.loads(payload).get("summary", ""))
+                data = json.loads(payload)
+                summary = data.get("summary", "")
+                event_id = data.get("event_id", "")
             except (json.JSONDecodeError, AttributeError):
-                summaries.append("")
+                summary = ""
+                event_id = ""
+            if summary:
+                candidates.append((event_id, summary))
 
-        if not summaries:
-            return False
+        if not candidates:
+            return miss
 
         try:
-            max_score = await self._rerank_similarity(
+            best_index, max_score = await self._rerank_similarity(
                 query=event.raw_content,
-                documents=summaries,
+                documents=[summary for _, summary in candidates],
             )
-            if max_score > self._similarity_threshold:
-                return True
+            event_id, summary = candidates[best_index] if best_index >= 0 else ("", "")
+            return EventSimilarityHit(
+                hit=max_score > self._similarity_threshold,
+                score=max_score,
+                event_id=event_id,
+                summary=summary,
+                threshold=self._similarity_threshold,
+            )
         except Exception as e:
             logger.warning("event similarity check failed: %s", e)
 
-        return False
+        return miss
 
-    async def _rerank_similarity(self, query: str, documents: list[str]) -> float:
+    async def _rerank_similarity(
+        self, query: str, documents: list[str]
+    ) -> tuple[int, float]:
         """调用 Jina Rerank API 获取最高相似度分数。"""
         if not self._reranker_api_key:
             logger.warning("RERANKER_API_KEY not set, skipping similarity check")
-            return 0.0
+            return -1, 0.0
 
         url = f"{self._reranker_base_url.rstrip('/')}/rerank"
         payload = {
@@ -159,7 +222,7 @@ class BlacklistFilter:
 
         results = data.get("results", [])
         if not results:
-            return 0.0
+            return -1, 0.0
 
-        return results[0].get("relevance_score", 0.0)
-
+        best = results[0]
+        return int(best.get("index", -1)), float(best.get("relevance_score", 0.0))

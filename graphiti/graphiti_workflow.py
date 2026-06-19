@@ -1,7 +1,7 @@
 import logging
 import os
-from datetime import datetime, date
-from typing import Any, List, Optional
+from datetime import datetime
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -51,128 +51,96 @@ RERANKER_MODEL = os.environ.get("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3"
 # ========================
 
 
-class Event(BaseModel):
-    event_id: Optional[str] = Field(None, description="事件编号，如 E1、E2")
-    event_date: Optional[date] = Field(None, description="事件发生日期")
-    location: Optional[str] = Field(None, description="事件发生地点")
-    event_type: Optional[str] = Field(None, description="事件类型")
-    severity: Optional[str] = Field(None, description="事件严重程度")
-    key_metric: Optional[str] = Field(None, description="关键指标及数值")
-    source: Optional[str] = Field(None, description="信息来源机构")
+class RiskEvent(BaseModel):
+    """银行零售风控/反欺诈/反洗钱事件。"""
 
-
-class Person(BaseModel):
-    id_number: Optional[str] = Field(
+    event_category: Optional[str] = Field(
         None,
-        description="唯一标识ID（如 P014），用于与同名实体区分;身份证号、护照号等证件信息（建议脱敏存储）",
+        description="事件类别，如 normal_transaction、fraud_transfer、aml_structuring、loan_fraud、device_geo_anomaly、complaint。",
     )
-    full_name: Optional[str] = Field(
-        None, description="人物姓名，仅填写姓名本身，不包含编号"
-    )
-    alias: Optional[List[str]] = Field(
-        None, description="人物别名、昵称、英文名或曾用名"
-    )
-    gender: Optional[str] = Field(None, description="性别")
-    nationality: Optional[str] = Field(None, description="国籍或所属国家/地区")
-    birth_date: Optional[str] = Field(None, description="出生日期")
-    age: Optional[int] = Field(None, description="年龄")
-    occupation: Optional[str] = Field(None, description="职业或岗位")
-    affiliated_organization: Optional[str] = Field(
-        None, description="所属组织、单位或机构"
-    )
-    phone: Optional[str] = Field(None, description="联系电话")
-    email: Optional[str] = Field(None, description="电子邮箱")
-    address: Optional[str] = Field(None, description="居住地址或工作地址")
-
-    social_identity: Optional[str] = Field(
-        None, description="社会身份，例如专家、记者、群众、员工、负责人等"
-    )
-    role: Optional[str] = Field(
-        None,
-        description="在当前事件中的角色，例如目击者、受害者、责任人、救援人员、调查人员等",
-    )
-    impact: Optional[str] = Field(
-        None, description="该人物在事件中的影响、伤亡情况或作用描述"
-    )
-    involvement_level: Optional[str] = Field(
-        None, description="参与事件的程度，例如核心相关、间接关联、旁观者等"
-    )
+    occurred_at: Optional[str] = Field(None, description="事件发生时间，优先保留原文时间")
+    amount: Optional[float] = Field(None, description="事件涉及金额，单位为人民币元")
+    currency: Optional[str] = Field(None, description="币种，默认人民币时可填 CNY")
+    risk_level_hint: Optional[str] = Field(None, description="原文明确给出的风险等级或处置紧急程度")
+    disposition: Optional[str] = Field(None, description="已执行或建议的处置，如拦截、冻结、复核、暂存、回访")
+    evidence: Optional[str] = Field(None, description="支撑该事件的关键证据摘要")
 
 
-class Organization(BaseModel):
-    org_name: Optional[str] = Field(None, description="组织全称")
-    country: Optional[str] = Field(None, description="所属国家或地区")
-    role: Optional[str] = Field(None, description="在本事件中的角色")
-    id_number: Optional[str] = Field(
-        None, description="组织特征ID（唯一标识符），用于唯一标识一个组织实体"
-    )
-    org_alias: Optional[List[str]] = Field(None, description="组织别名、简称或历史名称")
-    org_type: Optional[str] = Field(
-        None,
-        description="组织类型，例如政府机构、企业、媒体、学校、国际组织、科研机构、NGO等",
-    )
-    parent_org: Optional[str] = Field(None, description="上级组织或母公司名称")
-    industry: Optional[str] = Field(
-        None, description="所属行业或领域，例如化工、能源、金融、互联网、医疗等"
-    )
-    city: Optional[str] = Field(None, description="所在城市")
-    address: Optional[str] = Field(None, description="组织地址或办公地点")
-    founded_time: Optional[str] = Field(None, description="组织成立时间")
-    legal_representative: Optional[str] = Field(
-        None, description="法人代表、负责人或主要管理者"
-    )
-    impact: Optional[str] = Field(
-        None, description="该组织在事件中的影响、损失或作用描述"
-    )
-    involvement_level: Optional[str] = Field(
-        None, description="组织参与事件的程度，例如直接参与、间接关联、核心参与等"
-    )
-    contact_info: Optional[str] = Field(
-        None, description="联系电话、邮箱或其他联系方式"
-    )
-    official_website: Optional[str] = Field(None, description="官方网站链接")
-    description: Optional[str] = Field(None, description="组织简介或背景信息")
+class Customer(BaseModel):
+    """银行客户、申请人、投诉人、转账发起人等自然人或个体工商户主体。"""
+
+    id_number: Optional[str] = Field(None, description="显式编号，如 P105；来自【P105# 客户E】时必须填写 P105")
+    customer_role: Optional[str] = Field(None, description="客户在事件中的角色，如付款方、收款方、投诉人、贷款申请人、疑似受害人")
+    risk_profile: Optional[str] = Field(None, description="客户风险画像，如黑名单命中、常驻城市、历史交易稳定、涉诈受害风险")
+    usual_city: Optional[str] = Field(None, description="客户常驻城市或常用地点")
+    account_age_hint: Optional[str] = Field(None, description="客户或其相关账户开户时长描述")
 
 
-class Commodity(BaseModel):
-    commodity_name: Optional[str] = Field(None, description="商品名称")
-    unit: Optional[str] = Field(None, description="计价单位")
-    price_before: Optional[float] = Field(None, description="事件前价格")
-    price_after: Optional[float] = Field(None, description="事件后价格")
-    change_percent: Optional[float] = Field(None, description="价格变动百分比")
-    supply_impact: Optional[str] = Field(None, description="供给端影响")
-    demand_impact: Optional[str] = Field(None, description="需求端影响")
+class Account(BaseModel):
+    """银行账户、收款账户、新开户账户、涉诈账户、外部支付账户等资金载体。"""
+
+    id_number: Optional[str] = Field(None, description="显式编号，如 P305、A001；来自【编号# 名称】时必须填写")
+    account_role: Optional[str] = Field(None, description="账户角色，如付款账户、收款账户、涉诈账户、跑分账户、归集账户、出金账户")
+    account_status: Optional[str] = Field(None, description="账户状态，如新开户、冻结、黑名单、可疑、正常")
+    opened_duration: Optional[str] = Field(None, description="开户时长，如不足7天、不足24小时")
+    owner_hint: Optional[str] = Field(None, description="原文明确给出的账户归属主体")
 
 
-class Technology(BaseModel):
-    tech_name: Optional[str] = Field(None, description="技术名称")
-    category: Optional[str] = Field(None, description="技术类别")
-    maturity: Optional[str] = Field(None, description="成熟度阶段")
-    energy_density: Optional[str] = Field(None, description="能量密度")
-    key_parameter: Optional[str] = Field(None, description="关键参数")
-    is_disruptive: Optional[bool] = Field(None, description="是否为颠覆性技术")
+class Merchant(BaseModel):
+    """企业、商户、平台、支付通道、雇主、银行系统等非个人主体。"""
+
+    id_number: Optional[str] = Field(None, description="显式编号，如 C301；来自【编号# 名称】时必须填写")
+    merchant_type: Optional[str] = Field(None, description="主体类型，如雇主企业、超市、虚拟币平台、投资平台、外部支付通道、反洗钱系统")
+    risk_status: Optional[str] = Field(None, description="商户风险状态，如涉诈、高投诉、正常、反洗钱关注")
 
 
-class Policy(BaseModel):
-    policy_name: Optional[str] = Field(None, description="政策名称")
-    policy_type: Optional[str] = Field(None, description="政策类型")
-    issuer: Optional[str] = Field(None, description="发布主体")
-    target: Optional[str] = Field(None, description="政策目标对象")
-    effective_date: Optional[date] = Field(None, description="生效日期")
-    key_rate: Optional[str] = Field(None, description="关键税率/金额/比例")
+class Device(BaseModel):
+    """登录或交易设备、IP、验证码、设备指纹等端侧行为载体。"""
+
+    device_type: Optional[str] = Field(None, description="设备类型，如常用手机、新设备、境外IP、设备指纹")
+    device_status: Optional[str] = Field(None, description="设备状态，如首次登录、常用设备、异常设备")
+    login_city: Optional[str] = Field(None, description="登录城市或 IP 所在地")
+    auth_signal: Optional[str] = Field(None, description="认证信号，如短信验证码多次失败、回访无人接听")
 
 
-class Causes(BaseModel):
-    mechanism: Optional[str] = Field(None, description="因果传导机制")
-    confidence: Optional[str] = Field(None, description="因果置信度")
-    time_lag: Optional[str] = Field(None, description="因果时间差")
-    evidence: Optional[str] = Field(None, description="证据摘要")
+class RiskSignal(BaseModel):
+    """可解释风险信号、规则命中、风险关键词或模型线索。"""
+
+    signal_type: Optional[str] = Field(None, description="信号类型，如 blacklist_hit、fraud_keyword、aml_rule、device_geo、velocity、complaint_similarity")
+    severity: Optional[str] = Field(None, description="风险严重度，如 low、medium、high")
+    rule_id: Optional[str] = Field(None, description="规则或案例编号，如 E-FIN-AML-001")
+    evidence: Optional[str] = Field(None, description="命中证据或触发原因")
 
 
-class Involves(BaseModel):
-    role: Optional[str] = Field(None, description="实体角色")
-    involvement_type: Optional[str] = Field(None, description="参与类型")
-    importance: Optional[str] = Field(None, description="重要程度")
+class TransfersFunds(BaseModel):
+    """资金从一个客户、账户或商户流向另一个客户、账户或商户。入账、出金、归集都用此关系表达。"""
+
+    amount: Optional[float] = Field(None, description="金额，单位人民币元")
+    transaction_time: Optional[str] = Field(None, description="交易发生时间")
+    remark: Optional[str] = Field(None, description="交易备注")
+    channel: Optional[str] = Field(None, description="交易渠道")
+    flow_type: Optional[str] = Field(None, description="资金流类型，如转账、工资入账、消费、出金、归集")
+
+
+class UsesDevice(BaseModel):
+    """客户或交易使用某设备、IP 或认证信号。"""
+
+    device_status: Optional[str] = Field(None, description="新设备、常用设备、境外IP、验证码失败等")
+    login_city: Optional[str] = Field(None, description="登录地点")
+
+
+class TriggersSignal(BaseModel):
+    """事件、客户、账户、商户或交易触发某个风险信号。"""
+
+    trigger_reason: Optional[str] = Field(None, description="触发原因")
+    severity: Optional[str] = Field(None, description="风险严重度")
+
+
+class MatchesPattern(BaseModel):
+    """事件或交易匹配历史案例、规则、相似投诉或异常模式。"""
+
+    pattern_name: Optional[str] = Field(None, description="匹配模式名称")
+    similarity_score: Optional[float] = Field(None, description="相似度分数，如原文明确给出")
 
 
 # ========================
@@ -332,46 +300,69 @@ async def add_event_to_graph(
     effective_reference_time = reference_time or datetime.now()
     effective_source = source_description
     entity_types = {
-        "Person": Person,
-        "Event": Event,
-        "Organization": Organization,
-        "Commodity": Commodity,
-        "Technology": Technology,
-        "Policy": Policy,
+        "Customer": Customer,
+        "Account": Account,
+        "Merchant": Merchant,
+        "Device": Device,
+        "RiskSignal": RiskSignal,
+        "RiskEvent": RiskEvent,
     }
 
     edge_types = {
-        "Causes": Causes,
-        "Involves": Involves,
+        "TransfersFunds": TransfersFunds,
+        "UsesDevice": UsesDevice,
+        "TriggersSignal": TriggersSignal,
+        "MatchesPattern": MatchesPattern,
     }
 
     edge_type_map = {
-        ("Event", "Event"): ["Causes"],
-        ("Event", "Organization"): ["Involves"],
-        ("Event", "Person"): ["Involves"],
-        ("Person", "Organization"): ["Involves"],
-        ("Event", "Commodity"): ["Involves"],
-        ("Event", "Technology"): ["Involves"],
-        ("Event", "Policy"): ["Involves"],
-        ("Organization", "Technology"): ["Involves"],
-        ("Policy", "Organization"): ["Involves"],
-        ("Commodity", "Organization"): ["Involves"],
-        ("Entity", "Entity"): ["Involves"],
+        ("Customer", "Account"): ["TransfersFunds"],
+        ("Customer", "Merchant"): ["TransfersFunds"],
+        ("Customer", "Device"): ["UsesDevice"],
+        ("Customer", "RiskSignal"): ["TriggersSignal"],
+        ("Customer", "RiskEvent"): ["TriggersSignal", "MatchesPattern"],
+        ("Account", "Customer"): ["TransfersFunds"],
+        ("Account", "Account"): ["TransfersFunds"],
+        ("Account", "Merchant"): ["TransfersFunds"],
+        ("Account", "RiskSignal"): ["TriggersSignal"],
+        ("Merchant", "Account"): ["TransfersFunds"],
+        ("Merchant", "RiskSignal"): ["TriggersSignal", "MatchesPattern"],
+        ("Device", "RiskSignal"): ["TriggersSignal"],
+        ("RiskEvent", "Customer"): ["TriggersSignal", "MatchesPattern"],
+        ("RiskEvent", "Account"): ["TransfersFunds", "TriggersSignal"],
+        ("RiskEvent", "Merchant"): ["TransfersFunds", "TriggersSignal", "MatchesPattern"],
+        ("RiskEvent", "Device"): ["UsesDevice"],
+        ("RiskEvent", "RiskSignal"): ["TriggersSignal", "MatchesPattern"],
+        ("Entity", "Entity"): list(edge_types.keys()),
     }
-    default_custom_instructions = (
-        "请优先基于输入抽取清晰、规范的事件节点，事件名必须尽量是“主体+动作/结果”的形式。"
-        "如果人物/组织带有显式编号（如 P014#、C009#，或 ID: P017），必须将编号写入对应实体的id_number属性字段；即便姓名相同，id_number不同也不得合并。"
-        "对于【编号# 名称】格式，必须把方括号内实体逐一抽取出来，不得漏抽。"
-        "示例1：输入‘【P014# 张女士】发现机构闭店’，抽取 Person: {name: 张女士, id_number: P014}。"
-        "示例2：输入‘【P017# 张女士】在超市购买熟食’，抽取 Person: {name: 张女士, id_number: P017}，与 P014实体不合并。"
-        "示例3：输入‘【C009# 启航少儿艺术中心】闭店’，抽取 Organization: {name: 启航少儿艺术中心, id_number: C009}。"
-        "示例4：输入‘【P015# 校区负责人李某】’，抽取 Person: {name: 李某, id_number: P015}。"
-        "人物实体的name只写姓名本身，不要包含编号，也不要包含“ID:”。组织实体的name只写组织名称本身，不要包含编号。"
-        "只抽取文本中明确出现的实体与关系，不要做跨段推断或补全未出现的人物。"
-        "只有在事件节点已明确抽出后，才抽取因果边 Causes。"
-        "如果一段输入里隐含多个事件，请拆成多个事件节点再建立因果链。"
-        "自定义关系抽取逻辑保持不变，仍然优先抽取事件间因果与参与关系。"
-    )
+    default_custom_instructions = """
+你正在为“端侧银行零售反欺诈与反洗钱预警助手”快速构建轻量知识图谱。
+目标是保留风控研判需要的最小事实：主体、资金流、设备异常、风险信号、相似模式。
+
+实体抽取规则：
+1. 对所有【编号# 名称】必须逐一抽取，name 严格等于“名称”，id_number 严格等于“编号”。
+   例如【P105# 客户E】 -> name=客户E, id_number=P105；
+   不要输出“客户”“账户”这种短泛称替代完整名称；不要把编号写进 name。
+2. 实体分类按语义和上下文，不要只看编号前缀：
+   - 客户A、客户E、个体工商户F、投诉人、贷款申请人 -> Customer
+   - 涉诈账户、新收款账户、付款账户、收款账户、跑分账户、归集账户 -> Account
+   - 虚拟币平台、投资平台、外部支付通道、超市、雇主企业、反洗钱系统 -> Merchant
+   - 新设备、常用手机、境外IP、短信验证码、登录设备 -> Device
+   - 洗钱、分拆交易、涉诈、黑名单、虚拟币保证金、投诉相似、开户不足7天、验证码失败 -> RiskSignal
+   - 转账、入账、消费、出金、贷款申请、投诉、冻结复核等完整事件 -> RiskEvent
+3. 不要抽取单独的时间、地点、金额、交易备注、投诉话术为实体；这些信息写进属性或关系 fact。
+4. 只抽取原文明确出现或无歧义蕴含的实体，不要补全未出现的信息。
+
+关系抽取规则：
+1. 资金入账、转账、消费、归集、出金都统一使用 TransfersFunds，不再使用接收/归集等拆分关系。
+2. 设备/IP/验证码/异地登录统一用 UsesDevice。
+3. 黑名单、涉诈、洗钱、分拆、开户过短、贷款欺诈、投诉相似等风险命中统一用 TriggersSignal。
+4. 历史相似事件、相似投诉话术、相似规则案例统一用 MatchesPattern。
+5. 每条关系的 fact 用中文，保留金额、时间、备注、渠道、设备状态、开户时长、处置建议等关键证据，不要泛化：
+   好：客户E在2026年6月13日10:24尝试向涉诈账户转账98000元，备注为虚拟币保证金。
+   坏：客户进行了可疑交易。
+6. 为速度考虑，不要抽取低价值泛关系；每个事件优先保留 3-6 条最关键关系即可。
+"""
     effective_event_text = event_text
     summary_text = None
 

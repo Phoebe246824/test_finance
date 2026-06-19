@@ -32,6 +32,7 @@ class MilvusStashStore:
         "event_id",
         "person_ids",
         "raw_content",
+        "content_hash",
         "created_at",
         "expire_at",
         "is_graph_built",
@@ -167,22 +168,61 @@ class MilvusStashStore:
         event: NormalizedEvent,
         id_numbers: list[str],
     ) -> int:
+        self._ensure_collection()
+        content_hash = self._content_hash(event.raw_content)
+        existing_rows = self._find_existing_content_rows(
+            content_hash, event.raw_content
+        )
+        if existing_rows:
+            logger.info(
+                "skip duplicate Milvus stash: event_id=%s, existing_event_id=%s, content_hash=%s",
+                event.event_id,
+                existing_rows[0].get("event_id"),
+                content_hash,
+            )
+            return 0
+
         created_at = event.timestamp
         expire_at = created_at + timedelta(days=self._ttl_days)
         row = {
             "event_id": event.event_id,
             "person_ids": sorted({pid.upper() for pid in id_numbers}),
             "raw_content": event.raw_content,
+            "content_hash": content_hash,
             "created_at": created_at.isoformat(),
             "expire_at": expire_at.isoformat(),
             "embedding": await self._embed_text(event.raw_content),
             "is_graph_built": False,
         }
-        self._ensure_collection()
         self._client.upsert(collection_name=self._collection_name, data=[row])
         self._flush_collection()
         logger.info("stashed event_id=%s to Milvus", event.event_id)
         return 1
+
+    def _find_existing_content_rows(
+        self, content_hash: str, raw_content: str
+    ) -> list[dict]:
+        output_fields = ["event_id", "person_ids", "raw_content", "content_hash"]
+        try:
+            rows = self._query_rows(
+                f"content_hash == {self._quote_literal(content_hash)}",
+                output_fields,
+                limit=1,
+            )
+            if rows:
+                return rows
+        except Exception as exc:
+            logger.warning("content_hash duplicate check failed: %s", exc)
+
+        try:
+            return self._query_rows(
+                f"raw_content == {self._quote_literal(raw_content)}",
+                output_fields,
+                limit=1,
+            )
+        except Exception as exc:
+            logger.warning("raw_content duplicate check failed: %s", exc)
+            return []
 
     def ensure_collection_ready(self) -> None:
         self._ensure_collection()
@@ -306,6 +346,50 @@ class MilvusStashStore:
             filter=self._event_id_filter(delete_ids),
         )
         return int(result.get("delete_count", len(delete_ids)))
+
+    def cleanup_duplicate_content(self, *, limit: int = 10000) -> int:
+        rows = self._query_rows(
+            'event_id != ""',
+            ["event_id", "raw_content", "content_hash", "created_at"],
+            limit=limit,
+        )
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            raw_content = str(row.get("raw_content") or "")
+            event_id = row.get("event_id")
+            if not raw_content or not event_id:
+                continue
+            content_hash = str(
+                row.get("content_hash") or self._content_hash(raw_content)
+            )
+            grouped.setdefault(content_hash, []).append(row)
+
+        delete_ids: list[str] = []
+        for duplicate_rows in grouped.values():
+            if len(duplicate_rows) <= 1:
+                continue
+            duplicate_rows.sort(
+                key=lambda item: (
+                    str(item.get("created_at") or ""),
+                    str(item.get("event_id") or ""),
+                )
+            )
+            delete_ids.extend(
+                str(row["event_id"])
+                for row in duplicate_rows[1:]
+                if row.get("event_id")
+            )
+
+        if not delete_ids:
+            return 0
+        result = self._client.delete(
+            collection_name=self._collection_name,
+            filter=self._event_id_filter(delete_ids),
+        )
+        self._flush_collection()
+        deleted_count = int(result.get("delete_count", len(delete_ids)))
+        logger.info("deleted %d duplicate Milvus stash rows", deleted_count)
+        return deleted_count
 
     def _eligible_rows(self, current_event_id: str, now: datetime) -> list[dict]:
         return self._query_rows(
@@ -479,6 +563,11 @@ class MilvusStashStore:
     @staticmethod
     def _quote_literal(value: str) -> str:
         return json.dumps(value)
+
+    @staticmethod
+    def _content_hash(raw_content: str) -> str:
+        normalized = " ".join(raw_content.split())
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
     @staticmethod
     async def _post_rerank_request(

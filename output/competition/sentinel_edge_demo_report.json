@@ -1,6 +1,6 @@
 {
   "project": "Sentinel Edge",
-  "generated_at": "2026-06-18T13:20:31",
+  "generated_at": "2026-06-18T15:56:54",
   "competition_track": "基于 AMD 锐龙 AI MAX+ 平台的端侧 AI 智能体与垂直行业创新应用",
   "scenario": "银行零售业务端侧反欺诈与反洗钱预警助手",
   "hardware_profile": {
@@ -26,22 +26,29 @@
   "selected_cases": [
     "finance_01_low_risk_salary_stash",
     "finance_02_structuring_history_stash",
-    "finance_04_aml_high_risk_recall"
+    "finance_03_blacklist_account_pass",
+    "finance_04_aml_high_risk_recall",
+    "finance_05_loan_fraud_pass",
+    "finance_06_duplicate_low_risk_no_repeat",
+    "finance_07_no_person_keyword_pass",
+    "finance_08_device_geo_anomaly_pass",
+    "finance_09_many_to_one_mule_account_pass",
+    "finance_10_chargeback_complaint_similarity_pass"
   ],
   "pipeline_executed": true,
   "pipeline_results": [
     {
       "case_id": "finance_01_low_risk_salary_stash",
       "title": "金融用例 1：正常工资入账与日常消费，作为低风险历史暂存",
-      "event_id": "f185f0cf-494f-499a-b39c-ededf4d1feed",
+      "event_id": "d0410cf4-dd46-43d2-ac39-a3832af4f35a",
       "error": null,
       "timing": {
-        "total_measured_ms": 15266.76,
+        "total_measured_ms": 21376.33,
         "records": [
           {
             "name": "pipeline.process_message",
-            "started_at": "2026-06-18T13:20:32",
-            "elapsed_ms": 15266.76,
+            "started_at": "2026-06-18T15:56:55",
+            "elapsed_ms": 21376.33,
             "metadata": {
               "case_id": "finance_01_low_risk_salary_stash"
             }
@@ -57,15 +64,15 @@
     {
       "case_id": "finance_02_structuring_history_stash",
       "title": "金融用例 2：多笔小额转账接近限额，暂存为可疑历史线索",
-      "event_id": "b7b8d0a7-6d51-4426-853e-289fab9bdbaa",
+      "event_id": "96753a07-2dac-4c22-ab7f-f32dd39e2d2f",
       "error": null,
       "timing": {
-        "total_measured_ms": 266367.94,
+        "total_measured_ms": 15931.52,
         "records": [
           {
             "name": "pipeline.process_message",
-            "started_at": "2026-06-18T13:20:47",
-            "elapsed_ms": 266367.94,
+            "started_at": "2026-06-18T15:57:16",
+            "elapsed_ms": 15931.52,
             "metadata": {
               "case_id": "finance_02_structuring_history_stash"
             }
@@ -73,23 +80,48 @@
         ]
       },
       "expected": [
-        "如果尚未命中黑名单，可进入 Milvus 暂存",
+        "不直接命中关键词黑名单",
+        "如事件相似度阈值较低，可能因接近 E-FIN-AML-001 而 PASS",
         "保留 P102 与多个新收款方关系",
         "为后续分拆交易识别提供历史上下文"
       ]
     },
     {
-      "case_id": "finance_04_aml_high_risk_recall",
-      "title": "金融用例 4：疑似洗钱分拆交易触发历史回捞与二次研判",
-      "event_id": "2b2443ef-0bf3-40a1-bf2f-4f7f33e7453a",
+      "case_id": "finance_03_blacklist_account_pass",
+      "title": "金融用例 3：客户命中黑名单并出现异常转账，触发完整研判",
+      "event_id": "e1bee7e6-4281-4cef-94da-1b9355ccf6d6",
       "error": null,
       "timing": {
-        "total_measured_ms": 280799.51,
+        "total_measured_ms": 642171.04,
         "records": [
           {
             "name": "pipeline.process_message",
-            "started_at": "2026-06-18T13:25:14",
-            "elapsed_ms": 280799.51,
+            "started_at": "2026-06-18T15:57:32",
+            "elapsed_ms": 642171.04,
+            "metadata": {
+              "case_id": "finance_03_blacklist_account_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "P105 或 涉诈/虚拟币/保证金 关键词触发 PASS",
+        "进入本地 LLM 分类、构图、风险评估",
+        "生成可解释的风险理由"
+      ]
+    },
+    {
+      "case_id": "finance_04_aml_high_risk_recall",
+      "title": "金融用例 4：疑似洗钱分拆交易触发历史回捞与二次研判",
+      "event_id": "6a5461ab-e3ed-4290-9d39-778c37146a55",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 1789550.99,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T16:08:14",
+            "elapsed_ms": 1789550.99,
             "metadata": {
               "case_id": "finance_04_aml_high_risk_recall"
             }
@@ -101,6 +133,150 @@
         "从 Milvus 回捞 P102 的历史可疑转账",
         "补图后执行二次风险评估",
         "输出反洗钱调查摘要和处置建议"
+      ]
+    },
+    {
+      "case_id": "finance_05_loan_fraud_pass",
+      "title": "金融用例 5：小微贷款资料疑似造假，触发贷前风控研判",
+      "event_id": "afdfc079-bda2-4c2a-8302-9854793d94f9",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 332416.2,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T16:38:04",
+            "elapsed_ms": 332416.2,
+            "metadata": {
+              "case_id": "finance_05_loan_fraud_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "命中 贷款欺诈 / 包装流水 等风险关键词",
+        "进入贷前风控智能体分析",
+        "生成需要人工复核的证据点"
+      ]
+    },
+    {
+      "case_id": "finance_06_duplicate_low_risk_no_repeat",
+      "title": "金融用例 6：重复正常交易，不应重复写入 Milvus",
+      "event_id": "1caa589e-f483-4a8a-ad7f-320d0c8fd575",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 7792.49,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T16:43:36",
+            "elapsed_ms": 7792.49,
+            "metadata": {
+              "case_id": "finance_06_duplicate_low_risk_no_repeat"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "与 finance_01 原文完全相同",
+        "未命中黑名单",
+        "Milvus 应识别 content_hash 相同并跳过重复暂存"
+      ]
+    },
+    {
+      "case_id": "finance_07_no_person_keyword_pass",
+      "title": "金融用例 7：无客户编号但命中关键词，仍应进入研判",
+      "event_id": "32e9996d-72cc-4a84-8877-630bafeeb287",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 299030.36,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T16:43:44",
+            "elapsed_ms": 299030.36,
+            "metadata": {
+              "case_id": "finance_07_no_person_keyword_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "无 P 编号客户",
+        "命中 虚拟币 / 反洗钱 关键词",
+        "仍应 PASS 进入后续 pipeline"
+      ]
+    },
+    {
+      "case_id": "finance_08_device_geo_anomaly_pass",
+      "title": "金融用例 8：异地新设备登录后大额转账，设备地理风险",
+      "event_id": "417312d4-fa07-4d98-803f-f7d1a9f52c75",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 922812.31,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T16:48:43",
+            "elapsed_ms": 922812.31,
+            "metadata": {
+              "case_id": "finance_08_device_geo_anomaly_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "可通过事件相似度或人工规则进入研判",
+        "重点观察 device_geo 与 transaction_behavior 维度",
+        "适合作为账户盗用/电诈转账风险样本"
+      ]
+    },
+    {
+      "case_id": "finance_09_many_to_one_mule_account_pass",
+      "title": "金融用例 9：多客户向同一新账户归集，疑似跑分收款账户",
+      "event_id": "a76e5ce0-0ef0-432a-a88d-75a00cd69950",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 298186.72,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T17:04:06",
+            "elapsed_ms": 298186.72,
+            "metadata": {
+              "case_id": "finance_09_many_to_one_mule_account_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "覆盖多客户共同收款方关系",
+        "可测试 Neo4j 图谱聚合风险",
+        "适合作为跑分/资金归集风险样本"
+      ]
+    },
+    {
+      "case_id": "finance_10_chargeback_complaint_similarity_pass",
+      "title": "金融用例 10：投诉线索与涉诈账户相似，测试事件相似度命中",
+      "event_id": "d8f95586-22dd-4054-a18d-e13260d66c27",
+      "error": null,
+      "timing": {
+        "total_measured_ms": 140003.03,
+        "records": [
+          {
+            "name": "pipeline.process_message",
+            "started_at": "2026-06-18T17:09:04",
+            "elapsed_ms": 140003.03,
+            "metadata": {
+              "case_id": "finance_10_chargeback_complaint_similarity_pass"
+            }
+          }
+        ]
+      },
+      "expected": [
+        "命中 保证金 / 涉诈 关键词",
+        "也可能命中 E-FIN-FRAUD-001 事件相似度",
+        "用于展示命中详情打印"
       ]
     }
   ]

@@ -29,7 +29,14 @@ from sentinel_edge import BenchmarkRecorder, collect_hardware_profile  # noqa: E
 DEFAULT_CASES = [
     "finance_01_low_risk_salary_stash",
     "finance_02_structuring_history_stash",
+    "finance_03_blacklist_account_pass",
     "finance_04_aml_high_risk_recall",
+    "finance_05_loan_fraud_pass",
+    "finance_06_duplicate_low_risk_no_repeat",
+    "finance_07_no_person_keyword_pass",
+    "finance_08_device_geo_anomaly_pass",
+    "finance_09_many_to_one_mule_account_pass",
+    "finance_10_chargeback_complaint_similarity_pass",
 ]
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -64,29 +71,75 @@ class TeeStream:
             stream.flush()
 
     def isatty(self) -> bool:
-        return any(getattr(stream, "isatty", lambda: False)() for stream in self._streams)
+        return any(
+            getattr(stream, "isatty", lambda: False)() for stream in self._streams
+        )
 
 
-async def _run_cases(case_ids: list[str], config: dict) -> list[dict]:
+def _safe_filename(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
+
+
+async def _run_cases(
+    case_ids: list[str],
+    config: dict,
+    *,
+    run_log_dir: Path | None = None,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> list[dict]:
     from main import process_message
 
     results: list[dict] = []
-    for case_id in case_ids:
+    for index, case_id in enumerate(case_ids, start=1):
         case = FINANCE_CASES_BY_ID[case_id]
         recorder = BenchmarkRecorder()
         event_id = None
         error = None
-        try:
-            with recorder.span("pipeline.process_message", case_id=case_id):
-                event_id = await process_message(case["text"], config)
-        except Exception as exc:  # noqa: BLE001 - report demo failures without hiding them
-            error = f"{type(exc).__name__}: {exc}"
+        case_log_path = None
+        if run_log_dir is not None:
+            case_log_path = run_log_dir / f"{index:02d}_{_safe_filename(case_id)}.log"
+
+        async def _run_one_case() -> None:
+            nonlocal event_id, error
+            print("=" * 100)
+            print(f"CASE {index:02d}: {case_id}")
+            print(case["title"])
+            print("- 输入文本:")
+            print(case["text"])
+            print("- 预期:")
+            for item in case.get("expect", []):
+                print(f"  - {item}")
+            print("- 执行输出:")
+            try:
+                with recorder.span("pipeline.process_message", case_id=case_id):
+                    event_id = await process_message(case["text"], config)
+            except Exception as exc:  # noqa: BLE001 - report demo failures without hiding them
+                error = f"{type(exc).__name__}: {exc}"
+                print(f"CASE ERROR: {error}")
+
+        if case_log_path is None:
+            await _run_one_case()
+        else:
+            case_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with case_log_path.open("w", encoding="utf-8") as case_log_file:
+                plain_case_log = PlainLogStream(case_log_file)
+                case_stdout = (
+                    TeeStream(stdout, plain_case_log) if stdout else plain_case_log
+                )
+                case_stderr = (
+                    TeeStream(stderr, plain_case_log) if stderr else plain_case_log
+                )
+                with redirect_stdout(case_stdout), redirect_stderr(case_stderr):
+                    await _run_one_case()
+
         results.append(
             {
                 "case_id": case_id,
                 "title": case["title"],
                 "event_id": event_id,
                 "error": error,
+                "case_log_path": str(case_log_path) if case_log_path else None,
                 "timing": recorder.to_dict(),
                 "expected": case.get("expect", []),
             }
@@ -94,7 +147,13 @@ async def _run_cases(case_ids: list[str], config: dict) -> list[dict]:
     return results
 
 
-async def _build_report(args: argparse.Namespace) -> None:
+async def _build_report(
+    args: argparse.Namespace,
+    *,
+    run_log_dir: Path,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> None:
     load_dotenv(ROOT / ".env")
     case_ids = args.case or DEFAULT_CASES
 
@@ -113,11 +172,21 @@ async def _build_report(args: argparse.Namespace) -> None:
         from log_utils import setup_file_logging
         from main import load_config
 
-        setup_file_logging()
+        setup_file_logging(str(run_log_dir))
         config = load_config()
-        report["pipeline_results"] = await _run_cases(case_ids, config)
+        report["pipeline_results"] = await _run_cases(
+            case_ids,
+            config,
+            run_log_dir=run_log_dir,
+            stdout=stdout,
+            stderr=stderr,
+        )
 
-    output_path = ROOT / args.output
+    output_path = (
+        ROOT / args.output
+        if args.output
+        else run_log_dir / "sentinel_edge_demo_report.json"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -142,28 +211,39 @@ async def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="output/competition/sentinel_edge_demo_report.json",
-        help="Output JSON path.",
+        default=None,
+        help="Output JSON path. Defaults to the per-run log folder.",
     )
     parser.add_argument(
         "--log-output",
         default=None,
-        help="Terminal output log path. Defaults to logs/sentinel_competition_demo_<timestamp>.log.",
+        help="Run log directory. Defaults to logs/sentinel_competition_demo_<timestamp>/.",
     )
     args = parser.parse_args()
 
-    log_path = ROOT / args.log_output if args.log_output else ROOT / "logs" / (
-        f"sentinel_competition_demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    run_log_dir = (
+        ROOT / args.log_output
+        if args.log_output
+        else ROOT
+        / "logs"
+        / f"sentinel_competition_demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    run_log_dir.mkdir(parents=True, exist_ok=True)
+    run_log_path = run_log_dir / "00_run.log"
 
-    with log_path.open("w", encoding="utf-8") as log_file:
+    with run_log_path.open("w", encoding="utf-8") as log_file:
         plain_log_file = PlainLogStream(log_file)
         stdout = TeeStream(sys.stdout, plain_log_file)
         stderr = TeeStream(sys.stderr, plain_log_file)
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            print(f"Terminal output is also being written to: {log_path}")
-            await _build_report(args)
+            print(f"Run logs are being written to: {run_log_dir}")
+            print(f"Combined terminal log: {run_log_path}")
+            await _build_report(
+                args,
+                run_log_dir=run_log_dir,
+                stdout=stdout,
+                stderr=stderr,
+            )
 
 
 if __name__ == "__main__":

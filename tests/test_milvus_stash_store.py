@@ -85,6 +85,12 @@ class FakeMilvusClient:
         excluded_event_id = None
         if "event_id != " in filter:
             excluded_event_id = self._extract_quoted_value(filter, "event_id != ")
+        content_hash_eq = None
+        if "content_hash == " in filter:
+            content_hash_eq = self._extract_quoted_value(filter, "content_hash == ")
+        raw_content_eq = None
+        if "raw_content == " in filter:
+            raw_content_eq = self._extract_quoted_value(filter, "raw_content == ")
 
         return [
             row
@@ -96,6 +102,11 @@ class FakeMilvusClient:
                 and (expire_gt is None or row.get("expire_at", "") > expire_gt)
                 and (expire_lte is None or row.get("expire_at", "") <= expire_lte)
                 and (created_lte is None or row.get("created_at", "") <= created_lte)
+                and (
+                    content_hash_eq is None
+                    or row.get("content_hash") == content_hash_eq
+                )
+                and (raw_content_eq is None or row.get("raw_content") == raw_content_eq)
             )
         ]
 
@@ -251,6 +262,7 @@ async def test_stash_event_writes_searchable_document(store, client, now):
     assert row["event_id"] == "E001"
     assert row["person_ids"] == ["P01"]
     assert row["raw_content"] == "alpha P01 low signal"
+    assert row["content_hash"]
     assert row["created_at"] == now.isoformat()
     assert row["expire_at"] == (now + timedelta(days=30)).isoformat()
     assert row["embedding"] == [1.0, 0.0, 0.0]
@@ -265,6 +277,19 @@ async def test_stash_event_allows_empty_person_ids(store, client, now):
 
     assert result == 1
     assert client.rows["E001"]["person_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_stash_event_skips_duplicate_raw_content(store, client, now):
+    first = make_event("E001", "alpha P101 same transaction", now)
+    duplicate = make_event("E002", "alpha P101 same transaction", now)
+
+    first_result = await store.stash_event(first, ["P101"])
+    duplicate_result = await store.stash_event(duplicate, ["P101"])
+
+    assert first_result == 1
+    assert duplicate_result == 0
+    assert list(client.rows) == ["E001"]
 
 
 @pytest.mark.asyncio
@@ -542,3 +567,18 @@ async def test_cleanup_expired_uses_filtered_queries_without_full_scan(now):
     assert client.query_calls[-1]["filter"] == (
         'is_graph_built == true and created_at <= "2026-05-19T12:00:00"'
     )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_duplicate_content_keeps_oldest_row(store, client, now):
+    await store.stash_event(make_event("E001", "alpha duplicate", now), ["P01"])
+    client.rows["E002"] = {
+        **client.rows["E001"],
+        "event_id": "E002",
+        "created_at": (now + timedelta(seconds=1)).isoformat(),
+    }
+
+    deleted_count = store.cleanup_duplicate_content()
+
+    assert deleted_count == 1
+    assert list(client.rows) == ["E001"]

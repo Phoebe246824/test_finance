@@ -101,8 +101,9 @@ def _sanitize_entity_name(name: str) -> str:
     )[0].strip()
 
     # If mixed Chinese + English translation tail, keep Chinese segment.
+    # Keep compact names like "客户K"; the Latin suffix is part of the entity name there.
     if re.search(r'[\u4e00-\u9fff]', cleaned) and re.search(r'[A-Za-z]', cleaned):
-        first_latin = re.search(r'[A-Za-z]', cleaned)
+        first_latin = re.search(r'(?<=[\s\-:：,，;；])([A-Za-z])', cleaned)
         if first_latin is not None:
             cleaned = cleaned[: first_latin.start()].strip(' -:：,，;；')
 
@@ -233,6 +234,9 @@ async def extract_nodes(
     # Convert to EntityNode objects with episode attribution
     extracted_nodes, node_episode_index_map = _create_entity_nodes(
         filtered_entities, entity_types_context, excluded_entity_types, episodes
+    )
+    extracted_nodes = _drop_generic_alias_nodes_for_explicit_ids(
+        extracted_nodes, node_episode_index_map
     )
     extracted_nodes = _collapse_exact_duplicate_extracted_nodes(
         extracted_nodes, node_episode_index_map
@@ -628,6 +632,48 @@ def _collapse_exact_duplicate_extracted_nodes(
             )
 
     return [canonical_by_name[name] for name in ordered_names]
+
+
+def _drop_generic_alias_nodes_for_explicit_ids(
+    extracted_nodes: list[EntityNode],
+    node_episode_index_map: dict[str, list[int]] | None = None,
+) -> list[EntityNode]:
+    """Drop short generic aliases when source text provided a fuller explicit-id name."""
+    explicit_nodes = [
+        node for node in extracted_nodes if _get_node_id_number(node) and node.name.strip()
+    ]
+    if not explicit_nodes:
+        return extracted_nodes
+
+    kept_nodes: list[EntityNode] = []
+    for node in extracted_nodes:
+        if _get_node_id_number(node):
+            kept_nodes.append(node)
+            continue
+
+        normalized_name = re.sub(r'\s+', '', node.name)
+        replacement = next(
+            (
+                explicit_node
+                for explicit_node in explicit_nodes
+                if normalized_name
+                and normalized_name != re.sub(r'\s+', '', explicit_node.name)
+                and re.sub(r'\s+', '', explicit_node.name).startswith(normalized_name)
+            ),
+            None,
+        )
+        if replacement is None:
+            kept_nodes.append(node)
+            continue
+
+        if node_episode_index_map is not None:
+            discarded_indices = node_episode_index_map.pop(node.uuid, [])
+            replacement_indices = node_episode_index_map.get(replacement.uuid, [])
+            node_episode_index_map[replacement.uuid] = sorted(
+                set(replacement_indices + discarded_indices)
+            )
+
+    return kept_nodes
 
 
 def _merge_candidate_nodes(

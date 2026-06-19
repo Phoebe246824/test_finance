@@ -117,6 +117,37 @@ class TestBlacklistFilterEventSimilarity:
         result = await filter_instance._check_event_similarity(sample_event)
         assert result is False
 
+    @pytest.mark.asyncio
+    async def test_event_similarity_details_include_best_match(
+        self, mock_redis, sample_event
+    ):
+        """事件相似度命中时应返回命中的样本和分数。"""
+        mock_redis.hlen.return_value = 2
+        mock_redis.hgetall.return_value = {
+            b"E001": json.dumps(
+                {"event_id": "E001", "summary": "普通工资入账"}
+            ).encode(),
+            b"E-FIN-AML-001": json.dumps(
+                {"event_id": "E-FIN-AML-001", "summary": "疑似分拆交易与洗钱"}
+            ).encode(),
+        }
+        store = BlacklistStore(mock_redis)
+        filter_instance = BlacklistFilter(
+            store=store,
+            similarity_threshold=0.5,
+            reranker_api_key="test-key",
+            reranker_base_url="http://reranker.test/v1",
+            reranker_model="test-reranker",
+        )
+        filter_instance._rerank_similarity = AsyncMock(return_value=(1, 0.91))
+
+        result = await filter_instance._check_event_similarity_details(sample_event)
+
+        assert result.hit is True
+        assert result.score == pytest.approx(0.91)
+        assert result.event_id == "E-FIN-AML-001"
+        assert result.summary == "疑似分拆交易与洗钱"
+
 
 class TestBlacklistFilterCheck:
     @pytest.mark.asyncio

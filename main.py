@@ -18,9 +18,26 @@ import uuid
 from datetime import datetime
 
 from dotenv import load_dotenv
+
+os.environ["COLUMNS"] = os.getenv("SENTINEL_CREWAI_WIDTH", "96")
+
 from crewai import Agent, Crew, Process, Task
 from crewai.flow.flow import Flow, listen, router, start
+from rich.console import Console
 from redis.asyncio import Redis
+
+try:
+    from crewai.events.utils.console_formatter import ConsoleFormatter
+
+    _ORIGINAL_CONSOLE_FORMATTER_INIT = ConsoleFormatter.__init__
+
+    def _init_narrow_crewai_console(self, verbose: bool = False):
+        _ORIGINAL_CONSOLE_FORMATTER_INIT(self, verbose)
+        self.console = Console(width=int(os.getenv("SENTINEL_CREWAI_WIDTH", "96")))
+
+    ConsoleFormatter.__init__ = _init_narrow_crewai_console
+except Exception:
+    pass
 
 from blacklist.filter import BlacklistFilter
 from blacklist.milvus_stash import MilvusStashStore
@@ -107,13 +124,41 @@ def load_config() -> dict:
         },
         "risk_scoring": {
             "dimensions": {
-                "person": float(os.getenv("RISK_WEIGHT_PERSON") or "0.25"),
-                "behavior": float(os.getenv("RISK_WEIGHT_BEHAVIOR") or "0.25"),
-                "object": float(os.getenv("RISK_WEIGHT_OBJECT") or "0.20"),
-                "location": float(os.getenv("RISK_WEIGHT_LOCATION") or "0.10"),
-                "organization": float(os.getenv("RISK_WEIGHT_ORGANIZATION") or "0.10"),
-                "time": float(os.getenv("RISK_WEIGHT_TIME") or "0.05"),
-                "context": float(os.getenv("RISK_WEIGHT_CONTEXT") or "0.05"),
+                "customer_identity": float(
+                    os.getenv("RISK_WEIGHT_CUSTOMER_IDENTITY")
+                    or os.getenv("RISK_WEIGHT_PERSON")
+                    or "0.15"
+                ),
+                "transaction_behavior": float(
+                    os.getenv("RISK_WEIGHT_TRANSACTION_BEHAVIOR")
+                    or os.getenv("RISK_WEIGHT_BEHAVIOR")
+                    or "0.25"
+                ),
+                "counterparty": float(
+                    os.getenv("RISK_WEIGHT_COUNTERPARTY")
+                    or os.getenv("RISK_WEIGHT_ORGANIZATION")
+                    or "0.20"
+                ),
+                "amount_velocity": float(
+                    os.getenv("RISK_WEIGHT_AMOUNT_VELOCITY")
+                    or os.getenv("RISK_WEIGHT_OBJECT")
+                    or "0.15"
+                ),
+                "device_geo": float(
+                    os.getenv("RISK_WEIGHT_DEVICE_GEO")
+                    or os.getenv("RISK_WEIGHT_LOCATION")
+                    or "0.10"
+                ),
+                "history_context": float(
+                    os.getenv("RISK_WEIGHT_HISTORY_CONTEXT")
+                    or os.getenv("RISK_WEIGHT_CONTEXT")
+                    or "0.10"
+                ),
+                "compliance_signal": float(
+                    os.getenv("RISK_WEIGHT_COMPLIANCE_SIGNAL")
+                    or os.getenv("RISK_WEIGHT_TIME")
+                    or "0.05"
+                ),
             }
         },
         "redis": {
@@ -199,7 +244,9 @@ def _normalize_risk_weights(config: dict) -> dict[str, float]:
     normalized = {name: max(float(weight), 0.0) for name, weight in weights.items()}
     total = sum(normalized.values())
     if total <= 0:
-        return {name: 1.0 / len(normalized) for name in normalized} if normalized else {}
+        return (
+            {name: 1.0 / len(normalized) for name in normalized} if normalized else {}
+        )
     return {name: weight / total for name, weight in normalized.items()}
 
 
@@ -237,17 +284,16 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
 
     calculated_score = round(min(max(weighted_score, 0.0), 1.0), 4)
     calculated_level = _risk_level_from_score(calculated_score)
+    model_score = None
+    model_score_raw = result_dict.get("risk_score")
+    if model_score_raw is not None:
+        try:
+            model_score = round(min(max(float(model_score_raw), 0.0), 1.0), 4)
+        except (TypeError, ValueError):
+            model_score = None
 
-    agent_score = result_dict.get("risk_score", calculated_score)
-    try:
-        final_score = round(min(max(float(agent_score), 0.0), 1.0), 4)
-    except (TypeError, ValueError):
-        final_score = calculated_score
-
+    final_score = model_score if model_score is not None else calculated_score
     final_level = result_dict.get("risk_level") or _risk_level_from_score(final_score)
-    if abs(final_score - calculated_score) > 0.01:
-        final_score = calculated_score
-        final_level = calculated_level
 
     return {
         "risk_level": final_level,
@@ -255,8 +301,44 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         "dimension_scores": weighted_parts,
         "calculated_risk_score": calculated_score,
         "calculated_risk_level": calculated_level,
+        "model_reported_risk_score": model_score_raw,
+        "model_reported_risk_level": result_dict.get("risk_level"),
+        "risk_score_source": "model_reported"
+        if model_score is not None
+        else "calculated",
         "reasoning": result_dict.get("reasoning", ""),
     }
+
+
+def print_blacklist_check_result(result) -> None:
+    """Print a concise, user-facing blacklist decision summary."""
+    event_similarity = result.event_similarity
+    print_info(
+        "黑名单检查结果: "
+        f"{'PASS 进入后续 pipeline' if result.should_proceed else 'STASH 暂存'}"
+    )
+    print_info(
+        "命中详情: "
+        f"人员={result.matched_persons or '无'}; "
+        f"关键词={result.matched_keywords or '无'}; "
+        f"事件相似度={'命中' if event_similarity.hit else '未命中'} "
+        f"(score={event_similarity.score:.4f}, threshold={event_similarity.threshold:.4f})"
+    )
+    if event_similarity.event_id or event_similarity.summary:
+        print_info(
+            "相似事件详情: "
+            f"event_id={event_similarity.event_id or '未知'}, "
+            f"summary={event_similarity.summary or '无'}"
+        )
+
+
+def format_risk_score(score: float | None) -> str:
+    if score is None:
+        return "None"
+    try:
+        return f"{float(score):.4f}"
+    except (TypeError, ValueError):
+        return str(score)
 
 
 # (Ingestion 由外部消息源或用户输入触发，不再使用模拟接入)
@@ -377,23 +459,23 @@ async def evaluate_risk(
     )
     risk_task = Task(
         name="风险评估",
-        description="基于事件信息从多个风险维度分别打分，并按给定权重公式计算最终 risk_score 和 risk_level。"
-        "建议维度包括：person 人员风险、behavior 行为风险、object 物品风险、location 地点风险、organization 组织风险、time 时间风险、context 上下文/关联事件风险。"
-        "核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为；只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为都应纳入风险研判。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
+        description="基于金融风控事件信息从多个风险维度分别打分，并按给定权重公式计算最终 risk_score 和 risk_level。"
+        "维度含义：customer_identity 客户身份/黑名单/实名一致性风险；transaction_behavior 交易行为是否异常；counterparty 交易对手、商户、账户风险；amount_velocity 金额、频次、分拆、资金流速风险；device_geo 设备、IP、地理位置、登录环境风险；history_context 历史交易和图谱关联风险；compliance_signal 反洗钱、涉诈、虚拟币、贷款欺诈、监管规则命中风险。"
+        "核心评估原则：单笔交易可能看似正常，但如果与新开户账户、虚拟币平台、异常设备、异地登录、接近阈值分拆、投诉记录或历史暂存线索组合出现，应提升相应维度分数。不要仅凭一个字段下结论，必须结合关联事件信息和历史上下文。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}。"
         "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
         "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。",
         agent=risk_evaluator,
         output_format="json",
-        expected_output="JSON 格式：{dimension_scores:{person:number,behavior:number,object:number,location:number,organization:number,time:number,context:number}, risk_score:number, risk_level:string, reasoning:string}",
+        expected_output="JSON 格式：{dimension_scores:{customer_identity:number,transaction_behavior:number,counterparty:number,amount_velocity:number,device_geo:number,history_context:number,compliance_signal:number}, risk_score:number, risk_level:string, reasoning:string}",
     )
 
     crew = Crew(
         agents=[risk_evaluator],
         tasks=[risk_task],
         process=Process.sequential,
-        verbose=False,
+        verbose=True,
     )
 
     result = await crew.kickoff_async(
@@ -461,9 +543,9 @@ async def second_evaluate_risk(
     )
     risk_task = Task(
         name="二次风险评估",
-        description="基于新增补图后的关联上下文，对多个风险维度分别重新打分，并给定权重公式计算最终 risk_score 和 risk_level。"
-        "建议维度包括：person 人员风险、behavior 行为风险、object 物品风险、location 地点风险、organization 组织风险、time 时间风险、context 上下文/关联事件风险。"
-        "核心评估原则：物品、组织本身无善恶、不主动害人，但人可利用物品或组织实施伤人、滋事、违法、肇事等行为；只要存在被恶意利用、不当使用、违规流转的可能性，该物品及关联行为都应纳入风险研判。示例逻辑参照：普通菜刀本身是生活用具无危害，但人可网购、持有、携带、改用菜刀伤人、寻衅滋事，因此网购菜刀、私下持有刀具、陌生人员购置锐器等场景必须研判潜在风险，不能仅按日常用品判定无风险。"
+        description="基于新增补图后的金融关联上下文，对多个风险维度分别重新打分，并给定权重公式计算最终 risk_score 和 risk_level。"
+        "维度含义：customer_identity 客户身份/黑名单/实名一致性风险；transaction_behavior 交易行为是否异常；counterparty 交易对手、商户、账户风险；amount_velocity 金额、频次、分拆、资金流速风险；device_geo 设备、IP、地理位置、登录环境风险；history_context 历史交易和图谱关联风险；compliance_signal 反洗钱、涉诈、虚拟币、贷款欺诈、监管规则命中风险。"
+        "核心评估原则：二次评估必须重点利用补图后的历史交易、同客户线索、同账户/同商户资金链路和语义相似事件。若历史暂存线索与当前事件形成分拆交易、资金归集、涉诈账户或贷款资料造假链条，应提升 history_context 与 compliance_signal 分数。"
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}。"
         "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
@@ -471,14 +553,14 @@ async def second_evaluate_risk(
         "不要输出 markdown。",
         agent=risk_evaluator,
         output_format="json",
-        expected_output="JSON 格式：{dimension_scores:{person:number,behavior:number,object:number,location:number,organization:number,time:number,context:number}, reasoning:string}",
+        expected_output="JSON 格式：{dimension_scores:{customer_identity:number,transaction_behavior:number,counterparty:number,amount_velocity:number,device_geo:number,history_context:number,compliance_signal:number}, reasoning:string}",
     )
 
     crew = Crew(
         agents=[risk_evaluator],
         tasks=[risk_task],
         process=Process.sequential,
-        verbose=False,
+        verbose=True,
     )
 
     print_info("开始第二次风险评估")
@@ -941,7 +1023,7 @@ async def simulate_dashboard(
     episode_context = "\n".join(context_parts)
     event_description = f"""
 事件类型: {event.event_type}
-风险等级: {event.risk_level} (分数: {event.risk_score})
+风险等级: {event.risk_level} (分数: {format_risk_score(event.risk_score)})
 上下文信息: {episode_context}
 事件描述: {event.raw_content}
 """
@@ -1217,7 +1299,9 @@ async def batch_graph_event_with_related_stash(
         print_info("Milvus 暂存回捞为空，跳过批量构图")
         return summary
 
-    print_info(f"从 Milvus 取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图")
+    print_info(
+        f"从 Milvus 取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
+    )
     graphiti = None
     try:
         graphiti = await init_graph_client(config)
@@ -1235,7 +1319,9 @@ async def batch_graph_event_with_related_stash(
                 continue
             shared_person_ids = get_shared_person_ids(historical_event, id_numbers)
             if shared_person_ids:
-                historical_event["eligibility_reason"] = f"shared_person_ids={shared_person_ids}"
+                historical_event["eligibility_reason"] = (
+                    f"shared_person_ids={shared_person_ids}"
+                )
                 shared_person_events.append(historical_event)
             else:
                 rerank_candidate_events.append(historical_event)
@@ -1350,20 +1436,24 @@ async def batch_graph_event_with_related_stash(
             print_info("Milvus 回捞后无新增候选需要批量构图")
             batch_results = []
 
-        all_results = [*skipped_irrelevant_results, *skipped_existing_results, *batch_results]
+        all_results = [
+            *skipped_irrelevant_results,
+            *skipped_existing_results,
+            *batch_results,
+        ]
         summary["batch_results"] = all_results
         summary["eligible_count"] = len(eligible_events)
         summary["batched_count"] = len(batch_texts)
         summary["skipped_irrelevant_count"] = len(skipped_irrelevant_results)
         summary["skipped_existing_count"] = len(skipped_existing_results)
 
-        all_success = all(r.get("success", True) for r in [*skipped_existing_results, *batch_results])
+        all_success = all(
+            r.get("success", True) for r in [*skipped_existing_results, *batch_results]
+        )
         summary["success"] = all_success
         if all_success:
             consumed_event_ids = [
-                event["event_id"]
-                for event in events_to_graph
-                if event.get("event_id")
+                event["event_id"] for event in events_to_graph if event.get("event_id")
             ]
             consumed_event_ids.extend(skipped_existing_event_ids)
             await stash_store.mark_events_graph_built(consumed_event_ids)
@@ -1504,10 +1594,13 @@ class SentinelPipelineFlow(Flow):
             self.normalized_event.risk_level = risk_result["risk_level"]
             self.normalized_event.risk_score = risk_result["risk_score"]
             self.normalized_event.reasoning = risk_result["reasoning"]
+            self.state["risk_result"] = risk_result
             self._log.info(
-                "first risk evaluation: level=%s, score=%.2f",
+                "first risk evaluation: level=%s, score=%s, score_source=%s, calculated_score=%s",
                 risk_result["risk_level"],
-                risk_result["risk_score"],
+                format_risk_score(risk_result["risk_score"]),
+                risk_result.get("risk_score_source"),
+                format_risk_score(risk_result.get("calculated_risk_score")),
             )
         self._log.info(
             "output: risk_level=%s, risk_score=%s",
@@ -1525,14 +1618,14 @@ class SentinelPipelineFlow(Flow):
         risk_threshold = self.config["classification"]["risk_threshold"]
         if event.risk_score > risk_threshold:
             self._log.info(
-                "route_post_first_risk=batch_graph, score=%.2f > %.2f",
-                event.risk_score,
+                "route_post_first_risk=batch_graph, score=%s > %.4f",
+                format_risk_score(event.risk_score),
                 risk_threshold,
             )
             return "batch_graph"
         self._log.info(
-            "route_post_first_risk=complete, score=%.2f <= %.2f",
-            event.risk_score,
+            "route_post_first_risk=complete, score=%s <= %.4f",
+            format_risk_score(event.risk_score),
             risk_threshold,
         )
         return "complete"
@@ -1582,7 +1675,9 @@ class SentinelPipelineFlow(Flow):
             elif eligible_count == 0:
                 print_info("Milvus 回捞候选均未通过过滤，跳过二次检索和二次风险评估")
             else:
-                print_info("Milvus 回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估")
+                print_info(
+                    "Milvus 回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
+                )
             return self.state.get("first_risk_context", {})
 
         self.state["skip_second_risk"] = False
@@ -1604,18 +1699,28 @@ class SentinelPipelineFlow(Flow):
         if event is None:
             return result
         if self.state.get("skip_second_risk"):
-            self._log.info("skip second risk evaluation, keep first risk result")
+            self._log.info(
+                "skip second risk evaluation, keep first risk result: level=%s, score=%s",
+                event.risk_level,
+                format_risk_score(event.risk_score),
+            )
+            print_info(
+                f"跳过二次风险评估，后续意图识别/趋势预测沿用首次风险分: risk_level={event.risk_level}, risk_score={format_risk_score(event.risk_score)}"
+            )
             return self.state.get("first_risk_context", {})
         context = self.state.get("second_risk_context", {})
         risk_result = await second_evaluate_risk(self.config, event, context)
         self.normalized_event.risk_level = risk_result["risk_level"]
         self.normalized_event.risk_score = risk_result["risk_score"]
         self.normalized_event.reasoning = risk_result["reasoning"]
+        self.state["risk_result"] = risk_result
         self.state["second_risk_applied"] = True
         self._log.info(
-            "second evaluation output: level=%s, score=%.2f",
+            "second evaluation output: level=%s, score=%s, score_source=%s, calculated_score=%s",
             risk_result["risk_level"],
-            risk_result["risk_score"],
+            format_risk_score(risk_result["risk_score"]),
+            risk_result.get("risk_score_source"),
+            format_risk_score(risk_result.get("calculated_risk_score")),
         )
         return context
 
@@ -1628,14 +1733,14 @@ class SentinelPipelineFlow(Flow):
         risk_threshold = self.config["classification"]["risk_threshold"]
         if event.risk_score > risk_threshold:
             self._log.info(
-                "route_post_second_risk=dashboard, score=%.2f > %.2f",
-                event.risk_score,
+                "route_post_second_risk=dashboard, score=%s > %.4f",
+                format_risk_score(event.risk_score),
                 risk_threshold,
             )
             return "go_dashboard"
         self._log.info(
-            "route_post_second_risk=complete, score=%.2f <= %.2f",
-            event.risk_score,
+            "route_post_second_risk=complete, score=%s <= %.4f",
+            format_risk_score(event.risk_score),
             risk_threshold,
         )
         return "complete"
@@ -1658,6 +1763,12 @@ class SentinelPipelineFlow(Flow):
             "input: context_results_count=%d",
             len(context.get("results", [])) if context else 0,
         )
+        self._log.info(
+            "dashboard uses risk result: level=%s, score=%s, second_risk_applied=%s",
+            event.risk_level,
+            format_risk_score(event.risk_score),
+            bool(self.state.get("second_risk_applied")),
+        )
         await simulate_dashboard(self.config, event, context)
         self._log.info("output: complete")
         return "complete"
@@ -1670,6 +1781,14 @@ class SentinelPipelineFlow(Flow):
 
 async def process_message(message: str, config: dict | None = None) -> str:
     """Process one user message through the same path used by the CLI loop."""
+    result = await process_message_detailed(message, config)
+    return result["event_id"]
+
+
+async def process_message_detailed(
+    message: str, config: dict | None = None
+) -> dict:
+    """Process one user message and return a structured summary for API callers."""
     if config is None:
         config = load_config()
 
@@ -1700,24 +1819,42 @@ async def process_message(message: str, config: dict | None = None) -> str:
         bl_filter = BlacklistFilter(store)
 
         id_numbers = extract_person_id_numbers(normalized_event.raw_content)
-        (
-            should_proceed,
-            matched_persons,
-            matched_keywords,
-            event_hit,
-        ) = await bl_filter.check(normalized_event)
+        blacklist_result = await bl_filter.check_with_details(normalized_event)
+        print_blacklist_check_result(blacklist_result)
 
-        if not should_proceed:
-            await stash_store.stash_event(normalized_event, id_numbers or [])
+        if not blacklist_result.should_proceed:
+            stashed_count = await stash_store.stash_event(
+                normalized_event, id_numbers or []
+            )
             print_info(f"EVENT_ID: {normalized_event.event_id}")
-            print_info("事件未命中黑名单，已暂存到 Milvus")
-            return normalized_event.event_id
+            if stashed_count:
+                print_info("事件未命中黑名单，已暂存到 Milvus")
+            else:
+                print_info("事件未命中黑名单，Milvus 已存在相同内容，跳过重复暂存")
+            return {
+                "event_id": normalized_event.event_id,
+                "status": "stashed",
+                "risk_level": None,
+                "risk_score": None,
+                "summary": normalized_event.summary,
+                "event_type": normalized_event.event_type,
+                "dimension_scores": {},
+                "blacklist": {
+                    "decision": "STASH",
+                    "matched_persons": blacklist_result.matched_persons,
+                    "matched_keywords": blacklist_result.matched_keywords,
+                    "event_similarity": blacklist_result.event_similarity.__dict__,
+                },
+                "stashed_count": stashed_count,
+                "raw_content": normalized_event.raw_content,
+                "title": normalized_event.title,
+            }
 
-        for pid in matched_persons:
+        for pid in blacklist_result.matched_persons:
             await store.append_person(pid)
-        for keyword in matched_keywords:
+        for keyword in blacklist_result.matched_keywords:
             await store.append_keyword(keyword)
-        if event_hit:
+        if blacklist_result.event_hit:
             await store.append_event(
                 normalized_event.event_id,
                 normalized_event.summary or normalized_event.raw_content[:200],
@@ -1735,7 +1872,28 @@ async def process_message(message: str, config: dict | None = None) -> str:
         await flow.kickoff_async()
         print_info(f"EVENT_ID: {normalized_event.event_id}")
         print_info("消息处理完成")
-        return normalized_event.event_id
+        return {
+            "event_id": normalized_event.event_id,
+            "status": "analyzed",
+            "risk_level": normalized_event.risk_level,
+            "risk_score": normalized_event.risk_score,
+            "summary": normalized_event.summary,
+            "event_type": normalized_event.event_type,
+            "reasoning": normalized_event.reasoning,
+            "dimension_scores": flow.state.get("risk_result", {}).get(
+                "dimension_scores", {}
+            ),
+            "blacklist": {
+                "decision": "PASS",
+                "matched_persons": blacklist_result.matched_persons,
+                "matched_keywords": blacklist_result.matched_keywords,
+                "event_similarity": blacklist_result.event_similarity.__dict__,
+            },
+            "graph_result": flow.state.get("graph_result"),
+            "second_risk_applied": bool(flow.state.get("second_risk_applied")),
+            "raw_content": normalized_event.raw_content,
+            "title": normalized_event.title,
+        }
 
     finally:
         if blacklist_redis_client is not None:
