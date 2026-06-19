@@ -15,6 +15,8 @@ class AnalyzeResponse(BaseModel):
     event_type: str | None = None
     summary: str | None = None
     reasoning: str | None = None
+    raw_content: str | None = None
+    title: str | None = None
     dimension_scores: dict = Field(default_factory=dict)
     trend_report: dict = Field(default_factory=dict)
     blacklist: dict = Field(default_factory=dict)

@@ -17,3 +17,8 @@ export async function analyzeText(text: string): Promise<AnalyzeResult> {
   const { data } = await http.post('/api/analyze', { text })
   return data
 }
+
+export async function listDemoCases() {
+  const { data } = await http.get('/api/demo-cases')
+  return data
+}

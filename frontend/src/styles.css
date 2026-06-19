@@ -217,6 +217,34 @@ a {
   padding: 9px 0;
 }
 
+.history-item {
+  align-items: center;
+  background: #fbfdff;
+  border: 1px solid #e1e9f1;
+  border-radius: 6px;
+  color: #26384b;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.history-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item strong {
+  color: #1f6f9f;
+  font-size: 12px;
+}
+
+.history-item:hover {
+  border-color: #8fb9d5;
+}
+
 .stack {
   display: grid;
   gap: 16px;

@@ -12,6 +12,7 @@ export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
     analysisText: defaultText,
     analysisResult: null as any,
+    analysisHistory: [] as any[],
     eventGraphs: {} as Record<string, GraphData>,
     personKeyword: '',
     personGraph: { nodes: [], edges: [] } as GraphData,
@@ -19,6 +20,24 @@ export const useWorkbenchStore = defineStore('workbench', {
   actions: {
     setAnalysisResult(result: any) {
       this.analysisResult = result
+      this.analysisHistory = [
+        {
+          event_id: result.event_id,
+          status: result.status,
+          risk_level: result.risk_level,
+          risk_score: result.risk_score,
+          event_type: result.event_type,
+          summary: result.summary,
+          raw_content: result.raw_content,
+          created_at: new Date().toISOString(),
+          result,
+        },
+        ...this.analysisHistory.filter((item) => item.event_id !== result.event_id),
+      ].slice(0, 8)
+    },
+    restoreAnalysis(item: any) {
+      this.analysisResult = item.result || item
+      this.analysisText = item.raw_content || item.result?.raw_content || this.analysisText
     },
     setEventGraph(eventId: string, graph: GraphData) {
       this.eventGraphs[eventId] = graph
