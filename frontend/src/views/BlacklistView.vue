@@ -49,8 +49,8 @@ onMounted(load)
     </div>
   </section>
 
-  <div class="grid-2">
-    <div class="panel stack">
+  <div class="blacklist-layout">
+    <div class="panel blacklist-form">
       <div class="toolbar">
         <button
           v-for="tab in tabs"
@@ -73,7 +73,7 @@ onMounted(load)
       </div>
       <div class="field">
         <label>说明</label>
-        <textarea v-model="description" class="textarea" style="min-height: 120px" />
+        <textarea v-model="description" class="textarea compact-textarea" />
       </div>
       <button class="button" @click="addItem">新增</button>
       <div v-if="error" class="error">{{ error }}</div>

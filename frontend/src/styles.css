@@ -123,6 +123,19 @@ a {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
 }
 
+.blacklist-layout {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+}
+
+.blacklist-form {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+}
+
 .grid-main-side {
   display: grid;
   gap: 16px;
@@ -178,6 +191,10 @@ a {
   line-height: 1.55;
   min-height: 260px;
   resize: vertical;
+}
+
+.compact-textarea {
+  min-height: 128px;
 }
 
 .button {
@@ -590,6 +607,7 @@ th {
   .grid-2,
   .grid-3,
   .grid-main-side,
+  .blacklist-layout,
   .graph-miro-body {
     grid-template-columns: 1fr;
   }
