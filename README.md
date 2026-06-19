@@ -1,6 +1,12 @@
-# Sentinel Edge 金融风控智能体
+# test_finance / Sentinel Edge 金融风控智能体
 
 Sentinel Edge 是面向比赛场景改造的端侧金融风控智能体项目。系统围绕银行零售业务中的反欺诈、反洗钱、贷款欺诈和可疑交易复核展开，提供事件分析、黑名单过滤、风险评分、Neo4j 图谱展示、趋势预测报告和人工复核闭环。
+
+GitHub 仓库：
+
+```text
+https://github.com/Phoebe246824/test_finance
+```
 
 ## 1. 项目能做什么
 
@@ -8,6 +14,8 @@ Sentinel Edge 是面向比赛场景改造的端侧金融风控智能体项目。
 - 未命中高危规则的事件按低风险展示，并暂存到 Milvus，后续可被高风险事件回捞。
 - 命中黑名单或高危规则的事件进入完整 pipeline，写入 Neo4j 图谱并生成风险结果。
 - 前端提供总览、风险分析、事件库、人物图谱、黑名单管理和系统状态页面。
+- 所有图谱页面统一使用可拖拽、可缩放、可展开的 Neo4j 风格关系图组件，支持节点/边属性查看。
+- 黑名单页面会自动初始化金融 Demo 所需的人员、关键词和高危事件样本。
 - 事件详情页支持交互式图谱、趋势预测报告和人工复核动作。
 
 ## 2. 技术栈
@@ -33,8 +41,9 @@ Sentinel Edge 是面向比赛场景改造的端侧金融风控智能体项目。
 ## 3. 目录说明
 
 ```text
-test_Sentinel/
+test_finance/
 ├── backend/                 # FastAPI 后端
+│   └── app/api/             # analysis/events/graph/blacklist/dashboard/system API
 ├── frontend/                # Vue3 前端
 ├── blacklist/               # Redis 黑名单与 Milvus 暂存逻辑
 ├── graphiti/                # Neo4j/Graphiti 图谱工作流
@@ -72,7 +81,8 @@ uv --version
 进入项目目录：
 
 ```bash
-cd /Users/phoebe/project/test_Sentinel
+git clone https://github.com/Phoebe246824/test_finance.git
+cd test_finance
 ```
 
 复制环境变量文件：
@@ -98,10 +108,18 @@ NEO4J_PASSWORD=password
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-MILVUS_URI=http://localhost:19530
+MILVUS_URI=http://127.0.0.1:19530
+
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 如果你本地 Neo4j 密码不是 `password`，需要同步修改 `.env`。
+
+前端变量放在 `frontend/.env`，推荐内容：
+
+```text
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
 
 ## 6. 安装 Python 依赖
 
@@ -133,11 +151,11 @@ docker compose ps
 
 ```text
 Neo4j Browser: http://localhost:7474
-Milvus Attu:   http://localhost:8000
+Milvus Attu:   以 docker compose 实际映射端口为准，不要占用 FastAPI 的 8000
 RabbitMQ UI:   http://localhost:15672
 ```
 
-注意：如果 `docker-compose.yaml` 里的网络配置报错，把 `driver: bridge` 拼写确认一下。
+注意：FastAPI 使用 `127.0.0.1:8000`。如果 Attu 或其他服务也占用了 `localhost:8000`，浏览器可能误连导致 404 或 Network Error。
 
 ## 8. 初始化黑名单种子数据
 
@@ -145,7 +163,9 @@ RabbitMQ UI:   http://localhost:15672
 uv run python scripts/reset_and_seed_blacklist.py
 ```
 
-这个脚本会写入金融 Demo 用到的人员黑名单、关键词和高危事件样本。
+这个脚本会重置 Neo4j/Milvus 相关状态并写入金融 Demo 用到的人员黑名单、关键词和高危事件样本。
+
+如果只打开前端黑名单页面，后端也会自动补齐默认黑名单种子数据，不需要手动新增。
 
 Demo case 在：
 
@@ -176,7 +196,7 @@ http://127.0.0.1:8000/api/system/health
 打开新终端：
 
 ```bash
-cd /Users/phoebe/project/test_Sentinel/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -186,6 +206,8 @@ npm run dev
 ```text
 http://localhost:5173
 ```
+
+如果 Vite 自动切到 `5174`，后端 CORS 已放行 `localhost/127.0.0.1:5173` 和 `5174`。
 
 如果 npm 因为本机缓存权限失败，可以使用项目内缓存：
 
@@ -214,6 +236,7 @@ npm_config_cache=./.npm-cache npm run dev
 4. 分析完成后查看风险等级、命中详情、图谱和趋势报告。
 5. 打开 `/events` 进入事件详情。
 6. 在详情页点击图谱节点、扩展节点，并添加人工复核动作。
+7. 打开 `/graph/person` 搜索 `客户E` 或 `P105`，查看人物关系图谱。
 
 ## 12. 风险展示规则
 
@@ -227,6 +250,14 @@ npm_config_cache=./.npm-cache npm run dev
 ```
 
 也就是说，未命中高危规则不会显示“待评估”。
+
+图谱展示规则：
+
+```text
+节点：显示 Neo4j labels、elementId、uuid 和 properties
+边：显示 Neo4j relationship type、elementId、uuid、start/end elementId 和 properties
+交互：支持缩放、画布拖拽、节点拖拽、节点扩展、全屏
+```
 
 ## 13. 常用命令
 
@@ -278,7 +309,13 @@ docker compose ps
 docker compose up -d milvus
 ```
 
-确认 `MILVUS_URI=http://localhost:19530`。
+确认 `MILVUS_URI=http://127.0.0.1:19530`。
+
+如果浏览器或 Python 客户端遇到 `localhost` 解析到其他服务，可改成：
+
+```text
+MILVUS_URI=http://127.0.0.1:19530
+```
 
 ### Neo4j 图谱为空
 
@@ -324,7 +361,8 @@ npm_config_cache=./.npm-cache npm install
 ## 15. 给队友的最短启动步骤
 
 ```bash
-cd /Users/phoebe/project/test_Sentinel
+git clone https://github.com/Phoebe246824/test_finance.git
+cd test_finance
 cp .env.example .env
 uv sync --dev
 docker compose up -d
@@ -335,7 +373,7 @@ uv run uvicorn backend.app.main:app --reload --port 8000
 新开一个终端：
 
 ```bash
-cd /Users/phoebe/project/test_Sentinel/frontend
+cd test_finance/frontend
 npm_config_cache=./.npm-cache npm install
 npm_config_cache=./.npm-cache npm run dev
 ```
