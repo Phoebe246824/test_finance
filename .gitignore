@@ -6,6 +6,16 @@ __pycache__/
 .claude/
 .omo/
 
+# Node.js
+frontend/node_modules/
+frontend/dist/
+
+# Python virtual environment
+.venv/
+
+# Run artifacts
+logs/
+
 # Ignore Docker-related files
 volumes/
 docker-compose.override.yml
