@@ -103,22 +103,29 @@ EMBEDDER_API_BASE=http://127.0.0.1:1234/v1
 
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
+NEO4J_PASSWORD=pa55w0rd
 
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
 MILVUS_URI=http://127.0.0.1:19530
+ATTU_PORT=8002
 
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-如果你本地 Neo4j 密码不是 `password`，需要同步修改 `.env`。
+如果你本地 Neo4j 密码不是 `pa55w0rd`，需要同步修改 `.env`。
 
 前端变量放在 `frontend/.env`，推荐内容：
 
 ```text
 VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+也可以直接复制前端示例：
+
+```bash
+cp frontend/.env.example frontend/.env
 ```
 
 ## 6. 安装 Python 依赖
@@ -151,11 +158,11 @@ docker compose ps
 
 ```text
 Neo4j Browser: http://localhost:7474
-Milvus Attu:   以 docker compose 实际映射端口为准，不要占用 FastAPI 的 8000
+Milvus Attu:   http://localhost:8002
 RabbitMQ UI:   http://localhost:15672
 ```
 
-注意：FastAPI 使用 `127.0.0.1:8000`。如果 Attu 或其他服务也占用了 `localhost:8000`，浏览器可能误连导致 404 或 Network Error。
+注意：FastAPI 使用 `127.0.0.1:8000`，Attu 默认使用 `localhost:8002`，两者不要映射到同一个宿主机端口。
 
 ## 8. 初始化黑名单种子数据
 
@@ -330,7 +337,7 @@ http://localhost:7474
 ```text
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
+NEO4J_PASSWORD=pa55w0rd
 ```
 
 如果密码不一致，改 `.env` 后重启后端。
@@ -374,6 +381,7 @@ uv run uvicorn backend.app.main:app --reload --port 8000
 
 ```bash
 cd test_finance/frontend
+cp .env.example .env
 npm_config_cache=./.npm-cache npm install
 npm_config_cache=./.npm-cache npm run dev
 ```

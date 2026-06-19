@@ -30,7 +30,7 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 
 NEO4J_URI = os.environ.get("NEO4J_URI") or "bolt://localhost:7687"
 NEO4J_USER = os.environ.get("NEO4J_USER") or "neo4j"
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD") or "password"
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD") or "pa55w0rd"
 LLM_API_KEY = os.environ.get("LLM_API_KEY")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
 LLM_MODEL = os.environ.get("LLM_MODEL") or "gpt-4o"
