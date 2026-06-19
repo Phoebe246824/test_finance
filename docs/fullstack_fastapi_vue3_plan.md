@@ -1,5 +1,7 @@
 # Sentinel Edge FastAPI + Vue3 开发计划
 
+> 历史规划文档：本文记录 FastAPI + Vue3 改造计划，不保证所有命令仍是最新。当前启动方式以 [README.md](../README.md)、[commands.md](commands.md) 和 [docs/README.md](README.md) 为准。
+
 这份文档按“现在已经做了什么、怎么运行、下一步怎么继续做”的顺序写。目标是把当前 Sentinel 金融风控智能体做成一个可以演示、可以继续扩展的全栈项目。
 
 ## 1. 项目目标
@@ -87,14 +89,14 @@ FastAPI 后端
 后端：
 
 ```bash
-cd /Users/phoebe/project/test_Sentinel
+cd /Users/phoebe/project/test_finance
 uv run uvicorn backend.app.main:app --reload --port 8000
 ```
 
 前端：
 
 ```bash
-cd /Users/phoebe/project/test_Sentinel/frontend
+cd /Users/phoebe/project/test_finance/frontend
 npm install
 npm run dev
 ```
@@ -108,13 +110,13 @@ http://localhost:5173
 前端默认访问：
 
 ```text
-http://localhost:8000
+http://127.0.0.1:8000
 ```
 
 如果后端地址变了，在 `frontend/.env.development` 写：
 
 ```text
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ## 5. 当前数据库设计

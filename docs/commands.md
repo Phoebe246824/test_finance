@@ -8,7 +8,7 @@
 uv sync --dev
 ```
 
-### 启动系统
+### 启动原 Flow Pipeline
 
 ```bash
 # 终端交互式 Pipeline（分析输入消息）
@@ -18,12 +18,32 @@ uv run python main.py
 uv run python main.py --log-dir /path/to/logs
 ```
 
-### 启动 Web 看板
+### 启动 FastAPI 后端
 
 ```bash
-# 使用 factory 模式启动 FastAPI 看板
-uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
+uv run uvicorn backend.app.main:app --reload --port 8000
 ```
+
+接口文档：`http://127.0.0.1:8000/docs`。
+
+### 启动 Vue 前端
+
+```bash
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+浏览器访问：`http://localhost:5173`。
+
+### 旧版 Dashboard
+
+```bash
+uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8001
+```
+
+`dashboard.py` 是旧版 Jinja2 看板入口。当前完整 Web 体验以 `backend.app.main` + `frontend/` 为准。若需要临时运行旧版看板，建议避开 FastAPI 默认的 `8000`。
 
 ### Docker 相关
 
@@ -32,9 +52,9 @@ uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
 docker compose up -d
 
 # 仅启动特定服务
-docker compose -f compose/neo4j.yaml up -d
-docker compose -f compose/rabbitmq.yaml up -d
-docker compose -f compose/redis.yaml up -d
+docker compose up -d neo4j
+docker compose up -d rabbitmq
+docker compose up -d redis
 
 # 停止并清理
 docker compose down -v
@@ -44,6 +64,9 @@ docker compose ps
 
 # 查看日志
 docker compose logs -f neo4j
+
+# 检查 .env.example 与 Compose 插值后的端口/凭证
+docker compose --env-file .env.example config
 ```
 
 ### Redis 调试
@@ -83,6 +106,16 @@ uv run pytest tests/ --cov=blacklist --cov=kvstore --cov=utils
 ```bash
 # 运行 Graphiti 功能测试（写入 + 检索）
 uv run python graphiti/test.py
+```
+
+### 参赛 Demo
+
+```bash
+# 生成硬件画像和参赛演示报告
+uv run python scripts/sentinel_competition_demo.py
+
+# 依赖服务齐全时运行完整 pipeline 用例
+uv run python scripts/sentinel_competition_demo.py --run-pipeline
 ```
 
 ### 代码质量

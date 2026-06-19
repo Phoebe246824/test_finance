@@ -2,11 +2,27 @@
 
 ## 架构约定
 
+### 当前应用形态
+
+项目现在同时保留两条入口：
+
+- **Web 应用主线**：`backend/app/main.py` 提供 FastAPI API，`frontend/` 提供 Vue3 看板，是当前演示和开发的主要入口。
+- **原 Flow Pipeline**：`main.py` 保留 CrewAI Flow 终端 pipeline，用于验证标准化、黑名单、构图、检索、风险评估和趋势预测链路。
+
+两条入口共享 `blacklist/`、`graphiti/`、`trend_prediction/`、`providers/`、`models.py` 等核心模块。文档或任务若提到“启动 Web”，默认指 FastAPI + Vue3，而不是旧的 `dashboard.py`。
+
 ### 分层规则
 
 ```
-入口层 (main.py)
-  └── Flow 编排 — SentinelPipelineFlow 串联所有 Stage，不包含业务逻辑
+Web 入口
+  ├── backend/app/main.py — FastAPI 应用入口
+  ├── backend/app/api/ — analysis/events/graph/blacklist/dashboard/system API
+  ├── backend/app/services/ — 分析与图谱服务封装
+  ├── backend/app/repositories/ — SQLite 事件与复核记录访问
+  └── frontend/src/ — Vue3 页面、组件、API client 与状态
+
+原 pipeline 入口 (main.py)
+  └── Flow 编排 — SentinelPipelineFlow 串联所有 Stage
         ├── 黑名单过滤 (新增) — blacklist/filter.py 三合一 OR 匹配
         ├── Milvus 暂存 — blacklist/milvus_stash.py 同人/语义相关事件池
         ├── Stage 1: classification — CrewAI Agent 分类
@@ -19,7 +35,9 @@
         └── Stage 8: dashboard — 意图分析与趋势预测
 ```
 
-- **main.py**: 只负责 Flow 编排和流程控制，不包含具体的业务逻辑实现
+- **backend/app/main.py**: 当前 FastAPI 后端入口，注册 `/api/*` 路由并初始化本地 SQLite
+- **frontend/**: 当前 Vue3 前端，包含风控总览、分析工作台、事件库、人物图谱、黑名单管理、系统状态页面
+- **main.py**: 原 CrewAI Flow 编排和流程控制入口，不再承担 Web 看板职责
 - **blacklist/**: 黑名单系统，`store.py` 负责 Redis 黑名单 CRUD，`filter.py` 执行人员/敏感词/事件相似度三合一 OR 匹配，`milvus_stash.py` 负责事件暂存与回捞
 - **consumer.py**: 事件标准化和去重逻辑，所有函数为纯函数或操作全局缓存
 - **graphiti/graphiti_workflow.py**: Graphiti 客户端生命周期管理 + Episode 写入 + 混合检索 + `batch_add_to_graph()` 批量构图
@@ -38,9 +56,10 @@
 
 ### API 设计约定
 
-- FastAPI 应用使用 **factory 模式**：`create_app(config)` / `create_dashboard_app(config)`
-- 所有服务间通信通过 RabbitMQ 消息队列，消息格式为 `QueueMessage` (Pydantic 模型)
-- 路由：`/api/` 前缀为 JSON API，`/` 为 HTML 页面
+- 当前 FastAPI 应用入口为 `backend.app.main:app`，路由统一挂在 `/api/*`
+- `dashboard.py` 仍可作为旧版 Jinja2 看板运行，但不是当前 Web 主线
+- 消息队列相关代码保留在原 pipeline/consumer 体系中，消息格式为 `QueueMessage` (Pydantic 模型)
+- 前端 API client 统一从 `frontend/src/api/http.ts` 读取 `VITE_API_BASE_URL`
 
 ### 状态管理约定
 

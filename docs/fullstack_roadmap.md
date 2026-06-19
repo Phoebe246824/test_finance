@@ -1,5 +1,7 @@
 # Sentinel Edge 全栈改造路线图
 
+> 历史规划文档：本文记录全栈改造路线，不保证所有命令仍是最新。当前启动方式以 [README.md](../README.md)、[commands.md](commands.md) 和 [docs/README.md](README.md) 为准。
+
 > 新版、更清晰的 FastAPI + Vue3 开发流程见 [fullstack_fastapi_vue3_plan.md](fullstack_fastapi_vue3_plan.md)。后续建议以新版文档为准。
 
 这份路线图按“先跑通，再变好看，再变稳定”的顺序来。不要一开始就追求大而全，先做一个能演示的闭环。
@@ -65,7 +67,7 @@ python scripts/sentinel_competition_demo.py --run-pipeline
 推荐目录：
 
 ```text
-test_Sentinel/
+test_finance/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
@@ -456,7 +458,7 @@ npm run dev
 3. 前端 `.env.development`：
 
 ```text
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 4. 前端请求后端时统一从 `src/api/http.ts` 里读 `VITE_API_BASE_URL`。
