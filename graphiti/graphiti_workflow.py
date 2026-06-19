@@ -31,9 +31,16 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 NEO4J_URI = os.environ.get("NEO4J_URI") or "bolt://localhost:7687"
 NEO4J_USER = os.environ.get("NEO4J_USER") or "neo4j"
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD") or "pa55w0rd"
-LLM_API_KEY = os.environ.get("LLM_API_KEY")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
-LLM_MODEL = os.environ.get("LLM_MODEL") or "gpt-4o"
+
+
+def _get_llm_extract_env(name: str) -> str | None:
+    """读取 Graphiti 抽取档 LLM 环境变量，未设置时回退到基础 LLM_*。"""
+    return os.environ.get(f"LLM_EXTRACT_{name}") or os.environ.get(f"LLM_{name}")
+
+
+LLM_API_KEY = _get_llm_extract_env("API_KEY")
+LLM_BASE_URL = _get_llm_extract_env("BASE_URL") or "https://api.openai.com/v1"
+LLM_MODEL = _get_llm_extract_env("MODEL") or "gpt-4o"
 
 EMBEDDER_API_KEY = os.environ.get("EMBEDDER_API_KEY") or LLM_API_KEY
 EMBEDDER_API_BASE = os.environ.get("EMBEDDER_API_BASE") or LLM_BASE_URL
@@ -42,6 +49,29 @@ EMBEDDER_MODEL = os.environ.get("EMBEDDER_MODEL") or "BAAI/bge-m3"
 RERANKER_API_KEY = os.environ.get("RERANKER_API_KEY") or LLM_API_KEY
 RERANKER_BASE_URL = os.environ.get("RERANKER_BASE_URL") or LLM_BASE_URL
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3"
+
+
+def _resolve_graphiti_llm_config(
+    llm_config: dict[str, Any] | None = None,
+) -> dict[str, str | None]:
+    """解析 Graphiti 内部抽取 LLM 配置。
+
+    `main.load_config()` 会携带基础 `LLM_*` 配置传入 Graphiti。这里让
+    `LLM_EXTRACT_*` 优先于传入 config，确保 Graphiti 抽取走 extract 档。
+    """
+    llm_config = llm_config or {}
+    return {
+        "api_key": os.environ.get("LLM_EXTRACT_API_KEY")
+        or llm_config.get("api_key")
+        or LLM_API_KEY,
+        "base_url": os.environ.get("LLM_EXTRACT_BASE_URL")
+        or llm_config.get("base_url")
+        or LLM_BASE_URL,
+        "model": os.environ.get("LLM_EXTRACT_MODEL")
+        or llm_config.get("model")
+        or LLM_MODEL,
+    }
+
 
 # Credential validation deferred to init_graph_client() — keeps module import-safe.
 
@@ -159,9 +189,10 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     neo4j_user = neo4j_config.get("user", NEO4J_USER)
     neo4j_password = neo4j_config.get("password", NEO4J_PASSWORD)
 
-    llm_api_key = llm_config.get("api_key") or LLM_API_KEY
-    llm_base_url = llm_config.get("base_url") or LLM_BASE_URL
-    llm_model = llm_config.get("model") or LLM_MODEL
+    graphiti_llm_config = _resolve_graphiti_llm_config(llm_config)
+    llm_api_key = graphiti_llm_config["api_key"]
+    llm_base_url = graphiti_llm_config["base_url"]
+    llm_model = graphiti_llm_config["model"]
 
     embedder_api_key = embedder_config.get("api_key") or EMBEDDER_API_KEY
     embedder_api_base = embedder_config.get("api_base") or EMBEDDER_API_BASE
