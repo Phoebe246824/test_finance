@@ -1,0 +1,59 @@
+# Supplemental evidence for competition PPT metrics.
+# Copy this file and replace null values with measured or reviewed evidence.
+
+p8:
+  llama_cpp_offload_log:
+    value: null
+    note: "Path or excerpt showing Ryzen AI / GPU offload logs."
+
+p10:
+  ttft_ms:
+    value: null
+    note: "Time to first token from the local inference smoke test."
+  tokens_per_second:
+    value: null
+    note: "Generation throughput from the same run."
+  average_power_watts:
+    value: null
+    note: "External meter or ROCm/Ryzen AI power average when sampler data is absent."
+
+p11:
+  baseline:
+    pass_rate:
+      value: null
+      note: "Baseline replay pass rate before optimization."
+    average_latency_ms:
+      value: null
+      note: "Baseline end-to-end average latency."
+    average_power_watts:
+      value: null
+      note: "Baseline average power draw."
+  optimized:
+    risk_level_consistency:
+      value: null
+      note: "Repeated-run risk-level consistency after optimization."
+
+p12:
+  privacy_evidence:
+    value: null
+    note: "Path to screenshot, audit note, or log proving local privacy handling."
+  review_material_path:
+    value: null
+    note: "Path to manual review sample, rubric, or acceptance evidence."
+  manual_review_acceptance_rate:
+    value: null
+    note: "Manual review acceptance rate, as a percent or ratio."
+
+p14:
+  business_value:
+    value: null
+    note: "Path or short summary of expected business value."
+  manual_investigation_time_minutes:
+    value: null
+    note: "Estimated manual investigation time per case."
+  sentinel_investigation_time_minutes:
+    value: null
+    note: "Measured or estimated Sentinel Edge investigation time per case."
+  portfolio_risk_discovery_rate:
+    value: null
+    note: "Portfolio risk discovery rate, as a percent or ratio."
