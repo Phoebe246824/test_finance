@@ -31,23 +31,26 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 NEO4J_URI = os.environ.get("NEO4J_URI") or "bolt://localhost:7687"
 NEO4J_USER = os.environ.get("NEO4J_USER") or "neo4j"
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD") or "pa55w0rd"
+_BASE_LLM_API_KEY = os.environ.get("LLM_API_KEY")
+_BASE_LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
+_BASE_LLM_MODEL = os.environ.get("LLM_MODEL") or "gpt-4o"
 
 
-def _get_llm_extract_env(name: str) -> str | None:
+def _get_llm_extract_env(name: str, fallback: str | None) -> str | None:
     """读取 Graphiti 抽取档 LLM 环境变量，未设置时回退到基础 LLM_*。"""
-    return os.environ.get(f"LLM_EXTRACT_{name}") or os.environ.get(f"LLM_{name}")
+    return os.environ.get(f"LLM_EXTRACT_{name}") or fallback
 
 
-LLM_API_KEY = _get_llm_extract_env("API_KEY")
-LLM_BASE_URL = _get_llm_extract_env("BASE_URL") or "https://api.openai.com/v1"
-LLM_MODEL = _get_llm_extract_env("MODEL") or "gpt-4o"
+LLM_API_KEY = _get_llm_extract_env("API_KEY", _BASE_LLM_API_KEY)
+LLM_BASE_URL = _get_llm_extract_env("BASE_URL", _BASE_LLM_BASE_URL)
+LLM_MODEL = _get_llm_extract_env("MODEL", _BASE_LLM_MODEL)
 
-EMBEDDER_API_KEY = os.environ.get("EMBEDDER_API_KEY") or LLM_API_KEY
-EMBEDDER_API_BASE = os.environ.get("EMBEDDER_API_BASE") or LLM_BASE_URL
+EMBEDDER_API_KEY = os.environ.get("EMBEDDER_API_KEY") or _BASE_LLM_API_KEY
+EMBEDDER_API_BASE = os.environ.get("EMBEDDER_API_BASE") or _BASE_LLM_BASE_URL
 EMBEDDER_MODEL = os.environ.get("EMBEDDER_MODEL") or "BAAI/bge-m3"
 
-RERANKER_API_KEY = os.environ.get("RERANKER_API_KEY") or LLM_API_KEY
-RERANKER_BASE_URL = os.environ.get("RERANKER_BASE_URL") or LLM_BASE_URL
+RERANKER_API_KEY = os.environ.get("RERANKER_API_KEY") or _BASE_LLM_API_KEY
+RERANKER_BASE_URL = os.environ.get("RERANKER_BASE_URL") or _BASE_LLM_BASE_URL
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3"
 
 
@@ -206,7 +209,10 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     if not neo4j_uri or not neo4j_user or not neo4j_password:
         raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set")
     if not llm_api_key:
-        raise ValueError("LLM_API_KEY must be set and cannot be empty")
+        raise ValueError(
+            "Graphiti LLM api_key must be set via LLM_EXTRACT_API_KEY, "
+            "config['llm']['api_key'], or LLM_API_KEY"
+        )
     # ---------------------------------------------
 
     llm_client = OpenAIGenericClient(
