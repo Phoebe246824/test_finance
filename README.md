@@ -1,471 +1,347 @@
-# Sentinel Edge 端侧风险智能体
+# Sentinel Edge 金融风控智能体
 
-面向“基于 AMD 锐龙 AI MAX+ 平台的端侧 AI 智能体与垂直行业创新应用”赛题的参赛项目。Sentinel Edge 将现有 Sentinel 舆情/风控流水线改造成**银行零售业务端侧反欺诈与反洗钱预警助手**：客户交易、账户关系、贷前资料和可疑行为在本机或银行内网完成处理，通过本地 LLM、Redis、Milvus、Neo4j/Graphiti 和 CrewAI Flow 串联成可演示的闭环。
+Sentinel Edge 是面向比赛场景改造的端侧金融风控智能体项目。系统围绕银行零售业务中的反欺诈、反洗钱、贷款欺诈和可疑交易复核展开，提供事件分析、黑名单过滤、风险评分、Neo4j 图谱展示、趋势预测报告和人工复核闭环。
 
-## 参赛亮点
+## 1. 项目能做什么
 
-- **垂直行业场景**: 银行零售反欺诈、反洗钱、贷前风控和可疑交易复核。
-- **端侧部署价值**: 客户交易、账户关系、设备指纹、贷前资料不上传云端，适合银行内网、专网和隐私敏感环境。
-- **智能体闭环**: 标准化 → 黑名单过滤 → 本地 LLM 分类 → 知识图谱构图 → RAG 检索 → 风险评估 → 历史回捞 → 二次研判 → 趋势分析。
-- **AMD 平台适配**: GPU 承担本地 LLM/Embedding/Rerank 高吞吐推理，NPU 可承担低功耗预筛或常驻监控，CPU 负责调度和数据服务，统一内存支撑多模型并发。
-- **提交材料**: 参赛方案见 [docs/competition_plan.md](/Users/phoebe/project/test_Sentinel/docs/competition_plan.md)，论文大纲见 [docs/competition_paper_outline.md](/Users/phoebe/project/test_Sentinel/docs/competition_paper_outline.md)，视频脚本见 [docs/demo_script.md](/Users/phoebe/project/test_Sentinel/docs/demo_script.md)。
+- 输入一段金融风险事件文本，自动完成黑名单过滤、事件分类、风险评估和趋势预测。
+- 未命中高危规则的事件按低风险展示，并暂存到 Milvus，后续可被高风险事件回捞。
+- 命中黑名单或高危规则的事件进入完整 pipeline，写入 Neo4j 图谱并生成风险结果。
+- 前端提供总览、风险分析、事件库、人物图谱、黑名单管理和系统状态页面。
+- 事件详情页支持交互式图谱、趋势预测报告和人工复核动作。
 
-## 快速参赛运行
+## 2. 技术栈
+
+后端：
+
+- Python 3.13
+- FastAPI
+- CrewAI
+- Redis
+- Milvus
+- Neo4j / Graphiti
+- SQLite
+
+前端：
+
+- Vue 3
+- Vite
+- Pinia
+- Vue Router
+- Axios
+
+## 3. 目录说明
+
+```text
+test_Sentinel/
+├── backend/                 # FastAPI 后端
+├── frontend/                # Vue3 前端
+├── blacklist/               # Redis 黑名单与 Milvus 暂存逻辑
+├── graphiti/                # Neo4j/Graphiti 图谱工作流
+├── trend_prediction/        # 意图分析与趋势预测提示词
+├── scripts/                 # Demo case、初始化脚本、比赛报告脚本
+├── tests/                   # 单元测试
+├── docs/                    # 项目文档
+├── main.py                  # 原 Sentinel pipeline 主入口
+├── docker-compose.yaml      # Redis/Milvus/Neo4j/RabbitMQ
+├── pyproject.toml           # Python 依赖
+└── README.md
+```
+
+## 4. 运行前准备
+
+需要提前安装：
+
+- Python 3.13
+- Node.js 20+
+- Docker Desktop
+- uv
+
+检查命令：
 
 ```bash
-# 安装依赖并启动 Redis/Milvus/Neo4j 等服务
-uv sync --dev
-docker compose up -d
+python3 --version
+node --version
+npm --version
+docker --version
+uv --version
+```
 
-# 复制配置，默认示例已指向本地 OpenAI-compatible LLM endpoint
+## 5. 配置环境变量
+
+进入项目目录：
+
+```bash
+cd /Users/phoebe/project/test_Sentinel
+```
+
+复制环境变量文件：
+
+```bash
 cp .env.example .env
+```
 
-# 生成参赛硬件画像和 Demo 报告
-uv run python scripts/sentinel_competition_demo.py
+重点检查 `.env` 里的这几项：
 
-# 依赖服务、本地 LLM 和金融黑名单种子就绪后，执行真实 pipeline 用例
+```text
+LLM_MODEL=qwen3.5
+LLM_API_KEY=ollama
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+
+EMBEDDER_MODEL=BAAI/bge-m3
+EMBEDDER_API_BASE=http://127.0.0.1:1234/v1
+
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+MILVUS_URI=http://localhost:19530
+```
+
+如果你本地 Neo4j 密码不是 `password`，需要同步修改 `.env`。
+
+## 6. 安装 Python 依赖
+
+```bash
+uv sync --dev
+```
+
+如果你的电脑没有 `uv`，可以先安装：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+## 7. 启动基础服务
+
+启动 Redis、Milvus、Neo4j、RabbitMQ：
+
+```bash
+docker compose up -d
+```
+
+查看容器状态：
+
+```bash
+docker compose ps
+```
+
+常用控制台：
+
+```text
+Neo4j Browser: http://localhost:7474
+Milvus Attu:   http://localhost:8000
+RabbitMQ UI:   http://localhost:15672
+```
+
+注意：如果 `docker-compose.yaml` 里的网络配置报错，把 `driver: bridge` 拼写确认一下。
+
+## 8. 初始化黑名单种子数据
+
+```bash
 uv run python scripts/reset_and_seed_blacklist.py
-uv run python scripts/sentinel_competition_demo.py --run-pipeline
+```
 
-# 交互式演示
+这个脚本会写入金融 Demo 用到的人员黑名单、关键词和高危事件样本。
+
+Demo case 在：
+
+```text
+scripts/finance_demo_cases.py
+```
+
+## 9. 启动后端
+
+```bash
+uv run uvicorn backend.app.main:app --reload --port 8000
+```
+
+后端接口文档：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+健康检查：
+
+```text
+http://127.0.0.1:8000/api/system/health
+```
+
+## 10. 启动前端
+
+打开新终端：
+
+```bash
+cd /Users/phoebe/project/test_Sentinel/frontend
+npm install
+npm run dev
+```
+
+浏览器打开：
+
+```text
+http://localhost:5173
+```
+
+如果 npm 因为本机缓存权限失败，可以使用项目内缓存：
+
+```bash
+npm_config_cache=./.npm-cache npm install
+npm_config_cache=./.npm-cache npm run dev
+```
+
+## 11. 前端页面
+
+```text
+/dashboard       风控总览
+/analysis        风险分析
+/events          事件库
+/events/:id      事件详情
+/graph/person    人物图谱
+/blacklist       黑名单管理
+/system          系统状态
+```
+
+推荐演示顺序：
+
+1. 打开 `/dashboard` 看整体状态。
+2. 打开 `/blacklist` 确认黑名单种子存在。
+3. 打开 `/analysis` 粘贴金融 Demo case。
+4. 分析完成后查看风险等级、命中详情、图谱和趋势报告。
+5. 打开 `/events` 进入事件详情。
+6. 在详情页点击图谱节点、扩展节点，并添加人工复核动作。
+
+## 12. 风险展示规则
+
+当前前端和总览页统一使用：
+
+```text
+高风险：risk_score >= 0.70
+中风险：0.35 <= risk_score < 0.70
+低风险：risk_score < 0.35
+未命中高危规则的 STASH 事件：按低风险展示
+```
+
+也就是说，未命中高危规则不会显示“待评估”。
+
+## 13. 常用命令
+
+运行比赛 Demo：
+
+```bash
+uv run python scripts/sentinel_competition_demo.py
+```
+
+运行真实 pipeline Demo：
+
+```bash
+uv run python scripts/sentinel_competition_demo.py --run-pipeline
+```
+
+运行终端交互：
+
+```bash
 uv run python main.py
 ```
 
-输出报告默认写入 `output/competition/sentinel_edge_demo_report.json`，可作为论文和 PPT 中“本地部署与硬件环境”证据来源。
-
-默认 Demo 用例位于 [scripts/finance_demo_cases.py](/Users/phoebe/project/test_Sentinel/scripts/finance_demo_cases.py:1)，覆盖正常交易暂存、疑似分拆交易历史线索、涉诈账户转账、反洗钱历史回捞和贷款欺诈资料复核。
-
-## 原系统能力
-
-多源事件实时接入 → 黑名单过滤 → AI 分类评级 → 单条构图 → 风险上下文检索 → 首次风险评估 → （仅超阈值）批量补图 + 二次风险评估 → （仍超阈值）意图分析与趋势预测。
-
-## 系统架构
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     用户输入 (终端 / Web 看板)                    │
-└────┬────────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 1  事件标准化 (CrewAI Agent)                              │
-│  Normalizer Agent → 原始消息 → NormalizedEvent                   │
-└────────────────────────────┬───────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 1.5  黑名单过滤 (新增)                                     │
-│  ├─ 人员 ID 比对  → person_blacklist (Redis)                     │
-│  ├─ 敏感词比对    → keyword_blacklist (Redis)                    │
-│  └─ 事件相似度比对 → event_blacklist (Redis)                     │
-│                                                                 │
-│  OR 逻辑：任一命中 → PASS      全未命中 → STASH                   │
-│            │                       │                             │
-│            ▼                       ▼                             │
-│        进入 Stage 2          存入 Milvus 暂存池                   │
-│                          支持人员 ID + 语义召回                  │
-│                                                                 │
-│  PASS 后在 main.py 中自动积累命中记录                              │
-└────────────────────────────┬───────────────────────────────────┘
-                             │ (PASS 路径)
-                             ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 2  事件分类 (CrewAI Agent)                                │
-│  TypeClassifier Agent → 事件类型 + 关键实体提取                   │
-└────────────────────────────┬───────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 3  当前事件单条构图 (Graphiti + Neo4j)                    │
-│  Episode 写入 → LLM 实体/关系提取 → 去重合并 → 向量               │
-└────────────────────────────┬───────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 4  首次风险上下文检索 (Graphiti)                          │
-│  语义向量 + BM25 + 图遍历                                        │
-└────────────────────────────┬───────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Stage 5  首次风险评估 (CrewAI Agent)                            │
-│  RiskEvaluator Agent（使用 Stage 4 上下文）                      │
-└────────────────────────────┬───────────────────────────────────┘
-                             │
-                 ┌───────────┴───────────┐
-                 │                       │
-                 ▼                       ▼
-       score <= threshold         score > threshold
-                 │                       │
-                 │                       ▼
-                 │         ┌──────────────────────────────────────┐
-                 │         │ Stage 6 批量补图 (Milvus 回捞候选)      │
-                 │         │ 共享人员直通；非同人候选需通过 rerank     │
-                 │         │ 已构图 Episode 跳过，避免重复写 Neo4j    │
-                 │         └────────────────┬─────────────────────┘
-                 │                          │
-                 │          ┌───────────────┴───────────────┐
-                 │          │                               │
-                 │          ▼                               ▼
-                 │   无新增补图 batched=0              有新增补图 batched>0
-                 │          │                               │
-                 │          │                               ▼
-                 │          │                         ┌──────────────────────────────────────┐
-                 │          │                         │ Stage 7 二次风险上下文检索 + 二次评估     │
-                 │          │                         │ (有回捞候选时重新检索并评估)              │
-                 │          │                         └────────────────────┬─────────────────┘
-                 │          │                                              │
-                 │          │                                   ┌──────────┴───────────┐
-                 │          │                                   │                      │
-                 │          │                                   ▼                      ▼
-                 │          │                           second_score <= threshold  second_score > threshold
-                 │          │                                   │                      │
-                 ▼          ▼                                   ▼                      ▼
-      ┌────────────┐  ┌────────────────────────────┐   ┌────────────┐   ┌──────────────────────────────┐
-      │  complete  │  │ Stage 8 Dashboard          │   │  complete  │   │ Stage 8 Dashboard            │
-      │  流程结束   │  │ 意图分析 + 趋势预测 (自适应) │ │   |   流程结束  │    │    意图分析 + 趋势预测 (自适应) │
-      └────────────┘  └──────────────┬─────────────┘   └───────────┘    └────────────┬─────────────────┘
-                                     │                                               │                     
-                                     ▼                                               ▼                    
-                                ┌────────────┐                               ┌────────────┐              
-                                │  complete  │                               │  complete  │      
-                                │  流程结束   │                               │  流程结束    │       
-                                └────────────┘                               └────────────┘                             
-                                                                       
-```
-
-**数据流说明**:
-1. 用户通过终端或 Web 看板输入消息
-2. Stage 1: 标准化 → NormalizedEvent
-3. Stage 1.5: 黑名单过滤（三合一 OR 匹配）→ PASS 进入 pipeline / STASH 暂存 Milvus
-4. Stage 2: 事件分类 + 关键实体提取
-5. Stage 3: 当前事件单条构图，并立即将当前事件标记为已构图
-6. Stage 4: 在当前图上检索首次风险上下文
-7. Stage 5: 首次风险评估（使用 Stage 4 上下文）
-8. 若 Stage 5 `score <= threshold`：直接结束流程（不进入 Dashboard）
-9. 若 Stage 5 `score > threshold`：从 Milvus 回捞历史暂存事件候选，并先做相关性准入过滤
-10. Stage 6: 共享人员 ID 的历史事件直接进入批量补图；非同人候选需通过 rerank 阈值过滤；Neo4j 已存在相同 Episode 时跳过重复构图并标记 Milvus `is_graph_built=True`
-11. 若 Stage 6 `batched_count == 0`：说明没有新增候选真正写入 Neo4j（可能无回捞、全部被 rerank 过滤、或全部已存在 Neo4j），跳过二次检索和二次风险评估，直接进入 Stage 8 Dashboard（保留首次风险评估结果）
-12. 若 Stage 6 `batched_count > 0`：Stage 7 在新增补图后检索二次风险上下文并执行二次风险评估
-13. 若二次评估 `score > threshold`：进入 Stage 8 Dashboard；否则结束流程
-
-**核心组件**:
-- **Redis**: 黑名单存储（人员 / 关键词 / 相似事件）
-- **Milvus**: 未命中事件暂存与同人/语义候选回捞，构图后通过 `is_graph_built` 避免重复回捞
-- **黑名单过滤器**: 人员监控 + 关键词监控 + 相似事件监控
-- **Rerank 过滤**: 对非共享人员 ID 的 Milvus 候选做精排过滤，避免语义粗召回噪声进入批量构图
-- **批量构图**: 中/高风险触发，合并通过准入的历史事件一次性写入图谱，并跳过 Neo4j 已存在 Episode
-
-## 项目结构
-
-```
-test_Sentinel/
-├── main.py                  # 主入口，CrewAI Flow 流水线编排（含黑名单过滤 + Milvus 暂存 + 批量构图）
-├── models.py                # 共享 Pydantic 数据模型
-├── consumer.py              # 事件标准化服务
-├── classifier.py            # 事件分类服务 (CrewAI)
-├── dashboard.py             # Web 看板服务 (FastAPI)
-├── graph_service.py         # 知识图谱服务 (Graphiti)
-├── log_utils.py             # 双输出日志系统
-├── sentinel_edge/           # AMD 端侧环境画像与基准记录工具
-├── blacklist/               # 黑名单系统
-│   ├── __init__.py          # BlacklistStore, BlacklistFilter, MilvusStashStore
-│   ├── store.py             # Redis 黑名单 CRUD
-│   ├── milvus_stash.py      # Milvus 暂存、回捞、已构图标记
-│   └── filter.py            # 三合一 OR 匹配器
-├── utils/
-│   └── text.py              # 人员 ID 提取工具
-├── graphiti/
-│   └── graphiti_workflow.py # Graphiti 知识图谱操作（含批量构图）
-├── trend_prediction/        # 事件分类与自适应提示词模块
-│   ├── __init__.py          # 公共 API 导出
-│   ├── classifier.py        # 事件分类器（Jina Rerank + 关键词回退）
-│   ├── task_templates.py    # 自适应任务模板工厂
-│   ├── adapters/            # 领域适配器（7 个领域 + 基类）
-│   └── prompts/             # 兜底提示词模板
-├── providers/
-│   ├── __init__.py          # LLM/Embedder 提供商
-│   ├── llm_provider.py      # LLM 提供商
-│   └── embedder_provider.py # Embedder 提供商
-├── scripts/
-│   ├── reset_and_seed_blacklist.py  # 重置并写入测试种子数据
-│   ├── run_blacklist_kv_demo.py     # 15 个测试用例自动回放
-│   └── sentinel_competition_demo.py # 参赛硬件画像与 Demo 报告生成
-├── tests/                   # 单元测试（51 tests）
-├── compose/                 # Docker Compose 服务定义
-├── .env                     # 环境变量配置
-├── .env.example             # 环境变量示例
-└── requirements.txt         # Python 依赖
-```
-
-## 核心模块说明
-
-### main.py — Pipeline 编排
-
-`SentinelPipelineFlow` (CrewAI Flow):
-
-```
-标准化 → 黑名单过滤 → Classification → Single Graph Build
-                                          → Search First Risk Context
-                                          → First Risk Evaluation
-                                          → Router
-                                            ├── complete
-                                            └── batch_graph
-                                                  → Search Second Risk Context
-                                                  → Second Risk Evaluation
-                                                  → Router
-                                                    ├── go_dashboard
-                                                    └── complete
-                                          → Dashboard (仅 go_dashboard) → complete
-```
-
-**Dashboard 阶段**:
-- **事件分类器**: Jina Rerank API 同时分类事件类别（7 种）和影响严重度（4 级），无 API Key 时回退到关键词匹配
-- **意图分析专家**: 根据事件类别使用领域自适应提示词（国际政治/科技/经济/社会/公共卫生/能源/金融各有专属分析维度）
-- **趋势预测专家**: 根据类别 + 严重度动态调整时间范围（轻微→几天到几周，重大→5 年以上）
-
-**运行方式**: 从终端输入消息进行分析
+运行测试：
 
 ```bash
-uv run main.py
-# 输入消息内容进行分析，输入 'quit' 或 'exit' 退出
+uv run pytest -q
 ```
 
-### models.py — 数据模型
-
-| 模型 | 用途 | 关键字段 |
-|------|------|----------|
-| `NormalizedEvent` | 标准化事件 | event_id, source, raw_content, structured_data, trace_id, event_type, risk_level, risk_score |
-| `ClassifiedEvent` | 分类结果 | event_type, risk_level, risk_score, key_entities, summary, reasoning |
-| `QueueMessage` | RabbitMQ 消息封装 | payload, msg_type, version, trace_id |
-| `EventSource` | 事件来源枚举 | NEWS, CHAT, TRANSACTION, BEHAVIOR |
-| `RiskLevel` | 风险等级枚举 | HIGH, MEDIUM, LOW |
-| `EventType` | 事件类型枚举 | EMERGENCY, NEGATIVE, POSITIVE, INFORMATION, BUSINESS |
-| `KeyEntity` | 关键实体 | name, type |
-
-### dashboard.py — Web 看板服务
-
-基于 FastAPI 构建的 Web 看板，提供事件可视化与统计分析。
-
-**主要端点**:
-- `GET /` — 看板主页（HTML）
-- `GET /api/events` — 事件列表（分页、过滤）
-- `GET /api/events/{event_id}` — 事件详情
-- `GET /api/stats` — 统计数据
-- `GET /api/stats/risk-distribution` — 风险分布
-- `GET /api/stats/source-distribution` — 来源分布
-- `GET /api/graph/stats` — 图谱统计
-
-**启动方式**:
-```bash
-uv run uvicorn dashboard:app --reload --port 8000
-```
-
-### graph_service.py — 知识图谱服务
-
-基于 Graphiti 构建时序知识图谱，将命中黑名单的当前事件先单条入图；若 Neo4j 已存在同文本 Episode，则跳过重复单条构图。若首次风险超阈值，再从 Milvus 回捞历史暂存候选：共享人员 ID 的候选直接补图，非同人候选必须通过 rerank 阈值过滤；已存在 Neo4j 的候选只标记 Milvus 已构图，不重复写图。只有存在新增候选真正进入批量构图时才执行二次检索和二次风险评估；若无回捞、候选均被过滤、或候选均已存在 Neo4j，则跳过二次流程并直接进入 Dashboard。
-
-**核心功能**:
-- `init_graphiti()`: 初始化 Graphiti 客户端（连接 Neo4j、配置 LLM/Embedder）
-- `add_episode()`: 将事件作为 Episode 写入 Graphiti，自动提取实体和关系
-- `search()`: 混合检索（语义 + 关键词 + 图遍历 + 重排序）
-- `close_graphiti()`: 关闭连接释放资源
-
-### graphiti/graphiti_workflow.py — Graph 底层操作
-
-- `add_event_to_graph()`: 将事件写入图谱，Graphiti 自动提取实体/关系/向量嵌入
-- `hybrid_search()`: 混合检索 — 语义向量 + BM25 + BFS 图遍历 → RRF 融合，支持 `min_score` 相关性阈值过滤低分结果
-
-### trend_prediction/ — 事件分类与自适应提示词
-
-**EventClassifier**: 基于 Jina Rerank API 的事件分类器，支持 7 种事件类别和 4 级影响严重度评估。
-
-- `classify_with_severity()`: 单次 API 调用同时返回类别 + 严重度，失败时自动回退到关键词匹配
-- 关键词覆盖：7 类别 × 约 20 关键词 + 4 级严重度 × 约 12 关键词
-
-**领域适配器**: 每个领域有专属的分析维度和提示词模板。
-
-| 适配器 | 类别标识 | 专注维度 |
-|---|---|---|
-| `intl_politics` | 国际政治 | 地缘冲突、外交关系、制裁禁令 |
-| `tech` | 科技 | 技术创新、芯片/AI、竞争格局 |
-| `economy` | 经济 | 宏观经济、货币政策、供应链 |
-| `society` | 社会/文化 | 性别/种族、教育医疗、社会福利 |
-| `public_health` | 公共卫生 | 传染病、疫苗、医疗资源 |
-| `energy` | 能源 | 石油/新能源、碳排放、电网 |
-| `finance` | 金融 | 银行保险、证券基金、金融风险 |
-
-**严重度到时间范围映射**:
-
-| 严重度 | 短期 | 中期 | 长期 |
-|---|---|---|---|
-| 轻微 | 几天到几周 | 几周（无显著持续影响） | 无显著长期影响 |
-| 一般 | 1-3 个月 | 3-12 个月 | 1-2 年（有限长期影响） |
-| 严重 | 1-3 个月 | 3-12 个月 | 1-5 年（显著长期影响） |
-| 重大 | 1-3 个月 | 3-12 个月 | 5 年以上（深远长期影响） |
-
-## 快速开始
-
-### 1. 安装依赖
+前端构建：
 
 ```bash
-uv sync --dev
+cd frontend
+npm run build
 ```
 
-### 2. 配置环境变量
+## 14. 常见问题
 
-复制 `.env.example` 为 `.env`，填入实际配置:
+### Milvus 连接失败
 
-```env
-# Redis 配置（黑名单）
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-BLACKLIST_REDIS_DB=1
+报错类似：
 
-# Milvus 配置（事件暂存）
-MILVUS_URI=http://localhost:19530
-MILVUS_TOKEN=
-MILVUS_STASH_COLLECTION=stashed_events
-KV_TTL_DAYS=90
-STASH_SEMANTIC_TOP_K=10
-BATCH_MAX_PER_PERSON=20
+```text
+Fail connecting to server on localhost:19530
+```
 
-# RabbitMQ 配置
-RABBITMQ_HOST=localhost
-RABBITMQ_PORT=5672
-RABBITMQ_USER=guest
-RABBITMQ_PASSWORD=guest
+处理：
 
-# Neo4j 配置
+```bash
+docker compose ps
+docker compose up -d milvus
+```
+
+确认 `MILVUS_URI=http://localhost:19530`。
+
+### Neo4j 图谱为空
+
+先确认 Neo4j 正常：
+
+```text
+http://localhost:7474
+```
+
+再确认 `.env`：
+
+```text
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-
-# LLM 配置
-LLM_PROVIDER=siliconflow
-LLM_MODEL=deepseek-ai/DeepSeek-V3.2
-LLM_API_KEY=sk-your-api-key
-LLM_BASE_URL=https://api.siliconflow.cn/v1
-
-# Embedding 配置
-EMBEDDER_MODEL=BAAI/bge-m3
-EMBEDDER_API_BASE=https://api.siliconflow.cn/v1
-
-# 风险阈值
-RISK_THRESHOLD=0.7
+NEO4J_PASSWORD=password
 ```
 
-### 3. 启动依赖服务
+如果密码不一致，改 `.env` 后重启后端。
+
+### 前端访问不到后端
+
+确认后端在运行：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+如需指定后端地址，在 `frontend/.env` 写：
+
+```text
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+### npm install 权限错误
+
+使用项目内缓存：
 
 ```bash
+cd frontend
+npm_config_cache=./.npm-cache npm install
+```
+
+## 15. 给队友的最短启动步骤
+
+```bash
+cd /Users/phoebe/project/test_Sentinel
+cp .env.example .env
+uv sync --dev
 docker compose up -d
+uv run python scripts/reset_and_seed_blacklist.py
+uv run uvicorn backend.app.main:app --reload --port 8000
 ```
 
-确保以下服务已运行:
-- **Redis**: `localhost:6379` (黑名单存储 + 事件暂存)
-- **Neo4j**: `localhost:7687` (知识图谱存储)
-- **RabbitMQ**: `localhost:5672` (消息队列)
-
-### 4. 启动系统
-
-#### 方式一：终端 Pipeline（分析消息）
+新开一个终端：
 
 ```bash
-uv run main.py
+cd /Users/phoebe/project/test_Sentinel/frontend
+npm_config_cache=./.npm-cache npm install
+npm_config_cache=./.npm-cache npm run dev
 ```
 
-#### 方式二：Web 看板（可视化界面）
+打开：
 
-```bash
-uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8000
+```text
+http://localhost:5173
 ```
-
-然后访问 http://localhost:8000 查看看板。
-
-系统启动后，在终端输入消息进行分析:
-
-```
-======================================================================
-  Sentinel Pipeline — CrewAI Flow 驱动
-  输入消息进行分析 (输入 'quit' 或 'exit' 退出)
-======================================================================
-
-请输入消息内容:
-> 某科技公司因产品质量问题被监管部门立案调查
-============================================ 消息处理开始 =============================================
-
-[Flow] 用户输入: 某科技公司因产品质量问题被监管部门立案调查
-[Flow] 标准化事件: event_id=01JQ..., source=news
-[Flow] 黑名单过滤: PASS (命中敏感词) or STASH (暂存到 Milvus)
-[Flow] Stage 2: Classification
-[Flow] Stage 3: Single Graph Build
-[Flow] Stage 4: Search First Risk Context
-[Flow] Stage 5: First Risk Evaluation
-[Flow] risk_score > threshold: 执行 Milvus 回捞 + 批量补图准入过滤
-[Flow] Stage 6: Batch Graph Build from Stash (共享人员直通；非同人候选 rerank 过滤；Neo4j 已存在则跳过重复构图)
-[Flow] batched_count == 0: 无新增补图，跳过二次检索/二次评估，直接进入 Stage 8
-[Flow] batched_count > 0: Stage 7 Search Second Risk Context + Second Risk Evaluation
-[Flow] Stage 8: Dashboard
-
-[dashboard] 分析结果:
-======================================================================
-# 意图分析报告
-...
-# 趋势预测报告
-...
-======================================================================
-
-[Flow] 消息处理完成 ✓
-
-请输入消息内容:
-> quit
-退出程序
-```
-
-## 技术栈
-
-| 组件 | 技术选型 |
-|------|----------|
-| Agent 框架 | CrewAI (Flow + Agent + Crew) |
-| 知识图谱 | Graphiti + Neo4j |
-| 黑名单/缓存 | Redis (redis-py) |
-| LLM | SiliconFlow API (DeepSeek-V3) |
-| Embedding | BAAI/bge-m3 (SiliconFlow) |
-| 数据模型 | Pydantic v2 |
-| Web 框架 | FastAPI + Jinja2 |
-| 向量检索 | Graphiti Hybrid Search |
-
-## 依赖
-
-```
-fastapi          # Web 框架
-uvicorn          # ASGI 服务器
-crewai           # 多 Agent 框架
-graphiti-core    # 时序知识图谱
-neo4j            # Neo4j 驱动
-redis            # Redis 客户端（黑名单）
-pymilvus         # Milvus 客户端（事件暂存，可按需安装）
-pydantic         # 数据模型
-python-dotenv    # 环境变量
-ulid-py          # 唯一 ID 生成
-httpx            # HTTP 客户端
-```
-
-## providers 模块说明
-
-### providers/llm_provider.py — LLM 提供商
-
-封装 SiliconFlow LLM 调用，提供统一的接口供 CrewAI Agent 使用。
-
-**主要功能**:
-- `get_llm()`: 获取配置好的 LLM 实例
-- 支持自定义模型、温度、max_tokens 等参数
-
-### providers/embedder_provider.py — Embedder 提供商
-
-封装 SiliconFlow Embedding 调用，提供向量嵌入能力。
-
-**主要功能**:
-- `get_embedder()`: 获取配置好的 Embedder 实例
-- 支持 BAAI/bge-m3 等模型

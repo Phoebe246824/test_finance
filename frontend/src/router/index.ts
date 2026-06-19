@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import DashboardView from '../views/DashboardView.vue'
 import AnalyzeView from '../views/AnalyzeView.vue'
 import EventsView from '../views/EventsView.vue'
 import EventDetailView from '../views/EventDetailView.vue'
@@ -9,7 +10,8 @@ import PersonGraphView from '../views/PersonGraphView.vue'
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/analysis' },
+    { path: '/', component: DashboardView },
+    { path: '/dashboard', component: DashboardView },
     { path: '/analysis', component: AnalyzeView },
     { path: '/events', component: EventsView },
     { path: '/events/:eventId', component: EventDetailView },

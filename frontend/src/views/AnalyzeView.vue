@@ -54,11 +54,11 @@ function fillSample() {
     </div>
   </section>
 
-  <div class="grid-2">
-    <div class="panel stack">
+  <div class="analysis-layout">
+    <div class="panel stack analysis-input-panel">
       <div class="field">
         <label for="event-text">事件内容</label>
-        <textarea id="event-text" v-model="text" class="textarea" />
+        <textarea id="event-text" v-model="text" class="textarea analysis-textarea" />
       </div>
       <div class="toolbar">
         <button class="button" :disabled="loading" @click="submit">

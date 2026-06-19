@@ -123,6 +123,21 @@ a {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
 }
 
+.analysis-layout {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(520px, 1fr) minmax(340px, 420px);
+}
+
+.analysis-input-panel {
+  align-content: start;
+}
+
+.analysis-textarea {
+  min-height: 260px;
+}
+
 .blacklist-layout {
   align-items: start;
   display: grid;
@@ -146,6 +161,60 @@ a {
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid-4 {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  margin-bottom: 16px;
+}
+
+.dashboard-grid-wide {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.kpi strong {
+  font-size: 28px;
+}
+
+.risk-distribution {
+  display: grid;
+  gap: 12px;
+}
+
+.risk-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 72px minmax(0, 1fr) 42px;
+}
+
+.risk-row span {
+  color: #34495e;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.risk-row strong {
+  text-align: right;
+}
+
+.list-row {
+  align-items: center;
+  border-bottom: 1px solid #e8eef5;
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 0;
 }
 
 .stack {
@@ -605,7 +674,11 @@ th {
   }
 
   .grid-2,
+  .analysis-layout,
   .grid-3,
+  .grid-4,
+  .dashboard-grid,
+  .dashboard-grid-wide,
   .grid-main-side,
   .blacklist-layout,
   .graph-miro-body {

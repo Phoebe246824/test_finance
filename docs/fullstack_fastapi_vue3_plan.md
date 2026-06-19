@@ -37,25 +37,31 @@ frontend/src/styles.css
 frontend/src/api/
 frontend/src/router/
 frontend/src/views/AnalyzeView.vue
+frontend/src/views/DashboardView.vue
 frontend/src/views/EventsView.vue
 frontend/src/views/EventDetailView.vue
 frontend/src/views/BlacklistView.vue
+frontend/src/views/PersonGraphView.vue
 frontend/src/views/SystemStatusView.vue
 frontend/src/components/RiskBadge.vue
 frontend/src/components/BlacklistHitPanel.vue
 frontend/src/components/DimensionScoreBars.vue
 frontend/src/components/GraphViewer.vue
+frontend/src/components/ReviewActionPanel.vue
+frontend/src/components/TrendReportPanel.vue
 ```
 
 现在已经能做这些事：
 
 1. `POST /api/analyze`：输入事件文本，调用现有 pipeline 分析。
 2. 分析结果写入 SQLite。
-3. `/analysis`：前端风险分析页面。
-4. `/events`：事件列表、搜索、删除。
-5. `/events/:eventId`：事件详情、风险分数、命中详情、SVG 图谱。
-6. `/blacklist`：人员、关键词、高危事件增删查。
-7. `/system`：API、Redis、数据库、硬件信息。
+3. `/dashboard`：风控总览、风险分布、趋势报告覆盖率、待复核任务。
+4. `/analysis`：前端风险分析页面，展示结果、命中详情、事件图谱、趋势预测报告。
+5. `/events`：事件列表、搜索、删除。
+6. `/events/:eventId`：事件详情、风险分数、命中详情、交互图谱、趋势报告、人工复核。
+7. `/graph/person`：按客户/人员搜索 Neo4j 图谱，支持节点扩展。
+8. `/blacklist`：人员、关键词、高危事件增删查。
+9. `/system`：API、Redis、数据库、硬件信息。
 
 ## 3. 总体架构
 
@@ -206,6 +212,11 @@ POST /api/analyze
       "weighted_score": 0.225
     }
   },
+  "trend_report": {
+    "category_name": "金融",
+    "severity_name": "高",
+    "report": "趋势预测报告正文..."
+  },
   "blacklist": {
     "decision": "PASS",
     "matched_persons": ["P102"],
@@ -225,6 +236,7 @@ POST /api/analyze
 GET    /api/events
 GET    /api/events/{event_id}
 DELETE /api/events/{event_id}
+POST   /api/events/{event_id}/review-actions
 ```
 
 列表支持：
@@ -234,6 +246,15 @@ page
 page_size
 risk_level
 keyword
+```
+
+复核动作请求：
+
+```json
+{
+  "action_type": "suggest_freeze",
+  "comment": "建议先冻结后续出金并人工核验客户身份"
+}
 ```
 
 ### 6.3 黑名单
@@ -268,7 +289,7 @@ DELETE /api/blacklist/events/{value}
 GET /api/graph/events/{event_id}
 ```
 
-当前图谱接口会从事件原文中抽取形如 `【P102# 客户B】`、`【A601# 账户】`、`【M301# 商户】` 的实体，返回前端可直接画图的节点和边。
+当前图谱接口优先查询 Neo4j/Graphiti 中的真实节点和关系，返回 1-2 跳子图；Neo4j 不可用或查不到时，才从事件原文中抽取形如 `【P102# 客户B】`、`【A601# 账户】`、`【M301# 商户】` 的实体作为兜底图。
 
 返回：
 
@@ -284,7 +305,39 @@ GET /api/graph/events/{event_id}
 }
 ```
 
-### 6.5 系统
+人物图谱与节点扩展：
+
+```text
+GET /api/graph/persons?q=P102
+GET /api/graph/nodes/{node_id}/expand
+```
+
+### 6.5 总览
+
+```text
+GET /api/dashboard/overview
+```
+
+返回：
+
+```json
+{
+  "metrics": {
+    "total_events": 10,
+    "high_risk_events": 3,
+    "pending_review": 2,
+    "trend_report_coverage": 0.6
+  },
+  "risk_distribution": {
+    "high": 3,
+    "medium": 2,
+    "low": 5
+  },
+  "recent_events": []
+}
+```
+
+### 6.6 系统
 
 ```text
 GET /api/system/health

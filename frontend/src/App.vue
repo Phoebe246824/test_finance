@@ -6,6 +6,7 @@
         <span>金融风控智能体</span>
       </div>
       <nav class="nav-list">
+        <RouterLink class="nav-link" to="/dashboard">总览</RouterLink>
         <RouterLink class="nav-link" to="/analysis">风险分析</RouterLink>
         <RouterLink class="nav-link" to="/events">事件库</RouterLink>
         <RouterLink class="nav-link" to="/graph/person">人物图谱</RouterLink>

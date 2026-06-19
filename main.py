@@ -1844,8 +1844,8 @@ async def process_message_detailed(
             return {
                 "event_id": normalized_event.event_id,
                 "status": "stashed",
-                "risk_level": None,
-                "risk_score": None,
+                "risk_level": "low",
+                "risk_score": 0.0,
                 "summary": normalized_event.summary,
                 "event_type": normalized_event.event_type,
                 "dimension_scores": {},
