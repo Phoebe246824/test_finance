@@ -22,6 +22,9 @@ p11:
     pass_rate:
       value: null
       note: "Baseline replay pass rate before optimization."
+    risk_level_consistency:
+      value: null
+      note: "Baseline repeated-run risk-level consistency before optimization."
     average_latency_ms:
       value: null
       note: "Baseline end-to-end average latency."
