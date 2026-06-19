@@ -52,7 +52,8 @@ def _node_label(node: Any) -> str:
 
 
 def _node_type(node: Any) -> str:
-    labels = list(getattr(node, "labels", []))
+    props = dict(node)
+    labels = list(getattr(node, "labels", []) or props.get("labels") or [])
     for label in labels:
         if label not in {"Entity"}:
             return label
@@ -60,6 +61,10 @@ def _node_type(node: Any) -> str:
 
 
 def _edge_id(rel: Any) -> str:
+    if isinstance(rel, str):
+        return ""
+    if isinstance(rel, dict):
+        return _first_text(rel.get("uuid"), rel.get("id"), rel.get("elementId"))
     props = dict(rel)
     return _first_text(
         props.get("uuid"),
@@ -69,6 +74,10 @@ def _edge_id(rel: Any) -> str:
 
 
 def _edge_label(rel: Any) -> str:
+    if isinstance(rel, str):
+        return rel
+    if isinstance(rel, dict):
+        return _first_text(rel.get("name"), rel.get("fact"), rel.get("type"))
     props = dict(rel)
     return _first_text(
         props.get("name"),
@@ -80,29 +89,96 @@ def _edge_label(rel: Any) -> str:
 
 def _serialize_node(node: Any, *, match_reason: str | None = None) -> dict:
     props = {str(key): _jsonable(value) for key, value in dict(node).items()}
-    labels = list(getattr(node, "labels", []))
+    labels = list(getattr(node, "labels", []) or props.get("labels") or [])
+    element_id = getattr(node, "element_id", None)
     return {
         "id": _node_id(node),
-        "neo4j_element_id": getattr(node, "element_id", None),
+        "neo4j_element_id": element_id,
         "label": _node_label(node),
         "type": _node_type(node),
         "labels": labels,
-        "properties": props,
+        "properties": {**props, "elementId": element_id, "labels": labels},
         "match_reason": match_reason,
     }
 
 
 def _serialize_edge(rel: Any, source: Any, target: Any) -> dict:
-    props = {str(key): _jsonable(value) for key, value in dict(rel).items()}
+    rel_type = (
+        rel
+        if isinstance(rel, str)
+        else _first_text(rel.get("type"), rel.get("relationship_type"), rel.get("name"))
+        if isinstance(rel, dict)
+        else rel.type
+    )
+    element_id = rel.get("elementId") if isinstance(rel, dict) else getattr(rel, "element_id", None)
+    props = (
+        {"source": "path_list", "relationship_type": rel}
+        if isinstance(rel, str)
+        else {str(key): _jsonable(value) for key, value in rel.items()}
+        if isinstance(rel, dict)
+        else {str(key): _jsonable(value) for key, value in dict(rel).items()}
+    )
     return {
         "id": _edge_id(rel),
-        "neo4j_element_id": getattr(rel, "element_id", None),
+        "neo4j_element_id": element_id,
         "source": _node_id(source),
         "target": _node_id(target),
         "label": _edge_label(rel),
-        "type": rel.type,
-        "properties": props,
+        "type": rel_type,
+        "properties": {
+            **props,
+            "elementId": element_id,
+            "type": rel_type,
+            "startNodeElementId": getattr(getattr(rel, "start_node", None), "element_id", None),
+            "endNodeElementId": getattr(getattr(rel, "end_node", None), "element_id", None),
+        },
     }
+
+
+def _path_parts(path: Any) -> tuple[list[Any], list[Any]]:
+    if hasattr(path, "nodes") and hasattr(path, "relationships"):
+        return list(path.nodes), list(path.relationships)
+    if isinstance(path, list):
+        nodes = [item for item in path if isinstance(item, dict)]
+        relationships = []
+        for index, item in enumerate(path):
+            if not isinstance(item, str):
+                continue
+            if index <= 0 or index >= len(path) - 1:
+                continue
+            source = path[index - 1]
+            target = path[index + 1]
+            if isinstance(source, dict) and isinstance(target, dict):
+                relationships.append((item, source, target))
+        return nodes, relationships
+    return [], []
+
+
+def _relationship_value(rel: Any) -> Any:
+    if isinstance(rel, tuple) and len(rel) == 3:
+        return {"type": rel[1], "source": "relationship_tuple"}
+    return rel
+
+
+def _relationship_nodes(rel: Any, nodes: list[Any]) -> tuple[Any | None, Any | None]:
+    if isinstance(rel, tuple) and len(rel) == 3:
+        # neo4j result.data() serializes relationships(p) as
+        # (end_node_properties, relationship_type, start_node_properties).
+        return rel[2], rel[0]
+
+    start_node = getattr(rel, "start_node", None)
+    end_node = getattr(rel, "end_node", None)
+    if start_node is not None and end_node is not None:
+        return start_node, end_node
+
+    start_id = getattr(rel, "start_node_id", None)
+    end_id = getattr(rel, "end_node_id", None)
+    if start_id is None or end_id is None:
+        return None, None
+
+    source = next((node for node in nodes if getattr(node, "id", None) == start_id), None)
+    target = next((node for node in nodes if getattr(node, "id", None) == end_id), None)
+    return source, target
 
 
 def _merge_graph(records: Iterable[Any], *, match_reason: str | None = None) -> dict:
@@ -124,6 +200,35 @@ def _merge_graph(records: Iterable[Any], *, match_reason: str | None = None) -> 
     return {"nodes": list(nodes.values()), "edges": list(edges.values())}
 
 
+def _merge_paths(records: Iterable[Any], *, match_reason: str | None = None) -> dict:
+    nodes: dict[str, dict] = {}
+    edges: dict[str, dict] = {}
+    for record in records:
+        path_nodes = record.get("nodes")
+        path_relationships = record.get("relationships")
+        if path_nodes is None or path_relationships is None:
+            path = record.get("p")
+            if path is None:
+                continue
+            path_nodes, path_relationships = _path_parts(path)
+        for node in path_nodes:
+            serialized = _serialize_node(node, match_reason=match_reason)
+            nodes[serialized["id"]] = serialized
+        for rel in path_relationships:
+            source_node, target_node = _relationship_nodes(rel, path_nodes)
+            if source_node is None or target_node is None:
+                continue
+            rel_value = _relationship_value(rel)
+            edge = _serialize_edge(rel_value, source_node, target_node)
+            if edge["id"]:
+                key = edge["id"]
+            else:
+                endpoints = sorted([edge["source"], edge["target"]])
+                key = f'{endpoints[0]}-{endpoints[1]}-{edge["type"]}'
+            edges[key] = edge
+    return {"nodes": list(nodes.values()), "edges": list(edges.values())}
+
+
 class Neo4jGraphService:
     def __init__(self) -> None:
         config = load_config()
@@ -136,10 +241,13 @@ class Neo4jGraphService:
     async def close(self) -> None:
         await self._driver.close()
 
-    async def graph_by_terms(self, terms: list[str], limit: int = 80) -> dict:
+    async def graph_by_terms(
+        self, terms: list[str], limit: int = 160, depth: int = 2
+    ) -> dict:
         clean_terms = [term.strip() for term in terms if term and term.strip()]
         if not clean_terms:
             return {"nodes": [], "edges": []}
+        max_depth = max(1, min(depth, 3))
         query = """
         MATCH (n)
         WHERE any(term IN $terms WHERE
@@ -149,14 +257,35 @@ class Neo4jGraphService:
             OR toLower(toString(coalesce(n.content, ''))) CONTAINS toLower(term)
             OR toLower(toString(coalesce(n.summary, ''))) CONTAINS toLower(term)
         )
-        OPTIONAL MATCH (n)-[r]-(m)
-        RETURN n, r, m
+        WITH collect(DISTINCT n)[0..20] AS seeds
+        UNWIND seeds AS seed
+        MATCH p = (seed)-[*1..%d]-(m)
+        RETURN nodes(p) AS nodes, relationships(p) AS relationships
         LIMIT $limit
-        """
+        """ % max_depth
         async with self._driver.session(database="neo4j") as session:
             result = await session.run(query, terms=clean_terms, limit=limit)
-            records = await result.data()
-        return _merge_graph(records, match_reason="term_search")
+            records = [record async for record in result]
+        graph = _merge_paths(records, match_reason="term_search")
+        if graph["nodes"]:
+            return graph
+        return await self._seed_nodes(clean_terms)
+
+    async def _seed_nodes(self, terms: list[str]) -> dict:
+        query = """
+        MATCH (n)
+        WHERE any(term IN $terms WHERE
+            toLower(toString(coalesce(n.name, ''))) CONTAINS toLower(term)
+            OR toLower(toString(coalesce(n.id_number, ''))) = toLower(term)
+            OR toLower(toString(coalesce(n.uuid, ''))) = toLower(term)
+        )
+        RETURN n, null AS r, null AS m
+        LIMIT 30
+        """
+        async with self._driver.session(database="neo4j") as session:
+            result = await session.run(query, terms=terms)
+            records = [record async for record in result]
+        return _merge_graph(records, match_reason="seed_only")
 
     async def expand_node(self, node_id: str, limit: int = 60) -> dict:
         query = """
@@ -165,14 +294,18 @@ class Neo4jGraphService:
             OR n.uuid = $node_id
             OR n.name = $node_id
             OR elementId(n) = $node_id
-        OPTIONAL MATCH (n)-[r]-(m)
-        RETURN n, r, m
+        WITH n
+        MATCH p = (n)-[*1..2]-(m)
+        RETURN nodes(p) AS nodes, relationships(p) AS relationships
         LIMIT $limit
         """
         async with self._driver.session(database="neo4j") as session:
             result = await session.run(query, node_id=node_id, limit=limit)
-            records = await result.data()
-        return _merge_graph(records, match_reason="node_expand")
+            records = [record async for record in result]
+        graph = _merge_paths(records, match_reason="node_expand")
+        if graph["nodes"]:
+            return graph
+        return await self._seed_nodes([node_id])
 
     async def search_person(self, keyword: str, limit: int = 100) -> dict:
         return await self.graph_by_terms([keyword], limit=limit)

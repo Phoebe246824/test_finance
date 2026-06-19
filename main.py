@@ -637,7 +637,7 @@ async def graph_episode_content_count(graphiti, content: str, group_id: str) -> 
         """
         MATCH (e:Episodic)
         WHERE e.group_id = $group_id
-          AND (e.content = $content OR e.raw_content = $content)
+          AND e.content = $content
         RETURN count(e) AS content_count
         """,
         group_id=group_id,
@@ -997,7 +997,7 @@ async def simulate_search(
 
 async def simulate_dashboard(
     config: dict, normalized_event: NormalizedEvent, results: dict
-) -> None:
+) -> dict:
     logger = get_logger("main.dashboard")
 
     llm = get_llm(temperature=0.3)
@@ -1099,6 +1099,16 @@ async def simulate_dashboard(
     logger.info("analysis result:\n%s", result)
 
     print_info("Dashboard 分析完成")
+    raw_report = getattr(result, "raw", None) or str(result)
+    return {
+        "category": category,
+        "category_name": category_name,
+        "category_confidence": confidence,
+        "severity": severity,
+        "severity_name": severity_name,
+        "severity_confidence": severity_confidence,
+        "report": raw_report,
+    }
 
 
 # ============================================================
@@ -1769,7 +1779,7 @@ class SentinelPipelineFlow(Flow):
             format_risk_score(event.risk_score),
             bool(self.state.get("second_risk_applied")),
         )
-        await simulate_dashboard(self.config, event, context)
+        self.state["trend_report"] = await simulate_dashboard(self.config, event, context)
         self._log.info("output: complete")
         return "complete"
 
@@ -1839,6 +1849,7 @@ async def process_message_detailed(
                 "summary": normalized_event.summary,
                 "event_type": normalized_event.event_type,
                 "dimension_scores": {},
+                "trend_report": {},
                 "blacklist": {
                     "decision": "STASH",
                     "matched_persons": blacklist_result.matched_persons,
@@ -1883,6 +1894,7 @@ async def process_message_detailed(
             "dimension_scores": flow.state.get("risk_result", {}).get(
                 "dimension_scores", {}
             ),
+            "trend_report": flow.state.get("trend_report", {}),
             "blacklist": {
                 "decision": "PASS",
                 "matched_persons": blacklist_result.matched_persons,

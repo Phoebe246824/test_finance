@@ -16,6 +16,7 @@ class AnalyzeResponse(BaseModel):
     summary: str | None = None
     reasoning: str | None = None
     dimension_scores: dict = Field(default_factory=dict)
+    trend_report: dict = Field(default_factory=dict)
     blacklist: dict = Field(default_factory=dict)
     graph_result: dict | None = None
     second_risk_applied: bool = False

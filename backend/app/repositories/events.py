@@ -18,6 +18,7 @@ def _row_to_dict(row) -> dict:
         "matched_keywords_json",
         "event_similarity_json",
         "dimension_scores_json",
+        "trend_report_json",
     ):
         value = item.get(field)
         item[field.removesuffix("_json")] = json.loads(value) if value else None
@@ -39,8 +40,8 @@ class EventRepository:
                     event_id, title, raw_content, event_type, summary, status,
                     risk_level, risk_score, reasoning, blacklist_decision,
                     matched_persons_json, matched_keywords_json, event_similarity_json,
-                    dimension_scores_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    dimension_scores_json, trend_report_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(event_id) DO UPDATE SET
                     title=excluded.title,
                     raw_content=excluded.raw_content,
@@ -55,6 +56,7 @@ class EventRepository:
                     matched_keywords_json=excluded.matched_keywords_json,
                     event_similarity_json=excluded.event_similarity_json,
                     dimension_scores_json=excluded.dimension_scores_json,
+                    trend_report_json=excluded.trend_report_json,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -72,6 +74,7 @@ class EventRepository:
                     json.dumps(blacklist.get("matched_keywords") or [], ensure_ascii=False),
                     json.dumps(blacklist.get("event_similarity") or {}, ensure_ascii=False),
                     json.dumps(result.get("dimension_scores") or {}, ensure_ascii=False),
+                    json.dumps(result.get("trend_report") or {}, ensure_ascii=False),
                     now,
                     now,
                 ),

@@ -55,6 +55,7 @@ def init_db() -> None:
                 matched_keywords_json TEXT,
                 event_similarity_json TEXT,
                 dimension_scores_json TEXT,
+                trend_report_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -67,6 +68,14 @@ def init_db() -> None:
                 error_message TEXT,
                 started_at TEXT NOT NULL,
                 finished_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS review_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                comment TEXT,
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS blacklist_items (
@@ -89,4 +98,8 @@ def init_db() -> None:
         if "dimension_scores_json" not in columns:
             conn.execute(
                 "ALTER TABLE financial_events ADD COLUMN dimension_scores_json TEXT"
+            )
+        if "trend_report_json" not in columns:
+            conn.execute(
+                "ALTER TABLE financial_events ADD COLUMN trend_report_json TEXT"
             )
