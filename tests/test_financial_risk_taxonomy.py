@@ -105,3 +105,38 @@ def test_financial_risk_type_uses_case_level_prompt():
     assert "市场恐慌" not in trend_task.description
     assert "金融危机" not in trend_task.description
     assert "金融体系重塑" not in trend_task.description
+
+
+def test_trend_task_forbids_review_wrappers_and_file_claims():
+    classifier = EventClassifier(use_rerank=False)
+    agent = Agent(role="r", goal="g", backstory="b", allow_delegation=False, verbose=False)
+    intent_task = get_intent_analysis_task(
+        event_text=AML_EVENT,
+        classifier=classifier,
+        category="aml_structuring",
+        confidence=0.13,
+        agent=agent,
+    )
+    trend_task = get_trend_prediction_task(
+        event_text=AML_EVENT,
+        intent_task=intent_task,
+        classifier=classifier,
+        category="aml_structuring",
+        confidence=0.13,
+        agent=agent,
+        severity="critical",
+        severity_confidence=0.25,
+    )
+
+    assert "只输出报告正文" in trend_task.description
+    assert "不要声称读取或写入任何文件" in trend_task.description
+    assert "不要输出审查过程" in trend_task.description
+    assert "不要提及任何文件路径" in trend_task.description
+    assert "包装性表述" in trend_task.description
+    assert "最终答案" not in trend_task.description
+    assert "我已读取" not in trend_task.description
+    assert "我将写入" not in trend_task.description
+    assert "无需修改" not in trend_task.description
+    assert "/app/report.md" not in trend_task.description
+    assert "trend_prediction_report.md" not in trend_task.description
+    assert "完整的报告正文" in trend_task.expected_output

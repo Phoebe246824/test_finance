@@ -1052,7 +1052,6 @@ async def simulate_dashboard(
         ),
         verbose=True,
         allow_delegation=False,
-        **reasoning_kwargs_for("dashboard"),
     )
 
     trend_predictor = Agent(
@@ -1065,7 +1064,6 @@ async def simulate_dashboard(
         ),
         verbose=True,
         allow_delegation=False,
-        **reasoning_kwargs_for("dashboard"),
     )
 
     intent_task = get_intent_analysis_task(

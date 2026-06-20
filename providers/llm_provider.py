@@ -99,7 +99,7 @@ def get_llm_for(stage: str, temperature: float | None = None) -> LLM:
 def reasoning_kwargs_for(stage: str) -> dict[str, int | bool]:
     """返回 CrewAI Agent reasoning 参数；抽取档保持默认关闭。"""
     tier = _tier_for_stage(stage)
-    if tier != "reason":
+    if tier != "reason" or stage == "dashboard":
         return {}
     return {
         "reasoning": True,
