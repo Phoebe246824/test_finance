@@ -61,7 +61,11 @@ from models import (
     EventSource,
     NormalizedEvent,
 )
-from providers.llm_provider import close_all_llms, get_llm
+from providers.llm_provider import (
+    close_all_llms,
+    get_llm_for,
+    reasoning_kwargs_for,
+)
 from trend_prediction.classifier import EventClassifier
 from trend_prediction.task_templates import (
     get_intent_analysis_task,
@@ -352,12 +356,8 @@ def format_risk_score(score: float | None) -> str:
 async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
 
-    llm = get_llm(
-        model=config["llm"]["model"],
-        api_key=config["llm"]["api_key"],
-        base_url=config["llm"]["base_url"],
-        temperature=0.3,
-    )
+    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
+    llm = get_llm_for("classify", 0.3)
 
     type_classifier = Agent(
         llm=llm,
@@ -437,12 +437,8 @@ async def evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    llm = get_llm(
-        model=config["llm"]["model"],
-        api_key=config["llm"]["api_key"],
-        base_url=config["llm"]["base_url"],
-        temperature=0.1,
-    )
+    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
+    llm = get_llm_for("risk_first", 0.1)
 
     risk_evaluator = Agent(
         llm=llm,
@@ -450,6 +446,7 @@ async def evaluate_risk(
         goal="评估事件的风险等级和风险分数",
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",
         verbose=True,
+        **reasoning_kwargs_for("risk_first"),
     )
 
     related_events = _build_related_events_context(results)
@@ -508,7 +505,7 @@ async def second_evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    llm = get_llm(temperature=0.1)
+    llm = get_llm_for("risk_second", 0.1)
 
     risk_evaluator = Agent(
         llm=llm,
@@ -516,6 +513,7 @@ async def second_evaluate_risk(
         goal="评估事件的风险等级和风险分数",
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",
         verbose=True,
+        **reasoning_kwargs_for("risk_second"),
     )
     reranked_edges = results.get("reranked_edges", []) if results else []
     reranked_episodes = results.get("reranked_episodes", []) if results else []
@@ -1000,7 +998,7 @@ async def simulate_dashboard(
 ) -> dict:
     logger = get_logger("main.dashboard")
 
-    llm = get_llm(temperature=0.3)
+    llm = get_llm_for("dashboard", 0.3)
 
     event = normalized_event
     reranked_edges = results.get("reranked_edges", []) if results else []
@@ -1054,6 +1052,7 @@ async def simulate_dashboard(
         ),
         verbose=True,
         allow_delegation=False,
+        **reasoning_kwargs_for("dashboard"),
     )
 
     trend_predictor = Agent(
@@ -1066,6 +1065,7 @@ async def simulate_dashboard(
         ),
         verbose=True,
         allow_delegation=False,
+        **reasoning_kwargs_for("dashboard"),
     )
 
     intent_task = get_intent_analysis_task(
@@ -1157,7 +1157,7 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
     raw_content = payload.get("data", json.dumps(payload))
 
     try:
-        llm = get_llm(temperature=0.3)
+        llm = get_llm_for("normalize", 0.3)
         agent = create_normalizer_agent(llm)
         task = create_normalize_task(agent, raw_content)
 

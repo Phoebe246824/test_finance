@@ -17,6 +17,13 @@
 | `LLM_MODEL` | 聊天模型名称 | gpt-4o |
 | `LLM_API_KEY` | LLM API 密钥 | - (必填) |
 | `LLM_BASE_URL` | LLM API 地址 | https://api.openai.com/v1 |
+| `LLM_EXTRACT_MODEL` | 抽取档聊天模型名称；留空回退 `LLM_MODEL` | 继承 `LLM_MODEL` |
+| `LLM_EXTRACT_API_KEY` | 抽取档 API 密钥；留空回退 `LLM_API_KEY` | 继承 `LLM_API_KEY` |
+| `LLM_EXTRACT_BASE_URL` | 抽取档 API 地址；留空回退 `LLM_BASE_URL` | 继承 `LLM_BASE_URL` |
+| `LLM_REASON_MODEL` | 研判档聊天模型名称；留空回退 `LLM_MODEL` | 继承 `LLM_MODEL` |
+| `LLM_REASON_API_KEY` | 研判档 API 密钥；留空回退 `LLM_API_KEY` | 继承 `LLM_API_KEY` |
+| `LLM_REASON_BASE_URL` | 研判档 API 地址；留空回退 `LLM_BASE_URL` | 继承 `LLM_BASE_URL` |
+| `REASON_MAX_ATTEMPTS` | CrewAI reasoning 规划/反思最大尝试次数，仅用于研判档 Agent | 2 |
 | `EMBEDDER_MODEL` | 嵌入模型名称 | BAAI/bge-m3 |
 | `EMBEDDER_API_KEY` | 嵌入 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `EMBEDDER_API_BASE` | 嵌入 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
@@ -42,4 +49,4 @@
 | `BLACKLIST_EVENT_SIMILARITY_THRESHOLD` | 事件相似度阈值 | 0.5 |
 | `BLACKLIST_PERSON_MIN_HITS` | 人员命中次数阈值 | 1 |
 
-LLM / Embedder / Reranker 三组凭证独立，可分别配置不同的 API 地址和密钥。
+LLM / Embedder / Reranker 三组凭证独立，可分别配置不同的 API 地址和密钥。`LLM_EXTRACT_*` 与 `LLM_REASON_*` 是聊天 LLM 的工作流分档：留空时复用基础 `LLM_*`，需要多模型常驻时分别指向快抽取模型和高质量研判模型。
