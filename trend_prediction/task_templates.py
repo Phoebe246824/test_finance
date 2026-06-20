@@ -9,7 +9,7 @@ Sentinel 舆情分析系统 — 自适应任务模板
 from crewai import Agent, Task
 
 from trend_prediction.adapters import get_adapter
-from trend_prediction.classifier import EventClassifier
+from trend_prediction.classifier import EventClassifier, FINANCIAL_RISK_CATEGORIES
 from trend_prediction import PROMPTS_DIR
 
 _FALLBACK_PROMPTS = {
@@ -30,9 +30,11 @@ def _get_adaptive_prompt(category: str, prompt_type: str, severity: str | None =
     Returns:
         str: 提示词内容
     """
-    if category != "general":
+    prompt_category = "finance" if category in FINANCIAL_RISK_CATEGORIES else category
+
+    if prompt_category != "general":
         try:
-            adapter = get_adapter(category)
+            adapter = get_adapter(prompt_category)
             if prompt_type == "intent_analysis":
                 return adapter.get_intent_analysis_prompt()
             if prompt_type == "trend_prediction":
