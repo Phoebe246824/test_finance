@@ -77,6 +77,25 @@ def test_get_llm_for_prefers_tier_specific_endpoint(monkeypatch):
     assert risk_llm.base_url == 'http://reason-llm.test/v1'
 
 
+def test_get_llm_for_warns_when_falling_back_to_default_cloud_base_url(
+    monkeypatch, caplog
+):
+    llm_provider = reload_provider(
+        monkeypatch,
+        {
+            'LLM_BASE_URL': '',
+            'LLM_EXTRACT_BASE_URL': '',
+            'REASON_MAX_ATTEMPTS': '2',
+        },
+    )
+
+    llm = llm_provider.get_llm_for('normalize', 0.3)
+
+    assert llm.base_url == 'https://api.openai.com/v1'
+    assert 'default cloud LLM base_url' in caplog.text
+    assert 'local demo constraint' in caplog.text
+
+
 def test_get_llm_for_rejects_unknown_stage(monkeypatch):
     llm_provider = reload_provider(monkeypatch, {'REASON_MAX_ATTEMPTS': '2'})
 

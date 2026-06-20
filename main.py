@@ -356,6 +356,7 @@ def format_risk_score(score: float | None) -> str:
 async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
 
+    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
     llm = get_llm_for("classify", 0.3)
 
     type_classifier = Agent(
@@ -436,6 +437,7 @@ async def evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
+    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
     llm = get_llm_for("risk_first", 0.1)
 
     risk_evaluator = Agent(
