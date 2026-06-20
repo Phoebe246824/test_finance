@@ -120,6 +120,12 @@ uv run python scripts/sentinel_competition_demo.py --run-pipeline
 
 ### PPT 证据采集
 
+PNG 图表依赖 Playwright Chromium。首次运行或换机器后先执行：
+
+```bash
+uv run playwright install chromium
+```
+
 ```bash
 # 不运行真实 pipeline，只生成环境画像、sidecar 合并结果、CSV 和 PNG 图表
 uv run python scripts/collect_ppt_evidence.py \
@@ -134,8 +140,11 @@ uv run python scripts/collect_ppt_evidence.py \
 # 在 AMD 实测环境运行完整 10 条金融用例
 uv run python scripts/collect_ppt_evidence.py \
   --run-pipeline \
-  --sidecar docs/competition/evidence_sidecar.example.yaml
+  --sidecar docs/competition/evidence_sidecar.example.yaml \
+  --sample-interval 1.0
 ```
+
+`--sample-interval` 会在真实 pipeline 运行期间控制 ROCm 硬件采样间隔。若 PNG 渲染失败，脚本仍会保留 Plotly HTML，并把失败原因写入输出目录下的 `chart_render_errors.json`。
 
 ### 代码质量
 

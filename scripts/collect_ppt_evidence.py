@@ -56,9 +56,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--sample-interval",
-        type=float,
+        type=_positive_float,
         default=1.0,
-        help="Reserved hardware sampling interval in seconds",
+        help="Hardware sampling interval in seconds while the pipeline runs",
     )
     parser.add_argument(
         "--output-dir",
@@ -80,13 +80,19 @@ async def main_async(args: argparse.Namespace) -> Path:
     load_dotenv(ROOT / ".env")
     sidecar = load_sidecar(args.sidecar)
     hardware_profile = collect_hardware_profile().to_dict()
-    hardware_samples = [sample_once()]
     cases = []
+    hardware_samples = []
 
     if args.run_pipeline:
         from main import load_config
 
-        cases = await run_cases(args.case or DEFAULT_CASES, load_config())
+        cases, hardware_samples = await _run_cases_with_hardware_sampling(
+            args.case or DEFAULT_CASES,
+            load_config(),
+            args.sample_interval,
+        )
+    else:
+        hardware_samples = [sample_once()]
 
     ppt_metrics = build_ppt_metrics(
         cases=cases,
@@ -111,9 +117,16 @@ async def main_async(args: argparse.Namespace) -> Path:
         ppt_metrics=ppt_metrics,
     )
     if chart_errors:
-        (output_dir / "chart_render_errors.json").write_text(
+        errors_path = output_dir / "chart_render_errors.json"
+        errors_path.write_text(
             json.dumps(chart_errors, ensure_ascii=False, indent=2),
             encoding="utf-8",
+        )
+        print(
+            "Chart PNG rendering failed for one or more charts; "
+            f"details are in {errors_path}. If Chromium is missing, run "
+            "`uv run playwright install chromium`.",
+            file=sys.stderr,
         )
     else:
         (output_dir / "chart_render_errors.json").unlink(missing_ok=True)
@@ -124,6 +137,32 @@ async def main_async(args: argparse.Namespace) -> Path:
 
 def main() -> None:
     asyncio.run(main_async(parse_args()))
+
+
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
+
+
+async def _run_cases_with_hardware_sampling(
+    case_ids: list[str],
+    config: dict | None,
+    sample_interval: float,
+) -> tuple[list[Any], list[Any]]:
+    case_task = asyncio.create_task(run_cases(case_ids, config))
+    hardware_samples = []
+    loop = asyncio.get_running_loop()
+    first_tick = loop.create_future()
+    loop.call_soon(first_tick.set_result, None)
+    await first_tick
+
+    while not case_task.done():
+        hardware_samples.append(await asyncio.to_thread(sample_once))
+        await asyncio.sleep(sample_interval)
+
+    return await case_task, hardware_samples
 
 
 async def _write_charts(

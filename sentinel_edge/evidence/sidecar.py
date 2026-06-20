@@ -62,6 +62,7 @@ def merge_metric(
     sidecar_value: dict[str, Any] | Any | None,
     *,
     unit: str = "",
+    label: str = "sidecar value",
 ) -> MetricValue:
     """Merge a measured metric with supplemental sidecar evidence.
 
@@ -79,17 +80,23 @@ def merge_metric(
     note = ""
     override = False
     if isinstance(sidecar_value, dict):
-        value = sidecar_value.get("value")
+        if "value" in sidecar_value:
+            value = sidecar_value["value"]
+        elif "path" in sidecar_value:
+            value = sidecar_value["path"]
+        else:
+            value = None
         note = sidecar_value.get("note", "")
         override_value = sidecar_value.get("override", False)
         if not isinstance(override_value, bool):
             raise ValueError("override must be a boolean")
         override = override_value is True
+        unit = sidecar_value.get("unit", unit)
     else:
         value = sidecar_value
 
     if value is None:
-        return _merge_null_sidecar(measured, unit=unit, note=note)
+        return _merge_null_sidecar(measured, unit=unit, note=note, label=label)
 
     if measured.source not in {Source.NOT_AVAILABLE, Source.NOT_AVAILABLE.value}:
         if not override:
@@ -103,14 +110,20 @@ def merge_metric(
     )
 
 
-def _merge_null_sidecar(measured: MetricValue, *, unit: str, note: str) -> MetricValue:
+def _merge_null_sidecar(
+    measured: MetricValue,
+    *,
+    unit: str,
+    note: str,
+    label: str,
+) -> MetricValue:
     if (
         measured.source not in {Source.NOT_AVAILABLE, Source.NOT_AVAILABLE.value}
         and measured.value is not None
     ):
         return measured
 
-    detail = "sidecar value is null"
+    detail = f"{label} is null"
     if note:
         detail = f"{detail}: {note}"
     return MetricValue.not_available(unit=unit or measured.unit, note=detail)

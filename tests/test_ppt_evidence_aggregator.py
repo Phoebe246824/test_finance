@@ -17,13 +17,27 @@ def test_percentile_uses_nearest_rank():
 
 def test_build_ppt_metrics_summarizes_cases_and_hardware():
     cases = [
-        CaseEvidence(case_id="case-1", title="Fast pass", elapsed_ms=100),
-        CaseEvidence(case_id="case-2", title="Slow pass", elapsed_ms=300),
+        CaseEvidence(
+            case_id="case-1",
+            title="Fast pass",
+            risk_level="high",
+            elapsed_ms=100,
+            expected=["risk_level: high"],
+        ),
+        CaseEvidence(
+            case_id="case-2",
+            title="Slow pass",
+            risk_level="medium",
+            elapsed_ms=300,
+            expected=["risk_level: medium"],
+        ),
         CaseEvidence(
             case_id="case-3",
             title="Failed case",
+            risk_level="high",
             elapsed_ms=900,
             error="pipeline failed",
+            expected=["risk_level: high"],
         ),
     ]
     hardware_samples = [
@@ -54,6 +68,9 @@ def test_build_ppt_metrics_summarizes_cases_and_hardware():
     assert metrics["p10"]["gpu_peak_util_percent"]["value"] == 12.0
     assert metrics["p10"]["vram_peak_used_mb"]["value"] == 4096
     assert metrics["p11"]["optimized"]["pass_rate"]["value"] == pytest.approx(2 / 3)
+    assert metrics["p11"]["optimized"]["completion_rate"]["value"] == pytest.approx(
+        2 / 3
+    )
     assert (
         metrics["p8"]["gpu_peak_util_percent"]
         is not (metrics["p10"]["gpu_peak_util_percent"])
@@ -71,9 +88,72 @@ def test_build_ppt_metrics_marks_missing_runtime_values():
 
     assert metrics["p10"]["end_to_end_latency_mean_ms"]["source"] == "not_available"
     assert metrics["p10"]["ttft_ms"]["source"] == "not_available"
+    assert metrics["p11"]["optimized"]["pass_rate"]["source"] == "not_available"
     assert metrics["p11"]["baseline"]["average_power_watts"]["source"] == (
         "not_available"
     )
+
+
+def test_build_ppt_metrics_pass_rate_requires_expected_risk_level_match():
+    metrics = build_ppt_metrics(
+        cases=[
+            CaseEvidence(
+                case_id="match",
+                title="Expected high risk",
+                risk_level="high",
+                expected=["risk_level: high"],
+            ),
+            CaseEvidence(
+                case_id="wrong-risk",
+                title="Wrong level",
+                risk_level="low",
+                expected=["risk_level: high"],
+            ),
+            CaseEvidence(
+                case_id="pipeline-error",
+                title="Raised before classification",
+                risk_level="high",
+                error="service down",
+                expected=["risk_level: high"],
+            ),
+            CaseEvidence(
+                case_id="unchecked",
+                title="No machine-checkable expectation",
+                risk_level="medium",
+                expected=["manual review note"],
+            ),
+        ],
+        hardware_samples=[],
+        sidecar={},
+    )
+
+    optimized = metrics["p11"]["optimized"]
+
+    assert optimized["pass_rate"]["value"] == pytest.approx(1 / 3)
+    assert optimized["pass_rate"]["source"] == "derived"
+    assert "risk_level expectation matches" in optimized["pass_rate"]["note"]
+    assert optimized["completion_rate"]["value"] == pytest.approx(3 / 4)
+
+
+def test_build_ppt_metrics_marks_pass_rate_unavailable_without_checkable_expectations():
+    metrics = build_ppt_metrics(
+        cases=[
+            CaseEvidence(
+                case_id="case-1",
+                title="Finished case",
+                risk_level="high",
+                expected=["生成可解释的风险理由"],
+            )
+        ],
+        hardware_samples=[],
+        sidecar={},
+    )
+
+    pass_rate = metrics["p11"]["optimized"]["pass_rate"]
+
+    assert pass_rate["value"] is None
+    assert pass_rate["source"] == "not_available"
+    assert "no checkable expected risk levels" in pass_rate["note"]
 
 
 def test_build_ppt_metrics_marks_null_sidecar_values_not_available():
@@ -240,6 +320,38 @@ def test_build_ppt_metrics_prefers_measured_power_average_over_sidecar():
         "unit": "W",
         "source": "derived",
         "note": "",
+    }
+
+
+def test_build_ppt_metrics_allows_explicit_sidecar_power_override():
+    metrics = build_ppt_metrics(
+        cases=[],
+        hardware_samples=[
+            HardwareSample(
+                timestamp="2026-06-19T10:00:00+08:00",
+                power_watts=MetricValue(40.0, "W", Source.MEASURED),
+            ),
+            HardwareSample(
+                timestamp="2026-06-19T10:00:01+08:00",
+                power_watts=MetricValue(60.0, "W", Source.MEASURED),
+            ),
+        ],
+        sidecar={
+            "p10": {
+                "average_power_watts": {
+                    "value": 47.5,
+                    "override": True,
+                    "note": "external meter",
+                },
+            },
+        },
+    )
+
+    assert metrics["p10"]["average_power_watts"] == {
+        "value": 47.5,
+        "unit": "W",
+        "source": "sidecar",
+        "note": "external meter",
     }
 
 

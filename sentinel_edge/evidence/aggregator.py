@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from math import ceil
+import re
 from statistics import mean
 from typing import Any
 
@@ -14,6 +15,32 @@ from sentinel_edge.evidence.models import (
     Source,
     to_plain_data,
 )
+from sentinel_edge.evidence.sidecar import merge_metric
+
+_RISK_EXPECTATION_RE = re.compile(
+    r"(?:expected[_\s-]*risk[_\s-]*level|risk[_\s-]*level|风险等级)\s*[:：=]\s*"
+    r"([A-Za-z\u4e00-\u9fff_-]+)",
+    flags=re.IGNORECASE,
+)
+_RISK_LEVEL_ALIASES = {
+    "high": "high",
+    "highrisk": "high",
+    "high-risk": "high",
+    "高": "high",
+    "高风险": "high",
+    "medium": "medium",
+    "mid": "medium",
+    "middle": "medium",
+    "mediumrisk": "medium",
+    "medium-risk": "medium",
+    "中": "medium",
+    "中风险": "medium",
+    "low": "low",
+    "lowrisk": "low",
+    "low-risk": "low",
+    "低": "low",
+    "低风险": "low",
+}
 
 
 def percentile(values: list[float], percent: int) -> float | None:
@@ -64,6 +91,17 @@ def build_ppt_metrics(
     case_count = len(cases)
     successful_case_count = len(successful_cases)
     failed_case_count = case_count - successful_case_count
+    completion_rate = (
+        _metric(
+            successful_case_count / case_count,
+            "",
+            Source.DERIVED,
+            "cases without pipeline errors",
+        )
+        if case_count
+        else _not_available("", "no cases collected")
+    )
+    pass_rate = _expected_pass_rate(cases)
 
     latency_mean = (
         _metric(round(mean(elapsed_ms), 2), "ms", Source.DERIVED)
@@ -78,14 +116,18 @@ def build_ppt_metrics(
     gpu_peak = _peak_metric(gpu_values, "%", "no measured GPU samples")
     vram_peak = _peak_metric(vram_values, "MB", "no measured VRAM samples")
     measured_power_average = (
-        _metric(round(mean(power_values), 2), "W", Source.DERIVED)
+        MetricValue(round(mean(power_values), 2), "W", Source.DERIVED)
         if power_values
-        else _not_available("W", "no measured power samples")
+        else MetricValue.not_available("W", "no measured power samples")
     )
-    p10_power_average = (
-        _copy_metric(measured_power_average)
-        if power_values
-        else _sidecar_metric(sidecar, ("p10", "average_power_watts"), "W")
+    measured_power_average_metric = to_plain_data(measured_power_average)
+    p10_power_average = to_plain_data(
+        merge_metric(
+            measured_power_average,
+            _sidecar_value(sidecar, ("p10", "average_power_watts")),
+            unit="W",
+            label="sidecar p10.average_power_watts",
+        )
     )
 
     return {
@@ -104,9 +146,11 @@ def build_ppt_metrics(
                 Source.DERIVED,
             ),
             "gpu_peak_util_percent": _copy_metric(gpu_peak),
+            # Keep both keys because older PPT templates referenced vram_peak_mb,
+            # while newer chart specs use the explicit vram_peak_used_mb name.
             "vram_peak_mb": _copy_metric(vram_peak),
             "vram_peak_used_mb": _copy_metric(vram_peak),
-            "average_power_watts": _copy_metric(measured_power_average),
+            "average_power_watts": _copy_metric(measured_power_average_metric),
             "llama_cpp_offload_log": _sidecar_metric(
                 sidecar,
                 ("p8", "llama_cpp_offload_log"),
@@ -150,13 +194,10 @@ def build_ppt_metrics(
                 ),
             },
             "optimized": {
-                "pass_rate": (
-                    _metric(successful_case_count / case_count, "", Source.DERIVED)
-                    if case_count
-                    else _not_available("", "no cases collected")
-                ),
+                "pass_rate": pass_rate,
+                "completion_rate": _copy_metric(completion_rate),
                 "average_latency_ms": _copy_metric(latency_mean),
-                "average_power_watts": _copy_metric(measured_power_average),
+                "average_power_watts": _copy_metric(measured_power_average_metric),
                 "risk_level_consistency": _sidecar_metric(
                     sidecar,
                     ("p11", "optimized", "risk_level_consistency"),
@@ -239,6 +280,45 @@ def _peak_metric(values: list[float], unit: str, missing_note: str) -> dict[str,
     return _metric(max(values), unit, Source.DERIVED)
 
 
+def _expected_pass_rate(cases: list[CaseEvidence]) -> dict[str, Any]:
+    checkable: list[tuple[CaseEvidence, set[str]]] = []
+    for case in cases:
+        expected_levels = _expected_risk_levels(case)
+        if expected_levels:
+            checkable.append((case, expected_levels))
+
+    if not checkable:
+        return _not_available("", "no checkable expected risk levels")
+
+    passed = sum(
+        1
+        for case, expected_levels in checkable
+        if case.error is None
+        and _normalize_risk_level(case.risk_level) in expected_levels
+    )
+    note = f"risk_level expectation matches {passed}/{len(checkable)} checkable cases"
+    return _metric(passed / len(checkable), "", Source.DERIVED, note)
+
+
+def _expected_risk_levels(case: CaseEvidence) -> set[str]:
+    levels: set[str] = set()
+    for expectation in case.expected:
+        match = _RISK_EXPECTATION_RE.search(str(expectation))
+        if not match:
+            continue
+        normalized = _normalize_risk_level(match.group(1))
+        if normalized is not None:
+            levels.add(normalized)
+    return levels
+
+
+def _normalize_risk_level(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower().replace(" ", "").replace("_", "-")
+    return _RISK_LEVEL_ALIASES.get(normalized)
+
+
 def _measured_numbers(samples: list[HardwareSample], attr: str) -> list[float]:
     values: list[float] = []
     for sample in samples:
@@ -259,33 +339,32 @@ def _sidecar_metric(
     path: tuple[str, ...],
     unit: str = "",
 ) -> dict[str, Any]:
+    label = f"sidecar {'.'.join(path)}"
+    missing_note = f"sidecar missing {'.'.join(path)}"
+    current = _sidecar_value(sidecar, path)
+    if current is None:
+        return _not_available(unit, missing_note)
+
+    if isinstance(current, dict) and "value" not in current and "path" not in current:
+        return _not_available(
+            current.get("unit", unit),
+            f"{label} missing value",
+        )
+
+    return to_plain_data(
+        merge_metric(
+            MetricValue.not_available(unit, missing_note),
+            current,
+            unit=unit,
+            label=label,
+        )
+    )
+
+
+def _sidecar_value(sidecar: dict[str, Any], path: tuple[str, ...]) -> Any | None:
     current: Any = sidecar
     for key in path:
         if not isinstance(current, dict) or key not in current:
-            return _not_available(unit, f"sidecar missing {'.'.join(path)}")
+            return None
         current = current[key]
-
-    note = ""
-    value_unit = unit
-    if isinstance(current, dict):
-        if "value" in current:
-            value = current["value"]
-        elif "path" in current:
-            value = current["path"]
-        else:
-            return _not_available(
-                value_unit,
-                f"sidecar {'.'.join(path)} missing value",
-            )
-        value_unit = current.get("unit", unit)
-        note = current.get("note", "")
-    else:
-        value = current
-
-    if value is None:
-        detail = f"sidecar {'.'.join(path)} is null"
-        if note:
-            detail = f"{detail}: {note}"
-        return _not_available(value_unit, detail)
-
-    return _metric(value, value_unit, Source.SIDECAR, note)
+    return current
