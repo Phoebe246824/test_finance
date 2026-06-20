@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import sqlite3
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from blacklist.store import BlacklistStore  # noqa: E402
+
+EVENT_TABLES = ("review_actions", "financial_events")
 
 # P05 保留旧测试；P105 用于金融黑名单命中测试。
 PERSON_SEEDS = [
@@ -134,6 +137,38 @@ def reset_milvus_collection(
             close()
 
 
+def _sqlite_path_from_url(database_url: str) -> Path:
+    if not database_url.startswith("sqlite:///"):
+        raise RuntimeError("reset script currently expects a sqlite:/// DATABASE_URL")
+    path = Path(database_url.removeprefix("sqlite:///"))
+    if not path.is_absolute():
+        path = ROOT / path
+    return path
+
+
+def reset_sqlite_event_tables(database_url: str) -> dict[str, int]:
+    """Clear Web event and review rows without changing SQLite table schemas."""
+    db_path = _sqlite_path_from_url(database_url)
+    if not db_path.exists():
+        return {table: 0 for table in EVENT_TABLES}
+
+    deleted_counts: dict[str, int] = {}
+    with sqlite3.connect(db_path) as conn:
+        existing_tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        for table in EVENT_TABLES:
+            if table not in existing_tables:
+                deleted_counts[table] = 0
+                continue
+            result = conn.execute(f"DELETE FROM {table}")
+            deleted_counts[table] = result.rowcount if result.rowcount >= 0 else 0
+    return deleted_counts
+
+
 async def main() -> None:
     load_dotenv(dotenv_path=ROOT / ".env")
 
@@ -150,6 +185,9 @@ async def main() -> None:
     milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
     milvus_token = os.getenv("MILVUS_TOKEN", "")
     milvus_collection = os.getenv("MILVUS_STASH_COLLECTION", "stashed_events")
+    database_url = os.getenv("DATABASE_URL") or (
+        f"sqlite:///{ROOT / 'data' / 'sentinel_edge.db'}"
+    )
 
     deleted_neo4j_nodes = await reset_neo4j_graph(
         uri=neo4j_uri,
@@ -162,6 +200,7 @@ async def main() -> None:
         token=milvus_token,
         collection_name=milvus_collection,
     )
+    deleted_sqlite_events = reset_sqlite_event_tables(database_url)
 
     redis = Redis(host=host, port=port, password=password, db=blacklist_db)
     store = BlacklistStore(redis)
@@ -190,6 +229,11 @@ async def main() -> None:
         )
         milvus_status = "dropped" if dropped_milvus_collection else "not found"
         print(f"  Milvus stash ({milvus_collection}): collection {milvus_status}")
+        print(
+            "  SQLite events: "
+            f"cleared {deleted_sqlite_events['financial_events']} events, "
+            f"{deleted_sqlite_events['review_actions']} review actions"
+        )
         print(f"  Persons : {sorted(person_stats.keys())}")
         print(f"  Keywords count: {len(keyword_stats)}")
         print(f"  Events  : {event_count}")
