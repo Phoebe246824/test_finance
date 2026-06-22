@@ -9,13 +9,29 @@ Sentinel 舆情分析系统 — 自适应任务模板
 from crewai import Agent, Task
 
 from trend_prediction.adapters import get_adapter
-from trend_prediction.classifier import EventClassifier, FINANCIAL_RISK_CATEGORIES
+from trend_prediction.classifier import (
+    EventClassifier,
+    FINANCIAL_RISK_CATEGORIES,
+    SEVERITY_TO_TIME_RANGES,
+)
 from trend_prediction import PROMPTS_DIR
 
 _FALLBACK_PROMPTS = {
     "intent_analysis": "请分析该事件的意图和动机。",
     "trend_prediction": "请分析该事件的发展趋势。",
 }
+
+
+def _replace_time_ranges(prompt: str, severity: str | None) -> str:
+    if severity is None:
+        return prompt
+
+    time_ranges = SEVERITY_TO_TIME_RANGES.get(severity, SEVERITY_TO_TIME_RANGES["moderate"])
+    return (
+        prompt.replace("{short_term}", time_ranges["short_term"])
+        .replace("{medium_term}", time_ranges["medium_term"])
+        .replace("{long_term}", time_ranges["long_term"])
+    )
 
 
 def _get_adaptive_prompt(category: str, prompt_type: str, severity: str | None = None) -> str:
@@ -30,7 +46,7 @@ def _get_adaptive_prompt(category: str, prompt_type: str, severity: str | None =
     Returns:
         str: 提示词内容
     """
-    prompt_category = "finance" if category in FINANCIAL_RISK_CATEGORIES else category
+    prompt_category = "finance" if category in FINANCIAL_RISK_CATEGORIES else "general"
 
     if prompt_category != "general":
         try:
@@ -44,8 +60,13 @@ def _get_adaptive_prompt(category: str, prompt_type: str, severity: str | None =
 
     prompt_path = PROMPTS_DIR / f"{prompt_type}.md"
     if not prompt_path.exists():
-        return _FALLBACK_PROMPTS.get(prompt_type, "请分析该事件。")
-    return prompt_path.read_text(encoding="utf-8")
+        prompt = _FALLBACK_PROMPTS.get(prompt_type, "请分析该事件。")
+    else:
+        prompt = prompt_path.read_text(encoding="utf-8")
+
+    if prompt_type == "trend_prediction":
+        return _replace_time_ranges(prompt, severity)
+    return prompt
 
 
 def get_intent_analysis_task(

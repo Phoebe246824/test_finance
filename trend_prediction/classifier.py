@@ -44,7 +44,18 @@ CATEGORY_NAMES: dict[str, str] = {
     "general": "综合",
 }
 
-FINANCIAL_RISK_CATEGORIES = frozenset(CATEGORY_DESCRIPTIONS)
+FINANCIAL_RISK_CATEGORIES = frozenset(
+    {
+        "aml_structuring",
+        "fraud_transfer",
+        "mule_account",
+        "crypto_merchant_risk",
+        "account_takeover",
+        "loan_fraud",
+        "blacklist_hit",
+        "normal_baseline",
+    }
+)
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "aml_structuring": [
@@ -82,10 +93,14 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "mule_account": [
         "跑分",
         "资金归集",
+        "多个客户",
         "多人转入",
         "多客户",
+        "同一新开户账户",
         "集中转入",
+        "集中转账",
         "立即向外部支付通道出金",
+        "外部支付通道",
         "快速出金",
         "空备注",
         "新账户",
@@ -429,6 +444,7 @@ async def _rerank_classify_combined(
 def _keyword_classify(
     event_text: str,
     keywords: dict[str, list[str]],
+    default_category: str = "general",
 ) -> tuple[str, float, dict[str, float]]:
     """
     使用关键词匹配进行分类（回退方案）。
@@ -440,11 +456,11 @@ def _keyword_classify(
     scores: dict[str, float] = {}
 
     for category, kws in keywords.items():
-        score = sum(1 for kw in kws if kw in event_lower)
+        score = sum(1 for kw in kws if kw.lower() in event_lower)
         scores[category] = float(score)
 
     if not any(scores.values()):
-        return "general", 0.0, scores
+        return default_category, 0.0, scores
 
     max_score = max(scores.values())
     max_category = max(scores, key=scores.__getitem__)
@@ -518,7 +534,7 @@ class EventClassifier:
             logger.warning("Rerank classification failed (%s), falling back to keyword classification", e)
 
         cat_result = _keyword_classify(event_text, CATEGORY_KEYWORDS)
-        sev_result = _keyword_classify(event_text, SEVERITY_KEYWORDS)
+        sev_result = _keyword_classify(event_text, SEVERITY_KEYWORDS, "moderate")
         return (
             cat_result[0],
             cat_result[1],
