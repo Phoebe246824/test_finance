@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 12 消融实验结果</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+      --score: #1f4d7a;
+      --yes: #047857;
+      --no: #9ca3af;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1780px;
+      padding: 42px 58px 52px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 18px;
+      line-height: 1.38;
+    }
+    col.scheme { width: 16%; }
+    col.switch { width: 8%; }
+    col.metric { width: 10%; }
+    col.note { width: 20%; }
+    thead th {
+      padding: 14px 10px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 14px 12px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.scheme {
+      font-weight: 800;
+      color: #1f4d7a;
+    }
+    td.center { text-align: center; }
+    td.metric {
+      text-align: center;
+      font-weight: 900;
+      color: var(--score);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      white-space: nowrap;
+    }
+    td.note { color: var(--muted); }
+    .yes { color: var(--yes); font-weight: 800; }
+    .no { color: var(--no); font-weight: 800; }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 12 消融实验结果</h1>
+    <table aria-label="消融实验结果">
+      <colgroup>
+        <col class="scheme" />
+        <col class="switch" />
+        <col class="switch" />
+        <col class="switch" />
+        <col class="switch" />
+        <col class="metric" />
+        <col class="metric" />
+        <col class="metric" />
+        <col class="metric" />
+        <col class="note" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>方案</th>
+          <th>黑名单</th>
+          <th>向量回捞</th>
+          <th>关系图谱</th>
+          <th>趋势报告</th>
+          <th>风险等级一致率</th>
+          <th>高风险识别率</th>
+          <th>历史回捞有效率</th>
+          <th>证据链完整率</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="scheme">仅 LLM</td>
+          <td class="center no">无</td>
+          <td class="center no">无</td>
+          <td class="center no">无</td>
+          <td class="center yes">有</td>
+          <td class="metric">80.0%</td>
+          <td class="metric">83.3%</td>
+          <td class="metric">不适用</td>
+          <td class="metric">不适用</td>
+          <td class="note">能给出文字解释，但缺少规则命中、历史上下文和结构化证据链</td>
+        </tr>
+        <tr>
+          <td class="scheme">LLM + 黑名单</td>
+          <td class="center yes">有</td>
+          <td class="center no">无</td>
+          <td class="center no">无</td>
+          <td class="center yes">有</td>
+          <td class="metric">90.0%</td>
+          <td class="metric">100.0%</td>
+          <td class="metric">不适用</td>
+          <td class="metric">不适用</td>
+          <td class="note">显性涉诈、反洗钱和保证金线索识别更稳定，但无法补充历史上下文</td>
+        </tr>
+        <tr>
+          <td class="scheme">LLM + 黑名单 + 向量回捞</td>
+          <td class="center yes">有</td>
+          <td class="center yes">有</td>
+          <td class="center no">无</td>
+          <td class="center yes">有</td>
+          <td class="metric">90.0%</td>
+          <td class="metric">100.0%</td>
+          <td class="metric">100.0%</td>
+          <td class="metric">不适用</td>
+          <td class="note">可召回 Case 02 等相似历史事件，二次研判更充分，但缺少可视化证据链</td>
+        </tr>
+        <tr>
+          <td class="scheme">完整 Sentinel Edge</td>
+          <td class="center yes">有</td>
+          <td class="center yes">有</td>
+          <td class="center yes">有</td>
+          <td class="center yes">有</td>
+          <td class="metric">100.0%</td>
+          <td class="metric">100.0%</td>
+          <td class="metric">100.0%</td>
+          <td class="metric">93.5%</td>
+          <td class="note">形成黑名单命中、历史回捞、图谱证据和趋势报告的完整闭环</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

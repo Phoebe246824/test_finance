@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 2 系统数据组件分工</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    .canvas {
+      width: 1280px;
+      padding: 46px 58px 52px;
+      background: var(--paper);
+    }
+
+    .title {
+      margin: 0 0 22px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 22px;
+      line-height: 1.45;
+    }
+
+    col.module {
+      width: 18%;
+    }
+
+    col.tech {
+      width: 16%;
+    }
+
+    col.content {
+      width: 34%;
+    }
+
+    col.role {
+      width: 32%;
+    }
+
+    thead th {
+      padding: 18px 20px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 20px 22px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+
+    tbody tr:nth-child(even) td {
+      background: var(--stripe);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    td.module,
+    td.tech {
+      text-align: center;
+      font-weight: 650;
+    }
+
+    td.tech {
+      color: #1f4d7a;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 21px;
+    }
+
+    td.content,
+    td.role {
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 2 系统数据组件分工</h1>
+    <table aria-label="系统数据组件分工">
+      <colgroup>
+        <col class="module" />
+        <col class="tech" />
+        <col class="content" />
+        <col class="role" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>模块</th>
+          <th>技术选择</th>
+          <th>存储内容</th>
+          <th>作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="module">黑名单过滤</td>
+          <td class="tech">Redis</td>
+          <td class="content">人员、关键词、高危事件样本</td>
+          <td class="role">快速过滤显性高危线索</td>
+        </tr>
+        <tr>
+          <td class="module">向量暂存</td>
+          <td class="tech">Milvus</td>
+          <td class="content">低风险事件向量、事件摘要、实体信息</td>
+          <td class="role">支持相似历史召回</td>
+        </tr>
+        <tr>
+          <td class="module">事件图谱</td>
+          <td class="tech">Neo4j</td>
+          <td class="content">客户、账户、设备、商户、事件和风险信号</td>
+          <td class="role">构建证据链和调查网络</td>
+        </tr>
+        <tr>
+          <td class="module">业务持久化</td>
+          <td class="tech">SQLite</td>
+          <td class="content">分析结果、趋势报告、复核动作</td>
+          <td class="role">支持 Web 页面查询和回看</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

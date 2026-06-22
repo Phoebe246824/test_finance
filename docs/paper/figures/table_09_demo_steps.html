@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 7 端到端 Demo 演示步骤</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1580px;
+      padding: 44px 62px 54px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 19px;
+      line-height: 1.42;
+    }
+    col.step { width: 8%; }
+    col.page { width: 17%; }
+    col.action { width: 39%; }
+    col.focus { width: 36%; }
+    thead th {
+      padding: 16px 18px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 15px 18px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.step {
+      text-align: center;
+      font-weight: 800;
+      color: #1f4d7a;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 20px;
+    }
+    td.page {
+      text-align: center;
+      font-weight: 700;
+      color: #172033;
+    }
+    td.action,
+    td.focus { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 7 端到端 Demo 演示步骤</h1>
+    <table aria-label="端到端 Demo 演示步骤">
+      <colgroup>
+        <col class="step" />
+        <col class="page" />
+        <col class="action" />
+        <col class="focus" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>步骤</th>
+          <th>页面</th>
+          <th>操作</th>
+          <th>展示重点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="step">1</td>
+          <td class="page">总览页</td>
+          <td class="action">查看事件总量、风险分布、低风险暂存数量和服务状态</td>
+          <td class="focus">证明系统已本地部署并形成可运行闭环</td>
+        </tr>
+        <tr>
+          <td class="step">2</td>
+          <td class="page">风险分析页</td>
+          <td class="action">选择 finance_01 正常工资入账与日常消费样例</td>
+          <td class="focus">低风险展示、Milvus 向量暂存、正常行为基线</td>
+        </tr>
+        <tr>
+          <td class="step">3</td>
+          <td class="page">风险分析页</td>
+          <td class="action">选择 finance_03 涉诈账户转账样例</td>
+          <td class="focus">黑名单命中、高风险评分、单条事件构图</td>
+        </tr>
+        <tr>
+          <td class="step">4</td>
+          <td class="page">风险分析页</td>
+          <td class="action">选择 finance_04 反洗钱分拆交易样例</td>
+          <td class="focus">历史回捞、图谱补全、二次风险评估、趋势报告</td>
+        </tr>
+        <tr>
+          <td class="step">5</td>
+          <td class="page">事件详情页</td>
+          <td class="action">进入高风险事件详情，点击图谱节点和边</td>
+          <td class="focus">节点属性、边属性、Neo4j 证据链</td>
+        </tr>
+        <tr>
+          <td class="step">6</td>
+          <td class="page">人物图谱页</td>
+          <td class="action">搜索 P102 或客户B，并继续扩展关联节点</td>
+          <td class="focus">人物关联网络、共同收款方和资金归集线索</td>
+        </tr>
+        <tr>
+          <td class="step">7</td>
+          <td class="page">事件详情页</td>
+          <td class="action">提交“建议冻结”“已复核”或“误报”等人工复核动作</td>
+          <td class="focus">人机协同、审计记录和后续闭环</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

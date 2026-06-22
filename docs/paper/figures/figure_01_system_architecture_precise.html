@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+    }
+    .page {
+      width: 1600px;
+      height: 980px;
+      box-sizing: border-box;
+      padding: 24px 28px 28px;
+      background: #fbfcff;
+    }
+    h1 {
+      margin: 0 0 16px;
+      text-align: center;
+      color: #111827;
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .actor {
+      width: 520px;
+      margin: 0 auto 14px;
+      padding: 15px 18px;
+      border: 2px solid #d49a32;
+      border-radius: 8px;
+      background: #fff3d6;
+      color: #111827;
+      text-align: center;
+      font-size: 21px;
+      font-weight: 600;
+    }
+    .arch {
+      position: relative;
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 14px 18px;
+    }
+    .label, .container {
+      border: 2px solid #5b84c4;
+      border-radius: 7px;
+      box-sizing: border-box;
+    }
+    .label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 106px;
+      padding: 12px;
+      background: #eef3fb;
+      color: #111827;
+      font-size: 23px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .container {
+      min-height: 106px;
+      padding: 14px 18px;
+      background: #f7f9fc;
+    }
+    .green { background: #effaf2; border-color: #4aa16f; }
+    .violet { background: #f1efff; border-color: #6b5fc7; }
+    .yellow { background: #fffaf0; border-color: #d4a62a; }
+    .rose { background: #fff1f2; border-color: #c96975; }
+    .blue { background: #eff7ff; border-color: #4b83bd; }
+    .gray { background: #f3f4f6; border-color: #6b7280; }
+    .row-title {
+      margin-bottom: 13px;
+      color: #111827;
+      text-align: center;
+      font-size: 21px;
+      font-weight: 700;
+    }
+    .modules {
+      display: grid;
+      grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+    .module {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 8px 10px;
+      border: 2px solid currentColor;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.72);
+      color: #25674b;
+      box-sizing: border-box;
+      text-align: center;
+      font-size: 18px;
+      line-height: 1.24;
+      font-weight: 600;
+    }
+    .violet .module { color: #5147a3; }
+    .yellow .module { color: #9a7212; }
+    .rose .module { color: #a24f5b; }
+    .blue .module { color: #376b9f; }
+    .gray .module { color: #4b5563; }
+    .flow {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 28px;
+    }
+    .flow .module { position: relative; }
+    .flow .module:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -22px;
+      top: 50%;
+      width: 16px;
+      height: 2px;
+      background: #6b7280;
+      transform: translateY(-50%);
+    }
+    .flow .module:not(:last-child)::before {
+      content: "";
+      position: absolute;
+      right: -23px;
+      top: 50%;
+      width: 0;
+      height: 0;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-left: 8px solid #6b7280;
+      transform: translateY(-50%);
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>Sentinel Edge 系统总体架构图</h1>
+    <div class="actor">用户 / 风控分析员 / 合规复核人员</div>
+
+    <section class="arch">
+      <div class="label green">应用交互层</div>
+      <div class="container green">
+        <div class="row-title">Vue3 前端工作台</div>
+        <div class="modules" style="--cols:5">
+          <div class="module">风险分析</div>
+          <div class="module">事件库与事件详情</div>
+          <div class="module">人物图谱</div>
+          <div class="module">黑名单管理</div>
+          <div class="module">总览与系统状态</div>
+        </div>
+      </div>
+
+      <div class="label violet">接口服务层</div>
+      <div class="container violet">
+        <div class="row-title">FastAPI 后端 API 服务</div>
+        <div class="modules" style="--cols:4">
+          <div class="module">事件分析 API</div>
+          <div class="module">图谱查询 API</div>
+          <div class="module">黑名单与复核 API</div>
+          <div class="module">健康检查与报告导出</div>
+        </div>
+      </div>
+
+      <div class="label yellow">多智能体编排层</div>
+      <div class="container yellow">
+        <div class="row-title">CrewAI 多智能体工作流</div>
+        <div class="modules flow">
+          <div class="module">事件标准化<br>Agent</div>
+          <div class="module">事件分类<br>Agent</div>
+          <div class="module">风险评估<br>Agent</div>
+          <div class="module">意图分析<br>Agent</div>
+          <div class="module">趋势预测<br>Agent</div>
+        </div>
+      </div>
+
+      <div class="label rose">本地工具与数据层</div>
+      <div class="container rose">
+        <div class="modules" style="--cols:5">
+          <div class="module">Redis<br>黑名单过滤 / 高危样本</div>
+          <div class="module">Milvus<br>低风险暂存 / 历史回捞</div>
+          <div class="module">Neo4j<br>图谱构建 / 证据链</div>
+          <div class="module">SQLite<br>分析结果 / 复核动作</div>
+          <div class="module">JSON<br>报告 / 日志 / 截图</div>
+        </div>
+      </div>
+
+      <div class="label blue">本地模型推理层</div>
+      <div class="container blue">
+        <div class="modules" style="--cols:4">
+          <div class="module">Qwen3.6-35B-A3B<br>风险解释 / 报告生成</div>
+          <div class="module">BGE M3<br>事件向量化</div>
+          <div class="module">BGE Reranker v2-m3<br>召回重排</div>
+          <div class="module">OpenAI 兼容接口<br>智能体统一调用</div>
+        </div>
+      </div>
+
+      <div class="label gray">端侧硬件平台层</div>
+      <div class="container gray">
+        <div class="modules" style="--cols:5">
+          <div class="module">AMD 锐龙 AI MAX+ 平台</div>
+          <div class="module">CPU<br>API 服务 / Agent 调度 / 接口调用</div>
+          <div class="module">Radeon GPU<br>llama.cpp / Q6_K_M 量化 LLM</div>
+          <div class="module">Ryzen AI NPU<br>BGE M3 / BGE Reranker v2-m3</div>
+          <div class="module">统一内存 + SSD<br>多服务并行与本地持久化</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

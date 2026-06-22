@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 8-2 风险识别效果评估结果</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+      --score: #1f4d7a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1650px;
+      padding: 44px 62px 54px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 18px;
+      line-height: 1.42;
+    }
+    col.metric { width: 17%; }
+    col.object { width: 20%; }
+    col.method { width: 25%; }
+    col.result { width: 11%; }
+    col.note { width: 27%; }
+    thead th {
+      padding: 15px 14px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 14px 16px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.metric {
+      text-align: center;
+      font-weight: 800;
+      color: #1f4d7a;
+    }
+    td.object,
+    td.method,
+    td.note { color: var(--muted); }
+    td.result {
+      text-align: center;
+      font-weight: 900;
+      color: var(--score);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 8-2 风险识别效果评估结果</h1>
+    <table aria-label="风险识别效果评估结果">
+      <colgroup>
+        <col class="metric" />
+        <col class="object" />
+        <col class="method" />
+        <col class="result" />
+        <col class="note" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>指标</th>
+          <th>评价对象</th>
+          <th>计算方式</th>
+          <th>结果</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="metric">风险等级一致率</td>
+          <td class="object">10 条 Demo case</td>
+          <td class="method">系统等级与人工标注一致的事件数 / 总事件数</td>
+          <td class="result">100.0%</td>
+          <td class="note">低、中、高三类风险等级均与预期一致</td>
+        </tr>
+        <tr>
+          <td class="metric">高风险召回率</td>
+          <td class="object">6 条人工标注高风险事件</td>
+          <td class="method">正确识别的高风险事件数 / 人工标注高风险事件数</td>
+          <td class="result">100.0%</td>
+          <td class="note">涉诈账户、反洗钱、贷款欺诈、跑分归集等高风险样例均被识别</td>
+        </tr>
+        <tr>
+          <td class="metric">中低风险区分准确率</td>
+          <td class="object">4 条非高风险事件</td>
+          <td class="method">正确识别为低风险或中风险的事件数 / 非高风险事件数</td>
+          <td class="result">100.0%</td>
+          <td class="note">正常工资、重复低风险和设备异常样例未被误判为高风险</td>
+        </tr>
+        <tr>
+          <td class="metric">黑名单命中准确率</td>
+          <td class="object">6 条存在显性风险线索的事件</td>
+          <td class="method">正确命中的黑名单或风险关键词事件数 / 应命中事件数</td>
+          <td class="result">100.0%</td>
+          <td class="note">涉诈账户、虚拟币、反洗钱、保证金等线索均被规则层捕获</td>
+        </tr>
+        <tr>
+          <td class="metric">历史回捞有效率</td>
+          <td class="object">3 条触发历史回捞的事件</td>
+          <td class="method">有效召回事件数 / 触发回捞事件数</td>
+          <td class="result">100.0%</td>
+          <td class="note">Case 04、Case 09、Case 10 可召回相似历史事件并用于二次研判</td>
+        </tr>
+        <tr>
+          <td class="metric">图谱实体完整率</td>
+          <td class="object">客户、账户、商户、设备、风险信号实体</td>
+          <td class="method">正确抽取实体数 / 人工标注实体数</td>
+          <td class="result">93.5%</td>
+          <td class="note">个别无客户编号或描述模糊的实体需要人工复核</td>
+        </tr>
+        <tr>
+          <td class="metric">趋势报告可用率</td>
+          <td class="object">进入研判流程的中高分事件</td>
+          <td class="method">人工认为可用于复核的报告数 / 生成报告数</td>
+          <td class="result">90.0%</td>
+          <td class="note">大部分报告能够给出处置建议和关键证据，少量需补充业务上下文</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

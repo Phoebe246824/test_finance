@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 4 多维风险评分维度与权重</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1550px;
+      padding: 44px 62px 54px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 19px;
+      line-height: 1.42;
+    }
+    col.dimension { width: 18%; }
+    col.signal { width: 34%; }
+    col.weight { width: 10%; }
+    col.source { width: 38%; }
+    thead th {
+      padding: 16px 18px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 15px 18px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.dimension {
+      text-align: center;
+      font-weight: 700;
+      color: #172033;
+    }
+    td.weight {
+      text-align: center;
+      font-weight: 800;
+      color: #1f4d7a;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    td.signal,
+    td.source { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 4 多维风险评分维度与权重</h1>
+    <table aria-label="多维风险评分维度与权重">
+      <colgroup>
+        <col class="dimension" />
+        <col class="signal" />
+        <col class="weight" />
+        <col class="source" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>风险维度</th>
+          <th>示例信号</th>
+          <th>权重</th>
+          <th>分数来源</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="dimension">客户身份风险</td>
+          <td class="signal">黑名单命中、实名一致性、客户异常画像</td>
+          <td class="weight">0.15</td>
+          <td class="source">黑名单、结构化事件、模型判断</td>
+        </tr>
+        <tr>
+          <td class="dimension">交易行为风险</td>
+          <td class="signal">分拆交易、快进快出、异常交易备注</td>
+          <td class="weight">0.25</td>
+          <td class="source">事件文本、交易行为特征、模型判断</td>
+        </tr>
+        <tr>
+          <td class="dimension">交易对手风险</td>
+          <td class="signal">涉诈账户、虚拟币平台、高危商户</td>
+          <td class="weight">0.20</td>
+          <td class="source">黑名单、图谱关系、模型判断</td>
+        </tr>
+        <tr>
+          <td class="dimension">金额频次风险</td>
+          <td class="signal">短期大额、多笔小额规避阈值、资金流速异常</td>
+          <td class="weight">0.15</td>
+          <td class="source">金额、频次、时间窗口、模型判断</td>
+        </tr>
+        <tr>
+          <td class="dimension">设备地域风险</td>
+          <td class="signal">新设备、异地登录、异常 IP、验证码失败</td>
+          <td class="weight">0.10</td>
+          <td class="source">设备、IP、地理位置、认证信号</td>
+        </tr>
+        <tr>
+          <td class="dimension">历史上下文风险</td>
+          <td class="signal">相似历史事件、同账户反复出现、图谱关联</td>
+          <td class="weight">0.10</td>
+          <td class="source">Milvus 回捞、Neo4j 图谱上下文</td>
+        </tr>
+        <tr>
+          <td class="dimension">合规信号风险</td>
+          <td class="signal">反洗钱、涉诈、虚拟币、贷款欺诈、监管规则命中</td>
+          <td class="weight">0.05</td>
+          <td class="source">规则命中、合规关键词、模型判断</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

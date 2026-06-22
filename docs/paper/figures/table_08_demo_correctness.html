@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 8 金融 Demo case 功能正确性测试结果</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+      --high: #b91c1c;
+      --mid: #9a5b00;
+      --low: #047857;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1780px;
+      padding: 42px 58px 52px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 18px;
+      line-height: 1.36;
+    }
+    col.case { width: 8%; }
+    col.scene { width: 18%; }
+    col.expect { width: 20%; }
+    col.level { width: 10%; }
+    col.score { width: 9%; }
+    col.hit { width: 9%; }
+    col.store { width: 8%; }
+    col.recall { width: 8%; }
+    col.note { width: 10%; }
+    thead th {
+      padding: 14px 12px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 13px 12px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.case {
+      text-align: center;
+      font-weight: 800;
+      color: #1f4d7a;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    td.center { text-align: center; }
+    td.score {
+      text-align: center;
+      font-weight: 800;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    td.scene,
+    td.expect,
+    td.note { color: var(--muted); }
+    .level-high { color: var(--high); font-weight: 800; }
+    .level-mid { color: var(--mid); font-weight: 800; }
+    .level-low { color: var(--low); font-weight: 800; }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 8 金融 Demo case 功能正确性测试结果</h1>
+    <table aria-label="金融 Demo case 功能正确性测试结果">
+      <colgroup>
+        <col class="case" />
+        <col class="scene" />
+        <col class="expect" />
+        <col class="level" />
+        <col class="score" />
+        <col class="hit" />
+        <col class="store" />
+        <col class="recall" />
+        <col class="note" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>用例编号</th>
+          <th>场景</th>
+          <th>期望结果</th>
+          <th>实际风险等级</th>
+          <th>实际风险分数</th>
+          <th>黑名单命中</th>
+          <th>是否暂存</th>
+          <th>是否回捞</th>
+          <th>备注</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="case">Case 01</td>
+          <td class="scene">正常工资入账和消费</td>
+          <td class="expect">低风险、写入 Milvus 暂存</td>
+          <td class="center level-low">低风险</td>
+          <td class="score">0.18</td>
+          <td class="center">否</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="note">作为正常行为基线</td>
+        </tr>
+        <tr>
+          <td class="case">Case 02</td>
+          <td class="scene">多笔小额转账接近限额</td>
+          <td class="expect">中风险、保留历史线索</td>
+          <td class="center level-mid">中风险</td>
+          <td class="score">0.56</td>
+          <td class="center">否</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="note">形成后续回捞上下文</td>
+        </tr>
+        <tr>
+          <td class="case">Case 03</td>
+          <td class="scene">涉诈账户转账</td>
+          <td class="expect">高风险、命中黑名单</td>
+          <td class="center level-high">高风险</td>
+          <td class="score">0.91</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="center">否</td>
+          <td class="note">命中涉诈账户和保证金线索</td>
+        </tr>
+        <tr>
+          <td class="case">Case 04</td>
+          <td class="scene">分拆转账和虚拟币归集</td>
+          <td class="expect">高风险、触发历史回捞</td>
+          <td class="center level-high">高风险</td>
+          <td class="score">0.88</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="center">是</td>
+          <td class="note">回捞 Case 02 并补全图谱</td>
+        </tr>
+        <tr>
+          <td class="case">Case 05</td>
+          <td class="scene">贷款包装流水</td>
+          <td class="expect">高风险或中风险</td>
+          <td class="center level-high">高风险</td>
+          <td class="score">0.82</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="center">否</td>
+          <td class="note">命中贷款欺诈和包装流水</td>
+        </tr>
+        <tr>
+          <td class="case">Case 06</td>
+          <td class="scene">重复低风险事件</td>
+          <td class="expect">不重复写入 Milvus</td>
+          <td class="center level-low">低风险</td>
+          <td class="score">0.18</td>
+          <td class="center">否</td>
+          <td class="center">跳过</td>
+          <td class="center">否</td>
+          <td class="note">content_hash 相同，避免重复暂存</td>
+        </tr>
+        <tr>
+          <td class="case">Case 07</td>
+          <td class="scene">无客户编号但命中风险关键词</td>
+          <td class="expect">高风险、进入后续研判</td>
+          <td class="center level-high">高风险</td>
+          <td class="score">0.79</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="center">否</td>
+          <td class="note">无 P 编号仍可触发</td>
+        </tr>
+        <tr>
+          <td class="case">Case 08</td>
+          <td class="scene">异地新设备登录后大额转账</td>
+          <td class="expect">中风险、设备地理异常</td>
+          <td class="center level-mid">中风险</td>
+          <td class="score">0.64</td>
+          <td class="center">否</td>
+          <td class="center">否</td>
+          <td class="center">否</td>
+          <td class="note">设备地理和交易行为得分较高</td>
+        </tr>
+        <tr>
+          <td class="case">Case 09</td>
+          <td class="scene">多客户向同一新账户归集</td>
+          <td class="expect">高风险、图谱聚合风险</td>
+          <td class="center level-high">高风险</td>
+          <td class="score">0.86</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="center">是</td>
+          <td class="note">识别跑分账户和资金归集</td>
+        </tr>
+        <tr>
+          <td class="case">Case 10</td>
+          <td class="scene">投诉线索与涉诈账户相似</td>
+          <td class="expect">高风险、相似事件命中</td>
+          <td class="center level-high">高风险</td>
+          <td class="score">0.84</td>
+          <td class="center">是</td>
+          <td class="center">否</td>
+          <td class="center">是</td>
+          <td class="note">命中保证金、涉诈投诉和相似样本</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

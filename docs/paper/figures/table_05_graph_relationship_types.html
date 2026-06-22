@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>金融事件图谱关系类型表</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1450px;
+      padding: 44px 60px 52px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 20px;
+      line-height: 1.42;
+    }
+    col.rel { width: 18%; }
+    col.desc { width: 32%; }
+    col.scope { width: 30%; }
+    col.props { width: 20%; }
+    thead th {
+      padding: 16px 18px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 15px 18px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.rel {
+      text-align: center;
+      font-weight: 700;
+      color: #1f4d7a;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+    }
+    td.desc,
+    td.scope,
+    td.props { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">金融事件图谱关系类型表</h1>
+    <table aria-label="图谱关系类型定义">
+      <colgroup>
+        <col class="rel" />
+        <col class="desc" />
+        <col class="scope" />
+        <col class="props" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>关系类型</th>
+          <th>含义</th>
+          <th>典型连接范围</th>
+          <th>主要属性</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="rel">TransfersFunds</td>
+          <td class="desc">资金从客户、账户或商户流向另一资金主体</td>
+          <td class="scope">Customer / Account / Merchant / RiskEvent -> Account / Merchant / Customer</td>
+          <td class="props">amount、transaction_time、remark、channel、flow_type</td>
+        </tr>
+        <tr>
+          <td class="rel">UsesDevice</td>
+          <td class="desc">客户或事件使用某设备、IP 或认证信号</td>
+          <td class="scope">Customer / RiskEvent -> Device</td>
+          <td class="props">device_status、login_city</td>
+        </tr>
+        <tr>
+          <td class="rel">TriggersSignal</td>
+          <td class="desc">事件、客户、账户、商户或设备触发风险信号</td>
+          <td class="scope">RiskEvent / Customer / Account / Merchant / Device -> RiskSignal</td>
+          <td class="props">trigger_reason、severity</td>
+        </tr>
+        <tr>
+          <td class="rel">MatchesPattern</td>
+          <td class="desc">事件或主体匹配历史案例、规则、相似投诉或异常模式</td>
+          <td class="scope">RiskEvent / Customer / Merchant -> RiskSignal 或 RiskEvent</td>
+          <td class="props">pattern_name、similarity_score</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getDashboardOverview } from '../api/dashboard'
 import RiskBadge from '../components/RiskBadge.vue'
@@ -8,11 +8,21 @@ import { effectiveRiskLevel, riskScoreText } from '../utils/risk'
 const data = ref<any>(null)
 const loading = ref(false)
 const error = ref('')
+const recentPage = ref(1)
+const recentPageSize = 10
 
 const riskLabels: Record<string, string> = {
   high: '高风险',
   medium: '中风险',
   low: '低风险',
+}
+
+function eventTitle(event: any) {
+  const explicitTitle = String(event.title || '').trim()
+  if (explicitTitle && explicitTitle !== event.event_id) return explicitTitle
+  const text = String(event.summary || event.raw_content || '').trim()
+  if (!text) return `事件 ${String(event.event_id || '').slice(0, 8)}`
+  return text.length > 28 ? `${text.slice(0, 28)}...` : text
 }
 
 async function load() {
@@ -30,6 +40,21 @@ async function load() {
 function percent(value?: number | null) {
   if (value === null || value === undefined) return '0%'
   return `${Math.round(Number(value) * 100)}%`
+}
+
+const recentEvents = computed(() => data.value?.recent_events || [])
+const recentTotalPages = computed(() => Math.max(1, Math.ceil(recentEvents.value.length / recentPageSize)))
+const pagedRecentEvents = computed(() => {
+  const start = (recentPage.value - 1) * recentPageSize
+  return recentEvents.value.slice(start, start + recentPageSize)
+})
+
+function prevRecentPage() {
+  if (recentPage.value > 1) recentPage.value -= 1
+}
+
+function nextRecentPage() {
+  if (recentPage.value < recentTotalPages.value) recentPage.value += 1
 }
 
 onMounted(load)
@@ -70,7 +95,7 @@ onMounted(load)
     </div>
 
     <div class="dashboard-grid">
-      <div class="panel stack">
+      <div class="panel stack dashboard-compact-panel">
         <div class="section-title">
           <h2>风险分布</h2>
           <span class="muted small">按当前展示规则统计</span>
@@ -89,19 +114,21 @@ onMounted(load)
         </div>
       </div>
 
-      <div class="panel stack">
+      <div class="panel stack dashboard-compact-panel dashboard-scroll-card">
         <div class="section-title">
           <h2>事件类型</h2>
           <span class="muted small">Top categories</span>
         </div>
-        <div v-for="item in data.event_type_distribution.slice(0, 6)" :key="item.name" class="list-row">
-          <span>{{ item.name }}</span>
-          <strong>{{ item.value }}</strong>
+        <div class="scroll-panel dashboard-small-list">
+          <div v-for="item in data.event_type_distribution" :key="item.name" class="list-row">
+            <span>{{ item.name }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+          <p v-if="!data.event_type_distribution.length" class="muted">暂无数据</p>
         </div>
-        <p v-if="!data.event_type_distribution.length" class="muted">暂无数据</p>
       </div>
 
-      <div class="panel stack">
+      <div class="panel stack dashboard-compact-panel">
         <div class="section-title">
           <h2>高频命中词</h2>
           <span class="muted small">黑名单关键词</span>
@@ -132,10 +159,10 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="event in data.recent_events" :key="event.event_id">
+              <tr v-for="event in pagedRecentEvents" :key="event.event_id">
                 <td>
                   <RouterLink :to="`/events/${event.event_id}`">
-                    <strong>{{ event.title }}</strong>
+                    <strong>{{ eventTitle(event) }}</strong>
                   </RouterLink>
                   <p class="muted small">{{ event.summary }}</p>
                 </td>
@@ -146,25 +173,32 @@ onMounted(load)
                 <td>{{ event.event_type || '未知' }}</td>
                 <td class="muted small">{{ event.updated_at }}</td>
               </tr>
-              <tr v-if="!data.recent_events.length">
+              <tr v-if="!recentEvents.length">
                 <td colspan="4" class="muted">暂无事件</td>
               </tr>
             </tbody>
           </table>
         </div>
+        <div class="pagination">
+          <button class="button secondary" :disabled="recentPage <= 1" @click="prevRecentPage">上一页</button>
+          <span class="muted small">第 {{ recentPage }} / {{ recentTotalPages }} 页，每页 {{ recentPageSize }} 条</span>
+          <button class="button secondary" :disabled="recentPage >= recentTotalPages" @click="nextRecentPage">下一页</button>
+        </div>
       </div>
 
-      <div class="panel stack">
+      <div class="panel stack dashboard-review-panel">
         <div class="section-title">
           <h2>最近复核</h2>
           <span class="muted small">处置闭环</span>
         </div>
-        <div v-for="item in data.recent_reviews" :key="item.id" class="metric">
-          <span>{{ item.created_at }}</span>
-          <strong>{{ item.action_type }}</strong>
-          <p class="muted small">{{ item.comment || item.event_id }}</p>
+        <div class="review-list">
+          <div v-for="item in data.recent_reviews" :key="item.id" class="metric review-card">
+            <span>{{ item.created_at }}</span>
+            <strong>{{ item.action_type }}</strong>
+            <p class="muted small">{{ item.comment || item.event_id }}</p>
+          </div>
+          <p v-if="!data.recent_reviews.length" class="muted">暂无复核记录</p>
         </div>
-        <p v-if="!data.recent_reviews.length" class="muted">暂无复核记录</p>
       </div>
     </div>
   </template>

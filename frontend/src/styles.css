@@ -124,31 +124,78 @@ a {
 }
 
 .analysis-layout {
-  align-items: start;
+  align-items: stretch;
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(520px, 1fr) minmax(340px, 420px);
+  grid-template-columns: minmax(520px, 1fr) minmax(360px, 420px);
 }
 
 .analysis-input-panel {
   align-content: start;
 }
 
+.analysis-result-panel {
+  align-content: start;
+  min-height: 100%;
+}
+
 .analysis-textarea {
   min-height: 260px;
 }
 
+.analysis-secondary-layout {
+  align-items: stretch;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  margin-top: 16px;
+}
+
+.analysis-secondary-panel {
+  max-height: 360px;
+  min-height: 260px;
+}
+
 .blacklist-layout {
-  align-items: start;
+  align-items: stretch;
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  min-height: calc(100vh - 150px);
 }
 
 .blacklist-form {
   align-content: start;
   display: grid;
   gap: 16px;
+  min-height: 100%;
+}
+
+.blacklist-list-panel {
+  align-content: start;
+  min-height: 100%;
+}
+
+.blacklist-items {
+  align-content: start;
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 240px);
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.blacklist-items .metric {
+  min-height: 92px;
+}
+
+.pagination {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 6px;
 }
 
 .grid-main-side {
@@ -171,6 +218,7 @@ a {
 }
 
 .dashboard-grid {
+  align-items: stretch;
   display: grid;
   gap: 16px;
   grid-template-columns: 1.2fr 1fr 1fr;
@@ -178,9 +226,21 @@ a {
 }
 
 .dashboard-grid-wide {
+  align-items: stretch;
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.dashboard-compact-panel,
+.dashboard-review-panel {
+  align-content: start;
+  height: 100%;
+}
+
+.dashboard-grid > .panel,
+.dashboard-grid-wide > .panel {
+  min-height: 100%;
 }
 
 .kpi strong {
@@ -228,6 +288,34 @@ a {
   grid-template-columns: minmax(0, 1fr) auto;
   padding: 10px 12px;
   text-align: left;
+}
+
+.scroll-panel {
+  overflow: auto;
+}
+
+.dashboard-scroll-card {
+  min-height: 0;
+}
+
+.dashboard-small-list {
+  max-height: 250px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.review-list {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.review-card {
+  min-height: 112px;
 }
 
 .history-item span {
@@ -505,6 +593,10 @@ th {
   min-height: 590px;
 }
 
+.graph-miro-detail-closed .graph-miro-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .graph-miro-canvas {
   background: #fbfdff;
   min-width: 0;
@@ -616,6 +708,14 @@ th {
   justify-content: space-between;
 }
 
+.icon-button {
+  font-size: 20px;
+  line-height: 1;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 4px 10px;
+}
+
 .detail-heading h3,
 .miro-detail h4 {
   margin: 0;
@@ -638,6 +738,12 @@ th {
   display: grid;
   gap: 6px;
   padding-bottom: 12px;
+}
+
+.detail-empty {
+  align-content: start;
+  display: grid;
+  gap: 16px;
 }
 
 .detail-section span {

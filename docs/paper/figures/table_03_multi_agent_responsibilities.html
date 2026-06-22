@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>表 3 多智能体职责划分</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    .canvas {
+      width: 1500px;
+      padding: 44px 64px 54px;
+      background: var(--paper);
+    }
+
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 20px;
+      line-height: 1.42;
+    }
+
+    col.agent {
+      width: 22%;
+    }
+
+    col.input {
+      width: 23%;
+    }
+
+    col.output {
+      width: 27%;
+    }
+
+    col.role {
+      width: 28%;
+    }
+
+    thead th {
+      padding: 16px 18px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 16px 18px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+
+    tbody tr:nth-child(even) td {
+      background: var(--stripe);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    td.agent {
+      text-align: center;
+      font-weight: 650;
+      color: #172033;
+    }
+
+    td.input,
+    td.output,
+    td.role {
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">表 3 多智能体职责划分</h1>
+    <table aria-label="多智能体职责划分">
+      <colgroup>
+        <col class="agent" />
+        <col class="input" />
+        <col class="output" />
+        <col class="role" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>智能体</th>
+          <th>输入</th>
+          <th>输出</th>
+          <th>主要职责</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="agent">事件标准化智能体</td>
+          <td class="input">原始事件文本</td>
+          <td class="output">标准化事件对象</td>
+          <td class="role">提取数据来源、标题、原文和事件时间</td>
+        </tr>
+        <tr>
+          <td class="agent">事件分类智能体</td>
+          <td class="input">标准化事件文本</td>
+          <td class="output">事件类型、关键实体、摘要</td>
+          <td class="role">判断事件类型并抽取后续构图所需实体</td>
+        </tr>
+        <tr>
+          <td class="agent">风险评估智能体</td>
+          <td class="input">事件、规则命中、图谱和检索上下文</td>
+          <td class="output">风险分数、等级、维度分、解释</td>
+          <td class="role">完成首次评分和高风险回捞后的二次评分</td>
+        </tr>
+        <tr>
+          <td class="agent">意图分析智能体</td>
+          <td class="input">事件描述、风险等级、检索上下文</td>
+          <td class="output">意图分析结果</td>
+          <td class="role">分析交易意图、动机和潜在影响</td>
+        </tr>
+        <tr>
+          <td class="agent">趋势预测智能体</td>
+          <td class="input">意图分析结果、事件上下文</td>
+          <td class="output">趋势报告、处置建议</td>
+          <td class="role">预测风险演化路径并生成业务建议</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

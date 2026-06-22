@@ -5,7 +5,7 @@ services:
     image: neo4j:5.26.0
     restart: always
     environment:
-      NEO4J_AUTH: neo4j/pa55w0rd
+      NEO4J_AUTH: neo4j/password
     ports:
       - "7474:7474"   # HTTP Browser UI
       - "7687:7687"   # Bolt 协议（SDK 连接）

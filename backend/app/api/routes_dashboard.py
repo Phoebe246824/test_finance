@@ -54,7 +54,7 @@ async def overview() -> dict:
             for row in conn.execute(
                 """
                 SELECT * FROM review_actions
-                ORDER BY created_at DESC
+                ORDER BY created_at ASC, id ASC
                 """
             ).fetchall()
         ]
@@ -128,7 +128,7 @@ async def overview() -> dict:
                 "event_type": row.get("event_type"),
                 "updated_at": row.get("updated_at"),
             }
-            for row in event_rows[:8]
+            for row in event_rows[:50]
         ],
-        "recent_reviews": review_rows[:8],
+        "recent_reviews": review_rows[-8:],
     }

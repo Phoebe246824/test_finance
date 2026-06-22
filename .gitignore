@@ -9,3 +9,7 @@ __pycache__/
 # Ignore Docker-related files
 volumes/
 docker-compose.override.yml
+
+logs/
+docs/paper/
+docs/report/

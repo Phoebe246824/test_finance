@@ -69,6 +69,19 @@ function restoreHistory(item: any) {
   store.restoreAnalysis(item)
 }
 
+function eventTitle(item: any) {
+  const explicitTitle = String(item.title || '').trim()
+  if (explicitTitle && explicitTitle !== item.event_id) return explicitTitle
+  const text = String(item.summary || item.raw_content || item.result?.summary || item.result?.raw_content || '').trim()
+  if (!text) return `事件 ${String(item.event_id || '').slice(0, 8)}`
+  const normalized = text
+    .replace(/^["“”]+|["“”]+$/g, '')
+    .replace(/^\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2}[，,、\s]*/, '')
+    .replace(/【([^#】]+)#\s*([^】]+)】/g, '$2')
+    .trim()
+  return normalized.length > 28 ? `${normalized.slice(0, 28)}...` : normalized
+}
+
 function downloadReport() {
   if (!result.value) return
   const payload = {
@@ -122,8 +135,7 @@ onMounted(loadDemoCases)
       <div v-if="error" class="error">{{ error }}</div>
     </div>
 
-    <div class="stack">
-      <div class="panel stack">
+    <div class="panel stack analysis-result-panel">
         <h2>分析结果</h2>
         <template v-if="result">
           <div class="grid-3">
@@ -147,11 +159,17 @@ onMounted(loadDemoCases)
           <button class="button secondary" @click="downloadReport">导出 JSON 报告</button>
         </template>
         <p v-else class="muted">分析完成后，结果会显示在这里。</p>
+    </div>
+  </div>
+
+  <div v-if="result || store.analysisHistory.length" class="analysis-secondary-layout">
+      <BlacklistHitPanel v-if="result" class="scroll-panel analysis-secondary-panel" :blacklist="result.blacklist" />
+      <div v-else class="panel stack analysis-secondary-panel">
+        <h2>黑名单命中</h2>
+        <p class="muted">分析完成后，命中结果会显示在这里。</p>
       </div>
 
-      <BlacklistHitPanel v-if="result" :blacklist="result.blacklist" />
-
-      <div class="panel stack" v-if="store.analysisHistory.length">
+      <div class="panel stack scroll-panel analysis-secondary-panel" v-if="store.analysisHistory.length">
         <div class="section-title">
           <h2>最近分析</h2>
           <span class="muted small">保留最近 8 条</span>
@@ -162,11 +180,10 @@ onMounted(loadDemoCases)
           class="history-item"
           @click="restoreHistory(item)"
         >
-          <span>{{ item.summary || item.event_id }}</span>
+          <span>{{ eventTitle(item) }}</span>
           <strong>{{ riskScoreText(item.risk_score) }}</strong>
         </button>
       </div>
-    </div>
   </div>
 
   <div v-if="result" class="panel stack" style="margin-top: 16px">

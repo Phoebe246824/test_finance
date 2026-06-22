@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>图 3 金融事件关系图谱数据模型</title>
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #111827;
+    }
+    .canvas {
+      width: 1500px;
+      height: 980px;
+      padding: 38px 48px 42px;
+      box-sizing: border-box;
+      background: #fbfcff;
+    }
+    h1 {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 34px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    svg {
+      width: 100%;
+      height: 860px;
+      display: block;
+      background: #ffffff;
+      border: 2px solid #d8e1ee;
+      border-radius: 8px;
+    }
+    .node rect {
+      rx: 8;
+      ry: 8;
+      stroke-width: 2.4;
+      filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.08));
+    }
+    .node-title {
+      font-size: 22px;
+      font-weight: 800;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      fill: #111827;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    .node-sub {
+      font-size: 15px;
+      font-weight: 600;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      fill: #4b5563;
+    }
+    .edge {
+      fill: none;
+      stroke: #64748b;
+      stroke-width: 2.2;
+      marker-end: url(#arrow);
+    }
+    .edge-soft {
+      fill: none;
+      stroke: #8b96a8;
+      stroke-width: 2;
+      stroke-dasharray: 8 7;
+      marker-end: url(#arrow-soft);
+    }
+    .label-box {
+      fill: #ffffff;
+      stroke: #cbd5e1;
+      stroke-width: 1.4;
+      rx: 5;
+      ry: 5;
+    }
+    .edge-label {
+      font-size: 14px;
+      font-weight: 700;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      fill: #334155;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1>图 3 金融事件关系图谱数据模型</h1>
+    <svg viewBox="0 0 1404 860" role="img" aria-label="金融事件关系图谱数据模型">
+      <defs>
+        <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+          <path d="M 0 0 L 12 6 L 0 12 z" fill="#64748b"></path>
+        </marker>
+        <marker id="arrow-soft" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+          <path d="M 0 0 L 12 6 L 0 12 z" fill="#8b96a8"></path>
+        </marker>
+      </defs>
+
+      <rect x="28" y="26" width="1348" height="808" rx="10" fill="#f8fbff" stroke="#e2e8f0" stroke-width="2"></rect>
+
+      <!-- Nodes -->
+      <g class="node">
+        <rect x="580" y="358" width="248" height="160" fill="#fff7d6" stroke="#d49a32"></rect>
+        <text class="node-title" x="704" y="408">RiskEvent</text>
+        <text class="node-sub" x="704" y="443">金融风控 / 反欺诈 / 反洗钱事件</text>
+        <text class="node-sub" x="704" y="470">金额、时间、处置、证据摘要</text>
+      </g>
+
+      <g class="node">
+        <rect x="158" y="150" width="260" height="120" fill="#eef6ff" stroke="#4b83bd"></rect>
+        <text class="node-title" x="288" y="193">Customer</text>
+        <text class="node-sub" x="288" y="228">客户 / 申请人 / 投诉人</text>
+      </g>
+
+      <g class="node">
+        <rect x="990" y="150" width="260" height="120" fill="#effaf2" stroke="#4aa16f"></rect>
+        <text class="node-title" x="1120" y="193">Account</text>
+        <text class="node-sub" x="1120" y="228">付款账户 / 收款账户 / 涉诈账户</text>
+      </g>
+
+      <g class="node">
+        <rect x="158" y="626" width="260" height="120" fill="#f1efff" stroke="#6b5fc7"></rect>
+        <text class="node-title" x="288" y="669">Device</text>
+        <text class="node-sub" x="288" y="704">登录设备 / IP / 验证码</text>
+      </g>
+
+      <g class="node">
+        <rect x="990" y="626" width="260" height="120" fill="#fff1f2" stroke="#c96975"></rect>
+        <text class="node-title" x="1120" y="669">RiskSignal</text>
+        <text class="node-sub" x="1120" y="704">黑名单 / 分拆交易 / 涉诈</text>
+      </g>
+
+      <g class="node">
+        <rect x="576" y="120" width="256" height="120" fill="#fffaf0" stroke="#d4a62a"></rect>
+        <text class="node-title" x="704" y="163">Merchant</text>
+        <text class="node-sub" x="704" y="198">商户 / 平台 / 支付通道</text>
+      </g>
+
+      <g class="node">
+        <rect x="590" y="712" width="228" height="82" fill="#f7f9fc" stroke="#5b84c4"></rect>
+        <text class="node-title" x="704" y="750">RiskEvent</text>
+        <text class="node-sub" x="704" y="776">历史相似事件 / 规则案例</text>
+      </g>
+
+      <!-- Edges based on graphiti/graphiti_workflow.py edge_types and edge_type_map -->
+      <path class="edge" d="M 585 390 C 518 334, 458 280, 419 241"></path>
+      <path class="edge" d="M 704 358 L 704 240"></path>
+      <path class="edge" d="M 823 392 C 894 335, 962 283, 990 242"></path>
+      <path class="edge" d="M 594 496 C 520 558, 445 610, 418 652"></path>
+      <path class="edge" d="M 812 496 C 898 558, 978 610, 990 652"></path>
+      <path class="edge" d="M 418 182 C 540 74, 870 74, 990 182"></path>
+      <path class="edge" d="M 288 270 C 288 404, 288 506, 288 626"></path>
+      <path class="edge" d="M 1120 270 C 1120 404, 1120 506, 1120 626"></path>
+      <path class="edge-soft" d="M 704 518 C 704 600, 704 656, 704 712"></path>
+
+      <!-- Edge labels -->
+      <rect class="label-box" x="404" y="310" width="130" height="28"></rect>
+      <text class="edge-label" x="469" y="324">TriggersSignal</text>
+
+      <rect class="label-box" x="635" y="288" width="138" height="28"></rect>
+      <text class="edge-label" x="704" y="302">TransfersFunds</text>
+
+      <rect class="label-box" x="878" y="310" width="138" height="28"></rect>
+      <text class="edge-label" x="947" y="324">TransfersFunds</text>
+
+      <rect class="label-box" x="416" y="572" width="108" height="28"></rect>
+      <text class="edge-label" x="470" y="586">UsesDevice</text>
+
+      <rect class="label-box" x="888" y="572" width="130" height="28"></rect>
+      <text class="edge-label" x="953" y="586">TriggersSignal</text>
+
+      <rect class="label-box" x="634" y="76" width="138" height="28"></rect>
+      <text class="edge-label" x="703" y="90">TransfersFunds</text>
+
+      <rect class="label-box" x="234" y="436" width="108" height="28"></rect>
+      <text class="edge-label" x="288" y="450">UsesDevice</text>
+
+      <rect class="label-box" x="1055" y="436" width="130" height="28"></rect>
+      <text class="edge-label" x="1120" y="450">TriggersSignal</text>
+
+      <rect class="label-box" x="636" y="615" width="136" height="28"></rect>
+      <text class="edge-label" x="704" y="629">MatchesPattern</text>
+    </svg>
+  </main>
+</body>
+</html>

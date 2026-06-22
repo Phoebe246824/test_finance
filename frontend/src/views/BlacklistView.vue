@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { createBlacklistItem, deleteBlacklistItem, listBlacklist, type BlacklistType } from '../api/blacklist'
+import {
+  createBlacklistItem,
+  deleteBlacklistItem,
+  listBlacklist,
+  updateBlacklistItem,
+  type BlacklistType,
+} from '../api/blacklist'
 
 const tabs: { key: BlacklistType; label: string }[] = [
   { key: 'persons', label: '人员黑名单' },
@@ -14,27 +20,71 @@ const value = ref('')
 const summary = ref('')
 const description = ref('')
 const error = ref('')
+const editingValue = ref('')
+const saving = ref(false)
 
 async function load() {
-  const data = await listBlacklist(active.value)
-  items.value = data.items || []
+  error.value = ''
+  try {
+    const data = await listBlacklist(active.value)
+    items.value = data.items || []
+  } catch (err: any) {
+    error.value = err?.response?.data?.detail || err?.message || '加载黑名单失败'
+  }
 }
 
 async function addItem() {
   if (!value.value.trim()) return
-  await createBlacklistItem(active.value, {
+  saving.value = true
+  error.value = ''
+  const payload = {
     value: value.value.trim(),
     summary: summary.value.trim(),
     description: description.value.trim(),
-  })
-  value.value = ''
-  summary.value = ''
-  description.value = ''
-  await load()
+  }
+  try {
+    if (editingValue.value) {
+      await updateBlacklistItem(active.value, editingValue.value, payload)
+    } else {
+      await createBlacklistItem(active.value, payload)
+    }
+    clearForm()
+    await load()
+  } catch (err: any) {
+    error.value = err?.response?.data?.detail || err?.message || '保存失败'
+  } finally {
+    saving.value = false
+  }
 }
 
 async function removeItem(itemValue: string) {
-  await deleteBlacklistItem(active.value, itemValue)
+  error.value = ''
+  try {
+    await deleteBlacklistItem(active.value, itemValue)
+    if (editingValue.value === itemValue) clearForm()
+    await load()
+  } catch (err: any) {
+    error.value = err?.response?.data?.detail || err?.message || '删除失败'
+  }
+}
+
+function editItem(item: any) {
+  editingValue.value = item.value
+  value.value = item.value || ''
+  summary.value = item.summary || ''
+  description.value = item.description || ''
+}
+
+function clearForm() {
+  editingValue.value = ''
+  value.value = ''
+  summary.value = ''
+  description.value = ''
+}
+
+async function switchTab(key: BlacklistType) {
+  active.value = key
+  clearForm()
   await load()
 }
 
@@ -57,7 +107,7 @@ onMounted(load)
           :key="tab.key"
           class="button secondary"
           :class="{ active: active === tab.key }"
-          @click="active = tab.key; load()"
+          @click="switchTab(tab.key)"
         >
           {{ tab.label }}
         </button>
@@ -75,20 +125,30 @@ onMounted(load)
         <label>说明</label>
         <textarea v-model="description" class="textarea compact-textarea" />
       </div>
-      <button class="button" @click="addItem">新增</button>
+      <div class="toolbar">
+        <button class="button" :disabled="saving || !value.trim()" @click="addItem">
+          {{ editingValue ? '保存修改' : '新增' }}
+        </button>
+        <button v-if="editingValue" class="button secondary" :disabled="saving" @click="clearForm">取消编辑</button>
+      </div>
       <div v-if="error" class="error">{{ error }}</div>
     </div>
 
-    <div class="panel stack">
+    <div class="panel stack blacklist-list-panel">
       <h2>当前列表</h2>
-      <div v-for="item in items" :key="item.id" class="metric">
-        <div class="toolbar" style="justify-content: space-between">
-          <strong>{{ item.value }}</strong>
-          <button class="button danger" @click="removeItem(item.value)">删除</button>
+      <div class="scroll-panel blacklist-items">
+        <div v-for="item in items" :key="item.id" class="metric">
+          <div class="toolbar" style="justify-content: space-between">
+            <strong>{{ item.value }}</strong>
+            <div class="toolbar">
+              <button class="button secondary" @click="editItem(item)">编辑</button>
+              <button class="button danger" @click="removeItem(item.value)">删除</button>
+            </div>
+          </div>
+          <p class="muted small">{{ item.summary || item.description || '无摘要' }}</p>
         </div>
-        <p class="muted small">{{ item.summary || item.description || '无摘要' }}</p>
+        <p v-if="!items.length" class="muted">暂无数据</p>
       </div>
-      <p v-if="!items.length" class="muted">暂无数据</p>
     </div>
   </div>
 </template>

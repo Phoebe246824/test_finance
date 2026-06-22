@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>金融事件图谱节点类型表</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #4f6f9f;
+      --line-soft: #d8e1ee;
+      --head: #eef4fb;
+      --stripe: #f8fbff;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+    .canvas {
+      width: 1450px;
+      padding: 44px 60px 52px;
+      background: var(--paper);
+    }
+    .title {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border-top: 3px solid var(--line);
+      border-bottom: 3px solid var(--line);
+      font-size: 20px;
+      line-height: 1.42;
+    }
+    col.type { width: 18%; }
+    col.desc { width: 38%; }
+    col.props { width: 44%; }
+    thead th {
+      padding: 16px 18px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 15px 18px;
+      border-bottom: 1.5px solid var(--line-soft);
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) td { background: var(--stripe); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.type {
+      text-align: center;
+      font-weight: 700;
+      color: #1f4d7a;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 19px;
+    }
+    td.desc,
+    td.props { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <h1 class="title">金融事件图谱节点类型表</h1>
+    <table aria-label="图谱节点类型定义">
+      <colgroup>
+        <col class="type" />
+        <col class="desc" />
+        <col class="props" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>节点类型</th>
+          <th>含义</th>
+          <th>主要属性</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="type">RiskEvent</td>
+          <td class="desc">银行零售风控、反欺诈、反洗钱事件</td>
+          <td class="props">event_category、occurred_at、amount、currency、risk_level_hint、disposition、evidence</td>
+        </tr>
+        <tr>
+          <td class="type">Customer</td>
+          <td class="desc">银行客户、申请人、投诉人、转账发起人等自然人主体</td>
+          <td class="props">id_number、customer_role、risk_profile、usual_city、account_age_hint</td>
+        </tr>
+        <tr>
+          <td class="type">Account</td>
+          <td class="desc">银行账户、收款账户、新开户账户、涉诈账户或外部支付账户</td>
+          <td class="props">id_number、account_role、account_status、opened_duration、owner_hint</td>
+        </tr>
+        <tr>
+          <td class="type">Merchant</td>
+          <td class="desc">企业、商户、平台、支付通道、雇主或银行系统</td>
+          <td class="props">id_number、merchant_type、risk_status</td>
+        </tr>
+        <tr>
+          <td class="type">Device</td>
+          <td class="desc">登录或交易设备、IP、验证码、设备指纹等端侧行为载体</td>
+          <td class="props">device_type、device_status、login_city、auth_signal</td>
+        </tr>
+        <tr>
+          <td class="type">RiskSignal</td>
+          <td class="desc">可解释风险信号、规则命中、风险关键词或模型线索</td>
+          <td class="props">signal_type、severity、rule_id、evidence</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

@@ -107,10 +107,24 @@ def _upsert_item(item_type: str, value: str, summary: str, description: str) -> 
                 summary=excluded.summary,
                 description=excluded.description,
                 enabled=1,
+                created_at=excluded.created_at,
                 updated_at=excluded.updated_at
             """,
             (item_type, value, summary, description, now, now),
         )
+
+
+def _has_item_record(item_type: str, value: str) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM blacklist_items
+            WHERE item_type = ? AND value = ?
+            LIMIT 1
+            """,
+            (item_type, value),
+        ).fetchone()
+    return row is not None
 
 
 def _list_items(item_type: str) -> list[dict]:
@@ -119,7 +133,7 @@ def _list_items(item_type: str) -> list[dict]:
             """
             SELECT * FROM blacklist_items
             WHERE item_type = ? AND enabled = 1
-            ORDER BY updated_at DESC
+            ORDER BY created_at ASC, id ASC
             """,
             (item_type,),
         ).fetchall()
@@ -139,19 +153,56 @@ def _disable_item(item_type: str, value: str) -> bool:
     return result.rowcount > 0
 
 
+def _update_item(
+    item_type: str,
+    old_value: str,
+    new_value: str,
+    summary: str,
+    description: str,
+) -> bool:
+    now = _now()
+    with get_connection() as conn:
+        if old_value != new_value:
+            conflict = conn.execute(
+                """
+                SELECT 1 FROM blacklist_items
+                WHERE item_type = ? AND value = ? AND enabled = 1
+                LIMIT 1
+                """,
+                (item_type, new_value),
+            ).fetchone()
+            if conflict is not None:
+                raise HTTPException(status_code=409, detail="blacklist item already exists")
+        result = conn.execute(
+            """
+            UPDATE blacklist_items
+            SET value = ?, summary = ?, description = ?, enabled = 1, updated_at = ?
+            WHERE item_type = ? AND value = ? AND enabled = 1
+            """,
+            (new_value, summary, description, now, item_type, old_value),
+        )
+    return result.rowcount > 0
+
+
 async def _ensure_default_items() -> None:
     redis, store = await _store()
     try:
         for value, summary, description in PERSON_SEEDS:
+            if _has_item_record("person", value):
+                continue
             if await store.query_person(value) is None:
                 await store.append_person(value)
             _upsert_item("person", value, summary, description)
         for value, summary, description in KEYWORD_SEEDS:
+            if _has_item_record("keyword", value):
+                continue
             keyword_exists = await redis.zscore(store.KEYWORD_KEY, value)
             if keyword_exists is None:
                 await store.append_keyword(value)
             _upsert_item("keyword", value, summary, description)
         for value, summary, description in EVENT_SEEDS:
+            if _has_item_record("event", value):
+                continue
             if await store.query_event(value) is None:
                 await store.append_event(value, description)
             _upsert_item("event", value, summary, description)
@@ -188,6 +239,47 @@ async def create_blacklist_item(item_type: str, payload: BlacklistCreate) -> dic
             normalized = "event"
         _upsert_item(normalized, payload.value, payload.summary, payload.description)
         return {"created": True, "item_type": normalized, "value": payload.value}
+    finally:
+        await redis.aclose()
+
+
+@router.put("/{item_type}/{value}")
+async def update_blacklist_item(
+    item_type: str,
+    value: str,
+    payload: BlacklistCreate,
+) -> dict:
+    if item_type not in {"persons", "keywords", "events"}:
+        raise HTTPException(status_code=404, detail="unknown blacklist type")
+
+    redis, store = await _store()
+    try:
+        if item_type == "persons":
+            normalized = "person"
+        elif item_type == "keywords":
+            normalized = "keyword"
+        else:
+            normalized = "event"
+
+        updated = _update_item(
+            normalized,
+            value,
+            payload.value,
+            payload.summary,
+            payload.description,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="blacklist item not found")
+        if item_type == "persons":
+            await store.remove_person(value)
+            await store.append_person(payload.value)
+        elif item_type == "keywords":
+            await store.remove_keyword(value)
+            await store.append_keyword(payload.value)
+        else:
+            await store.remove_event(value)
+            await store.append_event(payload.value, payload.summary or payload.description)
+        return {"updated": True, "item_type": normalized, "value": payload.value}
     finally:
         await redis.aclose()
 

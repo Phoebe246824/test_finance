@@ -1,0 +1,117 @@
+%% Figure 1: Sentinel Edge system architecture
+flowchart TB
+  classDef layer fill:#f7f9fc,stroke:#5b84c4,stroke-width:1.2px,color:#1f2937;
+  classDef user fill:#fff3d6,stroke:#d49a32,stroke-width:1px,color:#1f2937;
+  classDef frontend fill:#dff3e6,stroke:#4aa16f,stroke-width:1px,color:#1f2937;
+  classDef api fill:#e8e1ff,stroke:#6b5fc7,stroke-width:1px,color:#1f2937;
+  classDef agent fill:#fff6c9,stroke:#c6a12e,stroke-width:1px,color:#1f2937;
+  classDef data fill:#ffe4e6,stroke:#c96975,stroke-width:1px,color:#1f2937;
+  classDef model fill:#e5f2ff,stroke:#4b83bd,stroke-width:1px,color:#1f2937;
+  classDef hw fill:#e8eaee,stroke:#6b7280,stroke-width:1px,color:#1f2937;
+
+  U[用户 / 风控分析员 / 合规复核人员]:::user
+
+  subgraph L1[应用交互层]
+    direction LR
+    F0[Vue3 前端工作台]:::frontend
+    F1[风险分析]:::frontend
+    F2[事件库与事件详情]:::frontend
+    F3[人物图谱]:::frontend
+    F4[黑名单管理]:::frontend
+    F5[总览与系统状态]:::frontend
+  end
+
+  subgraph L2[接口服务层]
+    direction LR
+    A0[FastAPI 后端 API 服务]:::api
+    A1[事件分析 API]:::api
+    A2[图谱查询 API]:::api
+    A3[黑名单与复核 API]:::api
+    A4[健康检查与报告导出]:::api
+  end
+
+  subgraph L3[多智能体编排层]
+    direction LR
+    W0[CrewAI Flow 编排]:::agent
+    W1[事件标准化 Agent]:::agent
+    W3[事件分类 Agent]:::agent
+    W4[风险评估 Agent]:::agent
+    W7[意图分析 Agent]:::agent
+    W8[趋势预测 Agent]:::agent
+  end
+
+  subgraph L4[本地工具与数据层]
+    direction LR
+    D1[Redis 黑名单 / 高危样本]:::data
+    D2[Milvus 低风险向量暂存 / 相似召回]:::data
+    D3[Neo4j 关系图谱 / 证据链]:::data
+    D4[SQLite 分析结果 / 复核动作]:::data
+    D5[JSON 报告 / 日志 / 截图]:::data
+  end
+
+  subgraph L5[本地模型推理层]
+    direction LR
+    M1[Qwen3.6-35B-A3B<br/>风险解释 / 报告生成]:::model
+    M2[BGE M3<br/>事件向量化]:::model
+    M3[BGE Reranker v2-m3<br/>召回重排]:::model
+    M4[OpenAI 兼容接口<br/>智能体统一调用]:::model
+  end
+
+  subgraph L6[端侧硬件平台层]
+    direction LR
+    H0[AMD 锐龙 AI MAX+ 平台]:::hw
+    H1[CPU: API 服务 / Agent 调度 / 规则逻辑 / 接口调用]:::hw
+    H2[Radeon GPU: llama.cpp / Q6_K_M 量化 LLM]:::hw
+    H3[Ryzen AI NPU: BGE M3 / BGE Reranker v2-m3]:::hw
+    H4[统一内存 + SSD: 多服务并行与本地持久化]:::hw
+  end
+
+  U --> F0
+  F0 --> F1
+  F0 --> F2
+  F0 --> F3
+  F0 --> F4
+  F0 --> F5
+  F1 --> A1
+  F2 --> A1
+  F3 --> A2
+  F4 --> A3
+  F5 --> A4
+
+  A0 --> A1
+  A0 --> A2
+  A0 --> A3
+  A0 --> A4
+  A1 --> W0
+  A2 --> D3
+  A3 --> D1
+  A3 --> D4
+  A4 --> D5
+
+  W0 --> W1 --> W3 --> W4 --> W7 --> W8
+  W0 --> D1
+  W0 --> D2
+  W0 --> D3
+  W4 --> D4
+  W8 --> D5
+
+  W1 --> M1
+  W3 --> M1
+  W4 --> M1
+  W7 --> M1
+  W8 --> M1
+  D2 --> M2
+  D2 --> M3
+  W0 --> M4
+
+  M1 --> H2
+  M2 --> H2
+  M3 --> H2
+  M4 --> H3
+  A1 --> H1
+  W0 --> H1
+  D1 --> H4
+  D2 --> H4
+  D3 --> H4
+  D4 --> H4
+  D5 --> H4

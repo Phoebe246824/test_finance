@@ -1,0 +1,59 @@
+%% Figure 2: End-to-end financial event analysis flow for Sentinel Edge
+%% Render with Mermaid. Recommended direction: vertical flowchart.
+flowchart TB
+  classDef input fill:#eef6ff,stroke:#4b83bd,stroke-width:1.2px,color:#111827;
+  classDef process fill:#f7f9fc,stroke:#5b84c4,stroke-width:1.2px,color:#111827;
+  classDef decision fill:#fff7d6,stroke:#d49a32,stroke-width:1.4px,color:#111827;
+  classDef low fill:#e5f7ed,stroke:#3f9b67,stroke-width:1.4px,color:#064e3b;
+  classDef risk fill:#ffe8e8,stroke:#d06b6b,stroke-width:1.4px,color:#7f1d1d;
+  classDef output fill:#f0eaff,stroke:#7c67c7,stroke-width:1.2px,color:#111827;
+  classDef store fill:#fff0f3,stroke:#c96975,stroke-width:1.2px,color:#111827;
+
+  Start([事件输入<br/>金融交易 / 客户行为 / Demo Case]):::input
+
+  subgraph S1[前置处理]
+    direction TB
+    N1[事件标准化<br/>抽取客户、账户、金额、设备、地点]:::process
+    N2[黑名单过滤<br/>人员黑名单 / 关键词 / 高危样本]:::process
+    D1{是否命中<br/>高危规则?}:::decision
+  end
+
+  subgraph S2[低风险暂存路径]
+    direction TB
+    L1[低风险展示<br/>返回基础结论与摘要]:::low
+    L2[(Milvus 暂存池<br/>事件向量、摘要、主体信息)]:::store
+    L3([流程结束<br/>作为后续历史上下文]):::low
+  end
+
+  subgraph S3[风险研判路径]
+    direction TB
+    R1[事件分类<br/>欺诈 / 洗钱 / 贷款风险等]:::process
+    R2[图谱构建<br/>客户、账户、商户、设备关系]:::process
+    R3[多维风险评分<br/>risk_score / risk_level / 维度分]:::risk
+    D2{是否高风险?}:::decision
+  end
+
+  subgraph S4[高风险回捞与二次评估]
+    direction TB
+    H1[历史回捞<br/>从 Milvus 召回相似事件]:::risk
+    H2[图谱补全<br/>补入 Neo4j 证据链]:::process
+    H3[二次风险评估<br/>结合当前事件与历史上下文]:::risk
+  end
+
+  subgraph S5[趋势报告与人工闭环]
+    direction TB
+    O1[趋势报告<br/>风险解释与处置建议]:::output
+    O2[前端展示<br/>等级、命中项、图谱、报告]:::output
+    O3([人工复核<br/>确认 / 驳回 / 记录处置动作]):::output
+  end
+
+  Start --> N1 --> N2 --> D1
+
+  D1 -- 否：未命中高危 --> L1 --> L2 --> L3
+
+  D1 -- 是：进入研判 --> R1 --> R2 --> R3 --> D2
+  D2 -- 否：中低风险 --> O1
+  D2 -- 是：触发回捞 --> H1 --> H2 --> H3 --> O1
+  O1 --> O2 --> O3
+
+  L2 -. 高风险事件出现时提供历史上下文 .-> H1

@@ -84,7 +84,7 @@ onMounted(load)
       />
     </div>
 
-    <div class="grid-2">
+    <div class="stack">
       <div class="panel stack">
         <h2>事件原文</h2>
         <p class="pre-wrap">{{ event.raw_content }}</p>

@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+    }
+    .page {
+      width: 1220px;
+      height: 1880px;
+      box-sizing: border-box;
+      padding: 26px 28px;
+      background: #fbfcff;
+      color: #111827;
+    }
+    h1 {
+      margin: 0 0 18px;
+      text-align: center;
+      font-size: 32px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .flow {
+      position: relative;
+      width: 100%;
+      height: 1780px;
+      box-sizing: border-box;
+      border: 2px solid #d8e1ee;
+      border-radius: 12px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .input-row {
+      position: absolute;
+      left: 78px;
+      top: 24px;
+      width: 1006px;
+      height: 82px;
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      border: 2px solid #8aa4c8;
+      border-radius: 8px;
+      background: #f8fbff;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .input-label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 2px solid #d8e1ee;
+      font-size: 22px;
+      font-weight: 800;
+      color: #315f9b;
+    }
+    .input-text {
+      display: flex;
+      align-items: center;
+      padding: 0 22px;
+      font-size: 17px;
+      line-height: 1.45;
+      font-weight: 650;
+      color: #1f2937;
+    }
+    .stage {
+      position: absolute;
+      left: 78px;
+      width: 1006px;
+      height: 96px;
+      display: grid;
+      grid-template-columns: 235px 1fr 230px;
+      gap: 16px;
+      align-items: center;
+      box-sizing: border-box;
+      padding: 10px 14px;
+      border: 2px solid var(--stroke);
+      border-radius: 8px;
+      background: var(--bg);
+      z-index: 2;
+    }
+    .stage-title {
+      height: 72px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-right: 2px solid rgba(0,0,0,0.08);
+      text-align: center;
+      color: var(--strong);
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+    .stage-title small {
+      margin-top: 4px;
+      color: #4b5563;
+      font-size: 14px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+    .task {
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      border: 2px solid var(--stroke);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.78);
+      box-sizing: border-box;
+    }
+    .icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid var(--stroke);
+      border-radius: 10px;
+      color: var(--strong);
+      font-size: 24px;
+      font-weight: 800;
+      background: #fff;
+    }
+    .task-text {
+      color: #111827;
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 800;
+    }
+    .task-text small {
+      display: block;
+      margin-top: 3px;
+      color: #4b5563;
+      font-size: 14px;
+      line-height: 1.25;
+      font-weight: 650;
+    }
+    .status {
+      min-height: 68px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 8px 10px;
+      color: var(--strong);
+      font-size: 16px;
+      line-height: 1.3;
+      font-weight: 800;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .status small {
+      margin-top: 3px;
+      color: #4b5563;
+      font-size: 13px;
+      line-height: 1.25;
+      font-weight: 650;
+    }
+    .green { --bg:#effaf2; --stroke:#4aa16f; --strong:#20764d; }
+    .blue { --bg:#eef6ff; --stroke:#5b84c4; --strong:#315f9b; }
+    .violet { --bg:#f4f1ff; --stroke:#7c6bd6; --strong:#5846b8; }
+    .yellow { --bg:#fff9e8; --stroke:#d49a32; --strong:#9a6810; }
+    .rose { --bg:#fff1f2; --stroke:#c96975; --strong:#a53f4f; }
+    .teal { --bg:#edfdfa; --stroke:#3aa99d; --strong:#177e72; }
+    .gray { --bg:#f3f4f6; --stroke:#6b7280; --strong:#374151; }
+    .decision {
+      position: absolute;
+      left: 444px;
+      width: 310px;
+      height: 120px;
+      z-index: 4;
+    }
+    .diamond {
+      position: absolute;
+      left: 95px;
+      top: 4px;
+      width: 116px;
+      height: 116px;
+      transform: rotate(45deg);
+      border: 2px solid #d49a32;
+      background: #fffaf0;
+      box-sizing: border-box;
+    }
+    .decision-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #7c4a03;
+      font-size: 16px;
+      line-height: 1.35;
+      font-weight: 800;
+      z-index: 5;
+    }
+    .branch-label {
+      position: absolute;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #fff;
+      border: 2px solid;
+      font-size: 15px;
+      line-height: 1;
+      font-weight: 800;
+      z-index: 5;
+    }
+    .pass { color:#20764d; border-color:#4aa16f; }
+    .risk { color:#a53f4f; border-color:#c96975; }
+    .side-label {
+      position: absolute;
+      left: 20px;
+      width: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      color: #111827;
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 800;
+      letter-spacing: 4px;
+      z-index: 5;
+    }
+    .side-line {
+      position: absolute;
+      left: 54px;
+      width: 22px;
+      border-left: 3px solid #111827;
+      border-top: 3px solid #111827;
+      border-bottom: 3px solid #111827;
+      z-index: 1;
+    }
+    .dashboard {
+      position: absolute;
+      left: 190px;
+      top: 1650px;
+      width: 780px;
+      height: 88px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      border: 2px solid #7c6bd6;
+      border-radius: 10px;
+      background: #f4f1ff;
+      color: #4c36a8;
+      font-size: 20px;
+      line-height: 1.45;
+      font-weight: 800;
+      box-sizing: border-box;
+      z-index: 3;
+    }
+    svg {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>图 2 端到端金融事件分析流程图</h1>
+    <section class="flow">
+      <svg width="1164" height="1780" viewBox="0 0 1164 1780" aria-hidden="true">
+        <defs>
+          <marker id="down" viewBox="0 0 10 10" refX="5" refY="9" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 0 L 5 10 z" fill="#4b5563"></path>
+          </marker>
+          <marker id="greenArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#4aa16f"></path>
+          </marker>
+          <marker id="redArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#c96975"></path>
+          </marker>
+        </defs>
+        <path d="M 582 106 L 582 132" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 228 L 582 254" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 350 L 582 376" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 472 L 582 498" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 594 L 582 620" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 716 L 582 758" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 1162 L 582 1188" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 1284 L 582 1310" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 1406 L 582 1432" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+        <path d="M 582 1528 L 582 1650" stroke="#4b5563" stroke-width="3" marker-end="url(#down)"></path>
+
+        <path d="M 444 818 L 228 818 L 228 842" stroke="#4aa16f" stroke-width="3" fill="none" marker-end="url(#greenArrow)"></path>
+        <path d="M 228 938 L 228 944" stroke="#4aa16f" stroke-width="3" fill="none" marker-end="url(#greenArrow)"></path>
+        <path d="M 228 1040 L 228 1694 L 220 1694" stroke="#4aa16f" stroke-width="3" fill="none" marker-end="url(#greenArrow)"></path>
+        <path d="M 754 818 L 1010 818 L 1010 1066 L 582 1066" stroke="#c96975" stroke-width="3" fill="none" marker-end="url(#redArrow)"></path>
+      </svg>
+
+      <div class="input-row">
+        <div class="input-label">输入文本</div>
+        <div class="input-text">客户在短时间内发生多笔异常转账，涉及陌生收款账户、异地新设备登录、可疑备注与历史相似风险线索。</div>
+      </div>
+
+      <div class="side-label" style="top: 144px; height: 690px;">常规分析</div>
+      <div class="side-line" style="top: 132px; height: 710px;"></div>
+      <div class="side-label" style="top: 852px; height: 180px;">低风险暂存</div>
+      <div class="side-line" style="top: 842px; height: 198px;"></div>
+      <div class="side-label" style="top: 1076px; height: 448px;">高风险回捞</div>
+      <div class="side-line" style="top: 1066px; height: 468px;"></div>
+
+      <div class="stage blue" style="top:132px;">
+        <div class="stage-title">Stage 1<small>事件标准化<br>Normalizer Agent</small></div>
+        <div class="task"><div class="icon">□</div><div class="task-text">任务：事件标准化<small>抽取客户、账户、商户、设备、金额、时间与风险信号</small></div></div>
+        <div class="status">● 完成<small>结构化事件生成</small></div>
+      </div>
+
+      <div class="stage green" style="top:254px;">
+        <div class="stage-title">Stage 1.5<small>黑名单过滤<br>Blacklist Filter</small></div>
+        <div class="task"><div class="icon">✓</div><div class="task-text">任务：三类高危规则匹配<small>人员黑名单、关键词黑名单、高危事件样本</small></div></div>
+        <div class="status">● 相似/命中检查<small>输出 pass 或 hit</small></div>
+      </div>
+
+      <div class="stage violet" style="top:376px;">
+        <div class="stage-title">Stage 2<small>事件分类<br>Classifier Agent</small></div>
+        <div class="task"><div class="icon">◇</div><div class="task-text">任务：事件分类<small>识别反欺诈、反洗钱、贷前风险等业务类型</small></div></div>
+        <div class="status">● 完成<small>事件类型已确定</small></div>
+      </div>
+
+      <div class="stage yellow" style="top:498px;">
+        <div class="stage-title">Stage 3<small>图谱构建<br>Graph Build</small></div>
+        <div class="task"><div class="icon">⌘</div><div class="task-text">任务：当前事件图谱构建<small>写入客户、账户、设备、商户、风险信号节点和关系</small></div></div>
+        <div class="status">● 完成<small>Neo4j 证据链生成</small></div>
+      </div>
+
+      <div class="stage rose" style="top:620px;">
+        <div class="stage-title">Stage 4<small>首次风险评估<br>First Risk Evaluation</small></div>
+        <div class="task"><div class="icon">!</div><div class="task-text">任务：多维风险评分<small>结合规则命中、图谱上下文与模型判断生成 risk_score</small></div></div>
+        <div class="status">● 完成<small>输出风险等级与分数</small></div>
+      </div>
+
+      <div class="decision" style="top:758px;">
+        <div class="diamond"></div>
+        <div class="decision-text">首次评分判断<br>risk_score ≥ threshold ?</div>
+      </div>
+      <div class="branch-label pass" style="left:226px; top:792px;">否：低风险流程</div>
+      <div class="branch-label risk" style="left:782px; top:792px;">是：触发历史回捞</div>
+
+      <div class="stage green" style="top:842px;">
+        <div class="stage-title">Stage 5A<small>低风险展示<br>Low-risk Display</small></div>
+        <div class="task"><div class="icon">✓</div><div class="task-text">任务：低风险结果展示<small>前端展示低风险结论、摘要与基础证据</small></div></div>
+        <div class="status">● 结束展示<small>不进入深度回捞</small></div>
+      </div>
+
+      <div class="stage teal" style="top:944px;">
+        <div class="stage-title">Stage 5B<small>向量暂存<br>Milvus Buffer</small></div>
+        <div class="task"><div class="icon">◎</div><div class="task-text">任务：写入 Milvus 暂存池<small>保存低风险事件向量、摘要和主体信息</small></div></div>
+        <div class="status">● 完成<small>成为后续历史上下文</small></div>
+      </div>
+
+      <div class="stage blue" style="top:1066px;">
+        <div class="stage-title">Stage 6<small>历史回捞<br>Search Context</small></div>
+        <div class="task"><div class="icon">⌕</div><div class="task-text">任务：相似历史事件召回<small>从 Milvus 检索同客户、同账户或语义相似事件</small></div></div>
+        <div class="status">● 完成<small>召回历史上下文</small></div>
+      </div>
+
+      <div class="stage yellow" style="top:1188px;">
+        <div class="stage-title">Stage 7<small>图谱补全<br>Graph Enrichment</small></div>
+        <div class="task"><div class="icon">⌘</div><div class="task-text">任务：历史事件补入 Neo4j<small>补全关联账户、设备、商户与风险信号链路</small></div></div>
+        <div class="status">● 完成<small>风险网络扩展</small></div>
+      </div>
+
+      <div class="stage rose" style="top:1310px;">
+        <div class="stage-title">Stage 8<small>二次风险评估<br>Second Risk Evaluation</small></div>
+        <div class="task"><div class="icon">!</div><div class="task-text">任务：二次风险评分<small>结合当前事件、历史回捞结果和补全图谱重新评估</small></div></div>
+        <div class="status">● 完成<small>输出二次 risk_score</small></div>
+      </div>
+
+      <div class="stage violet" style="top:1432px;">
+        <div class="stage-title">Stage 9<small>趋势预测<br>Trend Prediction</small></div>
+        <div class="task"><div class="icon">↗</div><div class="task-text">任务：趋势报告生成<small>给出风险趋势、证据摘要与处置建议</small></div></div>
+        <div class="status">● 完成<small>生成可读报告</small></div>
+      </div>
+
+      <div class="stage gray" style="top:1554px;">
+        <div class="stage-title">Stage 10<small>人工复核<br>Human Review</small></div>
+        <div class="task"><div class="icon">人</div><div class="task-text">任务：前端展示与复核动作<small>展示风险等级、图谱、报告，支持冻结、放行、误报标记</small></div></div>
+        <div class="status">● 闭环完成<small>复核结果本地留痕</small></div>
+      </div>
+
+      <div class="dashboard">进入 Dashboard 展示最终结果<br>风险等级、关系图谱、趋势报告、人工复核动作</div>
+    </section>
+  </main>
+</body>
+</html>
