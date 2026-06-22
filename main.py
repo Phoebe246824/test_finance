@@ -24,7 +24,6 @@ os.environ["COLUMNS"] = os.getenv("SENTINEL_CREWAI_WIDTH", "96")
 from crewai import Agent, Crew, Process, Task
 from crewai.flow.flow import Flow, listen, router, start
 from rich.console import Console
-from redis.asyncio import Redis
 
 try:
     from crewai.events.utils.console_formatter import ConsoleFormatter
@@ -40,8 +39,13 @@ except Exception:
     pass
 
 from blacklist.filter import BlacklistFilter
-from blacklist.milvus_stash import MilvusStashStore
-from blacklist.store import BlacklistStore
+from blacklist.runtime_storage import (
+    StashStore,
+    create_blacklist_store,
+    create_stash_store,
+    default_database_url,
+    storage_config,
+)
 from graphiti.graphiti_workflow import (
     add_event_to_graph,
     batch_add_to_graph,
@@ -164,6 +168,13 @@ def load_config() -> dict:
                     or "0.05"
                 ),
             }
+        },
+        "storage": {
+            "database_url": os.getenv("DATABASE_URL") or default_database_url(),
+            "blacklist_backend": (
+                os.getenv("BLACKLIST_BACKEND") or "sqlite"
+            ).lower(),
+            "stash_backend": (os.getenv("STASH_BACKEND") or "sqlite").lower(),
         },
         "redis": {
             "host": os.getenv("REDIS_HOST") or "localhost",
@@ -1273,7 +1284,7 @@ async def rerank_historical_candidates(
 
 async def batch_graph_event_with_related_stash(
     config: dict,
-    stash_store: MilvusStashStore | None,
+    stash_store: StashStore | None,
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
 ) -> dict:
@@ -1298,17 +1309,17 @@ async def batch_graph_event_with_related_stash(
     )
     summary["fetched_count"] = len(historical_events)
     logger.info(
-        "Milvus recall fetched_count=%d event_ids=%s",
+        "stash recall fetched_count=%d event_ids=%s",
         len(historical_events),
         [event.get("event_id") for event in historical_events if event.get("event_id")],
     )
 
     if not historical_events:
-        print_info("Milvus 暂存回捞为空，跳过批量构图")
+        print_info("暂存回捞为空，跳过批量构图")
         return summary
 
     print_info(
-        f"从 Milvus 取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
+        f"从暂存后端取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
     )
     graphiti = None
     try:
@@ -1377,7 +1388,7 @@ async def batch_graph_event_with_related_stash(
                 }
             )
             logger.info(
-                "skip Milvus candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
+                "skip stash candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
                 historical_event.get("event_id"),
                 reason,
                 historical_event.get("match_source"),
@@ -1428,11 +1439,11 @@ async def batch_graph_event_with_related_stash(
 
         if skipped_irrelevant_results:
             print_info(
-                f"Milvus 回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
+                f"暂存回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
             )
         if skipped_existing_results:
             print_info(
-                f"Milvus 回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
+                f"暂存回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
             )
 
         if batch_texts:
@@ -1441,7 +1452,7 @@ async def batch_graph_event_with_related_stash(
                 graphiti, batch_texts, group_id, dry_run
             )
         else:
-            print_info("Milvus 回捞后无新增候选需要批量构图")
+            print_info("暂存回捞后无新增候选需要批量构图")
             batch_results = []
 
         all_results = [
@@ -1465,11 +1476,11 @@ async def batch_graph_event_with_related_stash(
             ]
             consumed_event_ids.extend(skipped_existing_event_ids)
             await stash_store.mark_events_graph_built(consumed_event_ids)
-            print_info("批量构图/跳过检查完成，已标记相关 Milvus 暂存事件为已构图")
+            print_info("批量构图/跳过检查完成，已标记相关暂存事件为已构图")
         else:
             failed = sum(1 for r in all_results if not r.get("success", True))
             print_info(
-                f"批量构图部分失败 ({failed}/{len(all_results)})，Milvus 暂存保留待重试"
+                f"批量构图部分失败 ({failed}/{len(all_results)})，暂存事件保留待重试"
             )
         return summary
     except Exception as e:
@@ -1679,12 +1690,12 @@ class SentinelPipelineFlow(Flow):
                 eligible_count,
             )
             if fetched_count == 0:
-                print_info("Milvus 暂存回捞为空，跳过二次检索和二次风险评估")
+                print_info("暂存回捞为空，跳过二次检索和二次风险评估")
             elif eligible_count == 0:
-                print_info("Milvus 回捞候选均未通过过滤，跳过二次检索和二次风险评估")
+                print_info("暂存回捞候选均未通过过滤，跳过二次检索和二次风险评估")
             else:
                 print_info(
-                    "Milvus 回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
+                    "暂存回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
                 )
             return self.state.get("first_risk_context", {})
 
@@ -1811,19 +1822,13 @@ async def process_message_detailed(
         normalized_event.source,
     )
 
-    # 黑名单过滤 + Milvus 暂存
-    blacklist_redis_client: Redis | None = None
+    config_storage = storage_config(config)
+    blacklist_backend = config_storage.get("blacklist_backend", "sqlite")
+    stash_backend = config_storage.get("stash_backend", "sqlite")
+    blacklist_redis_client = None
     try:
-        blacklist_redis_client = Redis(
-            host=config["redis"]["host"],
-            port=config["redis"]["port"],
-            password=config["redis"]["password"] or None,
-            db=config["redis"]["blacklist_db"],
-            decode_responses=False,
-        )
-
-        store = BlacklistStore(blacklist_redis_client)
-        stash_store = MilvusStashStore.from_config(config)
+        store, blacklist_redis_client = create_blacklist_store(config)
+        stash_store = create_stash_store(config)
         bl_filter = BlacklistFilter(store)
 
         id_numbers = extract_person_id_numbers(normalized_event.raw_content)
@@ -1836,9 +1841,9 @@ async def process_message_detailed(
             )
             print_info(f"EVENT_ID: {normalized_event.event_id}")
             if stashed_count:
-                print_info("事件未命中黑名单，已暂存到 Milvus")
+                print_info(f"事件未命中黑名单，已暂存到 {stash_backend}")
             else:
-                print_info("事件未命中黑名单，Milvus 已存在相同内容，跳过重复暂存")
+                print_info(f"事件未命中黑名单，{stash_backend} 已存在相同内容，跳过重复暂存")
             return {
                 "event_id": normalized_event.event_id,
                 "status": "stashed",
@@ -1855,6 +1860,10 @@ async def process_message_detailed(
                     "event_similarity": blacklist_result.event_similarity.__dict__,
                 },
                 "stashed_count": stashed_count,
+                "storage": {
+                    "blacklist_backend": blacklist_backend,
+                    "stash_backend": stash_backend,
+                },
                 "raw_content": normalized_event.raw_content,
                 "title": normalized_event.title,
             }
@@ -1901,6 +1910,10 @@ async def process_message_detailed(
             },
             "graph_result": flow.state.get("graph_result"),
             "second_risk_applied": bool(flow.state.get("second_risk_applied")),
+            "storage": {
+                "blacklist_backend": blacklist_backend,
+                "stash_backend": stash_backend,
+            },
             "raw_content": normalized_event.raw_content,
             "title": normalized_event.title,
         }

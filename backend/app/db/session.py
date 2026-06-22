@@ -89,6 +89,20 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 UNIQUE(item_type, value)
             );
+
+            CREATE TABLE IF NOT EXISTS stashed_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT UNIQUE NOT NULL,
+                person_ids_json TEXT NOT NULL,
+                raw_content TEXT NOT NULL,
+                content_hash TEXT UNIQUE NOT NULL,
+                created_at TEXT NOT NULL,
+                expire_at TEXT NOT NULL,
+                is_graph_built INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_stashed_events_graph_expire
+                ON stashed_events(is_graph_built, expire_at);
             """
         )
         columns = {
