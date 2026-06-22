@@ -87,18 +87,20 @@ async def diagnose_milvus_failure(
     stay aligned with :class:`MilvusCaseInspector` without reaching into the
     store's private helpers directly.
     """
+    # ---- check 1: event_id present ----------------------------------------
+    if not event_id:
+        return MilvusDiagnostics(
+            queried_event_id=event_id,
+            error_type="missing_event_id",
+            error_message="No event_id provided for diagnosis",
+        )
+
     store = store or MilvusStashStore()
     collection_name: str = store._collection_name
     diag = MilvusDiagnostics(
         collection_name=collection_name,
         queried_event_id=event_id,
     )
-
-    # ---- check 1: event_id present ----------------------------------------
-    if not event_id:
-        diag.error_type = "missing_event_id"
-        diag.error_message = "No event_id provided for diagnosis"
-        return diag
 
     # ---- check 2: connectivity + collection existence ----------------------
     try:
