@@ -4,13 +4,16 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from redis.asyncio import Redis
 
 from backend.app.db.session import get_connection
-from main import load_config
-from blacklist.store import BlacklistStore
+from blacklist.sqlite_store import SQLiteBlacklistStore
 
 router = APIRouter(prefix="/api/blacklist", tags=["blacklist"])
+ITEM_TYPE_MAP = {
+    "persons": "person",
+    "keywords": "keyword",
+    "events": "event",
+}
 
 
 PERSON_SEEDS = [
@@ -83,18 +86,6 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-async def _store() -> tuple[Redis, BlacklistStore]:
-    config = load_config()
-    redis = Redis(
-        host=config["redis"]["host"],
-        port=config["redis"]["port"],
-        password=config["redis"]["password"] or None,
-        db=config["redis"]["blacklist_db"],
-        decode_responses=False,
-    )
-    return redis, BlacklistStore(redis)
-
-
 def _upsert_item(item_type: str, value: str, summary: str, description: str) -> None:
     now = _now()
     with get_connection() as conn:
@@ -126,91 +117,45 @@ def _list_items(item_type: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _disable_item(item_type: str, value: str) -> bool:
-    with get_connection() as conn:
-        result = conn.execute(
-            """
-            UPDATE blacklist_items
-            SET enabled = 0, updated_at = ?
-            WHERE item_type = ? AND value = ?
-            """,
-            (_now(), item_type, value),
-        )
-    return result.rowcount > 0
+def _normalize_item_type(item_type: str) -> str:
+    normalized = ITEM_TYPE_MAP.get(item_type)
+    if normalized is None:
+        raise HTTPException(status_code=404, detail="unknown blacklist type")
+    return normalized
 
 
 async def _ensure_default_items() -> None:
-    redis, store = await _store()
-    try:
-        for value, summary, description in PERSON_SEEDS:
-            if await store.query_person(value) is None:
-                await store.append_person(value)
-            _upsert_item("person", value, summary, description)
-        for value, summary, description in KEYWORD_SEEDS:
-            keyword_exists = await redis.zscore(store.KEYWORD_KEY, value)
-            if keyword_exists is None:
-                await store.append_keyword(value)
-            _upsert_item("keyword", value, summary, description)
-        for value, summary, description in EVENT_SEEDS:
-            if await store.query_event(value) is None:
-                await store.append_event(value, description)
-            _upsert_item("event", value, summary, description)
-    finally:
-        await redis.aclose()
+    for value, summary, description in PERSON_SEEDS:
+        _upsert_item("person", value, summary, description)
+    for value, summary, description in KEYWORD_SEEDS:
+        _upsert_item("keyword", value, summary, description)
+    for value, summary, description in EVENT_SEEDS:
+        _upsert_item("event", value, summary, description)
 
 
 @router.get("/{item_type}")
 async def list_blacklist_items(item_type: str) -> dict:
-    if item_type not in {"persons", "keywords", "events"}:
-        raise HTTPException(status_code=404, detail="unknown blacklist type")
+    normalized = _normalize_item_type(item_type)
     await _ensure_default_items()
-    normalized = {"persons": "person", "keywords": "keyword", "events": "event"}[
-        item_type
-    ]
     return {"items": _list_items(normalized)}
 
 
 @router.post("/{item_type}")
 async def create_blacklist_item(item_type: str, payload: BlacklistCreate) -> dict:
-    if item_type not in {"persons", "keywords", "events"}:
-        raise HTTPException(status_code=404, detail="unknown blacklist type")
-
-    redis, store = await _store()
-    try:
-        if item_type == "persons":
-            await store.append_person(payload.value)
-            normalized = "person"
-        elif item_type == "keywords":
-            await store.append_keyword(payload.value)
-            normalized = "keyword"
-        else:
-            await store.append_event(payload.value, payload.summary or payload.description)
-            normalized = "event"
-        _upsert_item(normalized, payload.value, payload.summary, payload.description)
-        return {"created": True, "item_type": normalized, "value": payload.value}
-    finally:
-        await redis.aclose()
+    normalized = _normalize_item_type(item_type)
+    _upsert_item(normalized, payload.value, payload.summary, payload.description)
+    return {"created": True, "item_type": normalized, "value": payload.value}
 
 
 @router.delete("/{item_type}/{value}")
 async def delete_blacklist_item(item_type: str, value: str) -> dict:
-    if item_type not in {"persons", "keywords", "events"}:
-        raise HTTPException(status_code=404, detail="unknown blacklist type")
-
-    redis, store = await _store()
-    try:
-        if item_type == "persons":
-            removed = await store.remove_person(value)
-            normalized = "person"
-        elif item_type == "keywords":
-            removed = await store.remove_keyword(value)
-            normalized = "keyword"
-        else:
-            removed = await store.remove_event(value)
-            normalized = "event"
-        db_removed = _disable_item(normalized, value)
-        if not removed and not db_removed:
-            raise HTTPException(status_code=404, detail="blacklist item not found")
-        return {"deleted": True, "item_type": normalized, "value": value}
-    finally:
-        await redis.aclose()
+    normalized = _normalize_item_type(item_type)
+    store = SQLiteBlacklistStore(get_connection)
+    removed = await {
+        "person": store.remove_person,
+        "keyword": store.remove_keyword,
+        "event": store.remove_event,
+    }[normalized](value)
+    if not removed:
+        raise HTTPException(status_code=404, detail="blacklist item not found")
+    return {"deleted": True, "item_type": normalized, "value": value}

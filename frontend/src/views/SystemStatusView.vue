@@ -17,7 +17,7 @@ onMounted(load)
   <section class="page-header">
     <div>
       <h1>系统状态</h1>
-      <p>查看数据库、Redis 和设备信息。</p>
+      <p>查看本地数据库、存储后端和设备信息。</p>
     </div>
   </section>
 
