@@ -1,10 +1,10 @@
 """
-Sentinel 舆情分析系统 — 事件分类与严重度评估模块
+Sentinel Edge 金融风控 — 风险类型与处置严重度评估模块
 
 基于 Jina Rerank API 的事件分类器，支持：
-- 7 种事件类别分类（国际政治、科技、经济、社会/文化、公共卫生、能源、金融）
-- 4 级影响严重度评估（轻微、一般、严重、重大）
-- 严重度到时间范围的动态映射
+- 银行零售风控风险类型分类
+- 4 级处置严重度评估（轻微、一般、严重、重大）
+- 严重度到案件级观察时间范围的动态映射
 - 关键词匹配回退方案
 """
 
@@ -17,194 +17,168 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════
-# 事件类别分类（category classification）
+# 金融风控风险类型分类（risk type classification）
 # ══════════════════════════════════════════════════════════════════
 
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
-    "intl_politics": "这条新闻属于国际政治与外交类事件，涉及国家间关系、地缘政治冲突、军事对抗、外交谈判、制裁禁令、联盟关系、领土争端等。",  # noqa: E501
-    "tech": "这条新闻属于科技与技术创新类事件，涉及芯片、人工智能、半导体、量子计算、5G/6G、自动驾驶、云计算、大数据、物联网等前沿技术领域。",  # noqa: E501
-    "economy": "这条新闻属于宏观经济类事件，涉及经济增长、GDP、通胀通缩、央行货币政策、利率汇率、国际贸易、供应链、经济衰退或复苏。",  # noqa: E501
-    "society": "这条新闻属于社会与文化类事件，涉及性别平等、种族议题、宗教冲突、教育医疗、住房政策、贫富差距、社会福利、劳资纠纷等。",  # noqa: E501
-    "public_health": "这条新闻属于公共卫生类事件，涉及传染病疫情、疫苗研发、医疗资源、医院ICU、死亡感染率、公共卫生防控、隔离封控等。",  # noqa: E501
-    "energy": "这条新闻属于能源与环保类事件，涉及石油天然气、可再生能源、太阳能风能、核电、碳排放、碳中和、新能源、电网电力等。",  # noqa: E501
-    "finance": "这条新闻属于金融与资本市场类事件，涉及银行保险、证券基金、并购IPO、债务信贷、金融风险、市场波动、金融监管等。",  # noqa: E501
+    "aml_structuring": "这条银行零售风控事件属于反洗钱/分拆交易风险，涉及多账户分散转账、资金归集、规避监测、可疑出入金或冻结复核。",  # noqa: E501
+    "fraud_transfer": "这条银行零售风控事件属于涉诈转账风险，涉及诱导投资、保证金、高收益返利、拒绝提现、投诉线索或疑似诈骗收款方。",  # noqa: E501
+    "mule_account": "这条银行零售风控事件属于跑分/资金归集账户风险，涉及新账户、多人转入、快速出金、空备注、收款网络或资金中转。",  # noqa: E501
+    "crypto_merchant_risk": "这条银行零售风控事件属于虚拟币商户风险，涉及虚拟币平台商户、币商、入金出金、保证金或虚拟资产相关交易。",  # noqa: E501
+    "account_takeover": "这条银行零售风控事件属于账户盗用/异地新设备风险，涉及陌生设备、境外或异地 IP、验证码异常、回访失败或非常用登录。",  # noqa: E501
+    "loan_fraud": "这条银行零售风控事件属于贷款欺诈/包装流水风险，涉及经营贷、资料造假、流水包装、纳税凭证异常或贷前欺诈。",  # noqa: E501
+    "blacklist_hit": "这条银行零售风控事件属于黑名单命中风险，涉及黑名单客户、涉诈账户、高风险商户、敏感关键词或已知风险主体。",  # noqa: E501
+    "normal_baseline": "这条银行零售风控事件属于低风险/正常行为基线，涉及工资入账、日常消费、常用设备、稳定频率或历史行为一致。",  # noqa: E501
 }
 
 CATEGORY_NAMES: dict[str, str] = {
-    "intl_politics": "国际政治",
-    "tech": "科技",
-    "economy": "经济",
-    "society": "社会/文化",
-    "public_health": "公共卫生",
-    "energy": "能源",
-    "finance": "金融",
+    "aml_structuring": "反洗钱/分拆交易",
+    "fraud_transfer": "涉诈转账",
+    "mule_account": "跑分/资金归集账户",
+    "crypto_merchant_risk": "虚拟币商户风险",
+    "account_takeover": "账户盗用/异地新设备",
+    "loan_fraud": "贷款欺诈/包装流水",
+    "blacklist_hit": "黑名单命中",
+    "normal_baseline": "低风险/正常行为基线",
+    "finance": "金融风控",
     "general": "综合",
 }
 
+FINANCIAL_RISK_CATEGORIES = frozenset(
+    {
+        "aml_structuring",
+        "fraud_transfer",
+        "mule_account",
+        "crypto_merchant_risk",
+        "account_takeover",
+        "loan_fraud",
+        "blacklist_hit",
+        "normal_baseline",
+    }
+)
+
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "intl_politics": [
-        "制裁",
-        "禁令",
-        "出口",
-        "关税",
-        "贸易",
-        "地缘",
-        "冲突",
-        "战争",
-        "军事",
-        "联盟",
-        "联合国",
-        "外交",
-        "谈判",
-        "核",
-        "军备",
-        "领土",
-        "主权",
-        "国界",
-        "盟友",
-        "敌对",
-        "政变",
-        "革命",
-        "政权",
+    "aml_structuring": [
+        "反洗钱",
+        "洗钱",
+        "分拆交易",
+        "分拆",
+        "分散转出",
+        "分散转账",
+        "多账户",
+        "新开户账户",
+        "开户时间不足",
+        "资金归集",
+        "归集",
+        "规避监测",
+        "可疑交易",
+        "冻结",
+        "出金",
+        "立即复核",
     ],
-    "tech": [
-        "芯片",
-        "AI",
-        "人工智能",
-        "大模型",
-        "算法",
-        "算力",
-        "GPU",
-        "半导体",
-        "光刻机",
-        "EDA",
-        "量子",
-        "区块链",
-        "5G",
-        "6G",
-        "自动驾驶",
-        "机器人",
-        "云计算",
-        "大数据",
-        "物联网",
+    "fraud_transfer": [
+        "涉诈",
+        "诈骗",
+        "诱导投资",
+        "保证金",
+        "高收益",
+        "返利",
+        "拒绝提现",
+        "投诉",
+        "客服话术",
+        "投资平台",
+        "收款账户",
+        "被骗",
     ],
-    "economy": [
-        "经济",
-        "股市",
-        "债券",
-        "通胀",
-        "通缩",
-        "GDP",
-        "央行",
-        "利率",
-        "汇率",
-        "美元",
-        "人民币",
-        "外资",
-        "投资",
-        "IPO",
-        "破产",
-        "衰退",
-        "增长",
-        "复苏",
-        "制裁",
-        "贸易战",
-        "供应链",
+    "mule_account": [
+        "跑分",
+        "资金归集",
+        "多个客户",
+        "多人转入",
+        "多客户",
+        "同一新开户账户",
+        "集中转入",
+        "集中转账",
+        "立即向外部支付通道出金",
+        "外部支付通道",
+        "快速出金",
+        "空备注",
+        "新账户",
+        "开户不足24小时",
+        "批量清算",
     ],
-    "society": [
-        "女权",
-        "性别",
-        "对立",
-        "抗议",
-        "示威",
-        "游行",
-        "罢工",
-        "种族",
-        "宗教",
-        "民族",
-        "文化",
-        "教育",
-        "医疗",
-        "住房",
-        "福利",
-        "社保",
-        "养老",
-        "就业",
-        "失业",
-        "贫富",
-        "公平",
+    "crypto_merchant_risk": [
+        "虚拟币",
+        "币商",
+        "虚拟资产",
+        "平台商户",
+        "虚拟币平台",
+        "入金",
+        "出金",
+        "币流",
+        "交易所",
     ],
-    "public_health": [
-        "疫情",
-        "传染病",
-        "疫苗",
-        "病毒",
-        "新冠",
-        "SARS",
-        "埃博拉",
-        "流感",
-        "公共卫生",
-        "隔离",
-        "封控",
-        "口罩",
-        "医疗资源",
-        "医院",
-        "ICU",
-        "死亡",
-        "感染率",
-        "传播",
+    "account_takeover": [
+        "账户盗用",
+        "异地",
+        "境外",
+        "IP",
+        "新设备",
+        "首次登录",
+        "非常用设备",
+        "短信验证码",
+        "验证码",
+        "多次失败",
+        "回访电话无人接听",
+        "无人接听",
+        "常驻",
     ],
-    "energy": [
-        "能源",
-        "石油",
-        "天然气",
-        "煤炭",
-        "可再生能源",
-        "太阳能",
-        "风能",
-        "核电",
-        "碳",
-        "碳排放",
-        "碳中和",
-        "碳达峰",
-        "化石燃料",
-        "新能源",
-        "充电桩",
-        "电动车",
-        "电池",
-        "电网",
-        "停电",
-        "OPEC",
-        "减产",
-        "油价",
-        "上涨",
+    "loan_fraud": [
+        "经营贷",
+        "贷款",
+        "贷前",
+        "小微贷款",
+        "资料造假",
+        "包装流水",
+        "流水突然放大",
+        "纳税凭证",
+        "银行流水",
+        "同设备登录",
+        "贷款欺诈",
     ],
-    "finance": [
-        "银行",
-        "保险",
-        "证券",
-        "基金",
-        "信托",
-        "理财",
-        "P2P",
-        "非法集资",
-        "跑路",
-        "兑付",
-        "暴雷",
-        "挤兑",
-        "杠杆",
+    "blacklist_hit": [
+        "黑名单",
+        "命中",
+        "涉诈账户",
+        "高风险账户",
+        "高风险商户",
+        "敏感词",
+        "风险关键词",
+        "曾被多名客户投诉",
+    ],
+    "normal_baseline": [
+        "工资入账",
+        "刷卡消费",
+        "日常消费",
+        "常用手机",
+        "常用设备",
+        "交易频率稳定",
+        "历史行为一致",
+        "正常行为",
+        "低风险",
+        "消费地点",
     ],
 }
 
 # ══════════════════════════════════════════════════════════════════
-# 事件影响严重度分类（impact severity classification）
+# 处置严重度分类（case handling severity classification）
 # ══════════════════════════════════════════════════════════════════
 
 SEVERITY_DESCRIPTIONS: dict[str, str] = {
-    "minor": "这条新闻属于轻微影响事件，事件影响有限，可能在几天到几周内消退，不会对整体格局产生持续影响，影响范围主要集中在局部或特定领域。",  # noqa: E501
-    "moderate": "这条新闻属于一般影响事件，事件有一定影响，可能持续几周到几个月，会引发局部调整或短期波动，但不会改变整体格局。",  # noqa: E501
-    "severe": "这条新闻属于严重影响事件，事件影响较大，可能持续几个月到几年，会改变局部格局或引发系统性调整，影响范围较广。",  # noqa: E501
-    "critical": "这条新闻属于重大影响事件，事件影响深远，可能持续几年到几十年，可能重塑全球或行业格局，影响范围广泛且持久。",  # noqa: E501
+    "minor": "这条银行风控事件属于轻微处置优先级，交易行为大体正常或风险信号较弱，通常适合暂存、观察或作为正常行为基线。",  # noqa: E501
+    "moderate": "这条银行风控事件属于一般处置优先级，存在局部异常或信息缺口，需要持续观察、补充核验或进入规则复核。",  # noqa: E501
+    "severe": "这条银行风控事件属于严重处置优先级，存在明显异常交易、可疑主体或账户风险，需要人工复核、关联排查或临时拦截。",  # noqa: E501
+    "critical": "这条银行风控事件属于重大处置优先级，存在反洗钱、涉诈、冻结止付、黑名单命中或快速资金转移等强风险信号，需要立即复核并控制后续出入金。",  # noqa: E501
 }
 
 SEVERITY_NAMES: dict[str, str] = {
@@ -230,6 +204,9 @@ SEVERITY_KEYWORDS: dict[str, list[str]] = {
         "轻微波动",
         "发布",
         "新产品",
+        "正常",
+        "稳定",
+        "一致",
     ],
     "moderate": [
         "一般",
@@ -247,10 +224,12 @@ SEVERITY_KEYWORDS: dict[str, list[str]] = {
         "局部影响",
         "挤兑",
         "风险",
+        "观察",
+        "核验",
+        "信息不足",
     ],
     "severe": [
         "严重",
-        "重大",
         "系统性",
         "广泛",
         "持续",
@@ -260,9 +239,36 @@ SEVERITY_KEYWORDS: dict[str, list[str]] = {
         "深度影响",
         "长期影响",
         "广泛影响",
+        "异常转账",
+        "涉诈账户",
+        "首次登录",
+        "新设备",
+        "境外",
+        "短信验证码",
+        "回访电话无人接听",
+        "经营贷",
+        "流水突然放大",
+        "纳税凭证",
+        "包装流水",
+        "同设备登录",
+        "新收款账户",
+        "开户不足24小时",
+        "快速出金",
     ],
     "critical": [
         "重大",
+        "反洗钱",
+        "洗钱",
+        "分拆交易",
+        "资金归集",
+        "立即复核",
+        "冻结",
+        "止付",
+        "黑名单",
+        "贷款欺诈",
+        "立即向外部支付通道出金",
+        "多个交易对手",
+        "虚拟币",
         "灾难性",
         "历史性",
         "革命性",
@@ -286,24 +292,24 @@ SEVERITY_KEYWORDS: dict[str, list[str]] = {
 
 SEVERITY_TO_TIME_RANGES: dict[str, dict[str, str]] = {
     "minor": {
-        "short_term": "几天到几周",
-        "medium_term": "几周（无显著持续影响）",
-        "long_term": "无显著长期影响",
+        "short_term": "当前至24小时",
+        "medium_term": "1-7天",
+        "long_term": "7-30天（观察沉淀）",
     },
     "moderate": {
-        "short_term": "1-3个月",
-        "medium_term": "3-12个月",
-        "long_term": "1-2年（有限长期影响）",
+        "short_term": "当前至24小时",
+        "medium_term": "1-7天",
+        "long_term": "7-30天（复盘优化）",
     },
     "severe": {
-        "short_term": "1-3个月",
-        "medium_term": "3-12个月",
-        "long_term": "1-5年（显著长期影响）",
+        "short_term": "当前至24小时",
+        "medium_term": "1-7天",
+        "long_term": "7-30天（持续监测）",
     },
     "critical": {
-        "short_term": "1-3个月",
-        "medium_term": "3-12个月",
-        "long_term": "5年以上（深远长期影响）",
+        "short_term": "当前至24小时",
+        "medium_term": "1-7天",
+        "long_term": "7-30天（案件复盘与规则沉淀）",
     },
 }
 
@@ -332,13 +338,13 @@ async def _rerank_classify_combined(
     tuple[str, float, dict[str, float]],
 ]:
     """
-    使用 Jina Rerank 模型同时分类事件类别和严重度。
+    使用 Jina Rerank 模型同时分类金融风控风险类型和处置严重度。
 
     将类别和严重度描述合并到一个documents列表，通过前缀区分，
     实现单次API调用完成两种分类。
 
     Returns:
-        tuple: ((类别结果, 类别置信度, 类别得分字典), (严重度结果, 严重度置信度, 严重度得分字典))
+        tuple: ((风险类型结果, 类型置信度, 类型得分字典), (严重度结果, 严重度置信度, 严重度得分字典))
     """
     categories = list(category_descriptions.keys())
     severities = list(severity_descriptions.keys())
@@ -349,7 +355,10 @@ async def _rerank_classify_combined(
 
     url = base_url.rstrip("/") + "/rerank"
 
-    query = f"这条新闻「{event_text}」属于什么类别的事件？同时评估该事件的严重度（轻微/一般/严重/重大）。"
+    query = (
+        f"这条银行零售风控事件「{event_text}」属于哪一种风险类型？"
+        "同时评估该案件的处置严重度（轻微/一般/严重/重大）。"
+    )
 
     MAX_QUERY_LENGTH = 24000  # noqa: N806
     if len(query) > MAX_QUERY_LENGTH:
@@ -435,6 +444,7 @@ async def _rerank_classify_combined(
 def _keyword_classify(
     event_text: str,
     keywords: dict[str, list[str]],
+    default_category: str = "general",
 ) -> tuple[str, float, dict[str, float]]:
     """
     使用关键词匹配进行分类（回退方案）。
@@ -446,11 +456,11 @@ def _keyword_classify(
     scores: dict[str, float] = {}
 
     for category, kws in keywords.items():
-        score = sum(1 for kw in kws if kw in event_lower)
+        score = sum(1 for kw in kws if kw.lower() in event_lower)
         scores[category] = float(score)
 
     if not any(scores.values()):
-        return "general", 0.0, scores
+        return default_category, 0.0, scores
 
     max_score = max(scores.values())
     max_category = max(scores, key=scores.__getitem__)
@@ -467,7 +477,7 @@ def _keyword_classify(
 
 
 class EventClassifier:
-    """事件分类器：根据事件描述判断事件性质"""
+    """金融风控事件分类器：根据事件描述判断风险类型和处置严重度"""
 
     def __init__(
         self,
@@ -498,13 +508,13 @@ class EventClassifier:
 
     async def classify_with_severity(self, event_text: str) -> tuple[str, float, str, float]:
         """
-        同时分类事件类别和严重度，在 rerank 模式下仅调用一次 API。
+        同时分类风险类型和处置严重度，在 rerank 模式下仅调用一次 API。
 
         Args:
             event_text: 事件描述文本
 
         Returns:
-            tuple: (类别结果, 类别置信度, 严重度结果, 严重度置信度)
+            tuple: (风险类型结果, 类型置信度, 严重度结果, 严重度置信度)
         """
         try:
             if self.use_rerank and self.rerank_api_key:
@@ -524,7 +534,7 @@ class EventClassifier:
             logger.warning("Rerank classification failed (%s), falling back to keyword classification", e)
 
         cat_result = _keyword_classify(event_text, CATEGORY_KEYWORDS)
-        sev_result = _keyword_classify(event_text, SEVERITY_KEYWORDS)
+        sev_result = _keyword_classify(event_text, SEVERITY_KEYWORDS, "moderate")
         return (
             cat_result[0],
             cat_result[1],
@@ -533,7 +543,7 @@ class EventClassifier:
         )
 
     def get_category_name(self, category: str) -> str:
-        """获取类别的中文名称"""
+        """获取风险类型的中文名称"""
         return CATEGORY_NAMES.get(category, category)
 
     def get_severity_name(self, severity: str) -> str:
@@ -542,7 +552,7 @@ class EventClassifier:
 
     def get_time_ranges(self, severity: str) -> dict[str, str]:
         """
-        根据严重度获取对应的时间范围。
+        根据处置严重度获取对应的案件观察时间范围。
 
         Args:
             severity: 严重度标签

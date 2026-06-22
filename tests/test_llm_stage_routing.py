@@ -114,10 +114,7 @@ def test_reasoning_kwargs_are_enabled_only_for_reason_tier(monkeypatch):
         'reasoning': True,
         'max_reasoning_attempts': 4,
     }
-    assert llm_provider.reasoning_kwargs_for('dashboard') == {
-        'reasoning': True,
-        'max_reasoning_attempts': 4,
-    }
+    assert llm_provider.reasoning_kwargs_for('dashboard') == {}
     assert llm_provider.reasoning_kwargs_for('normalize') == {}
     assert llm_provider.reasoning_kwargs_for('classify') == {}
     assert llm_provider.reasoning_kwargs_for('graphiti') == {}
@@ -126,7 +123,7 @@ def test_reasoning_kwargs_are_enabled_only_for_reason_tier(monkeypatch):
 def test_reasoning_kwargs_default_to_two_attempts(monkeypatch):
     llm_provider = reload_provider(monkeypatch, {'REASON_MAX_ATTEMPTS': ''})
 
-    assert llm_provider.reasoning_kwargs_for('dashboard') == {
+    assert llm_provider.reasoning_kwargs_for('risk_first') == {
         'reasoning': True,
         'max_reasoning_attempts': 2,
     }

@@ -36,7 +36,7 @@ def test_main_reasoning_kwargs_are_attached_to_reasoning_agents_only():
         'second_evaluate_risk'
     )
     dashboard_source = _function_source('simulate_dashboard')
-    assert dashboard_source.count('**reasoning_kwargs_for("dashboard")') == 2
+    assert 'reasoning_kwargs_for("dashboard")' not in dashboard_source
 
     assert 'reasoning_kwargs_for("classify")' not in _function_source('classify_event')
     assert 'reasoning_kwargs_for("normalize")' not in _function_source(
