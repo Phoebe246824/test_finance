@@ -6,7 +6,7 @@
 
 - **Windows 路径问题**：`graphiti/test.py` 中包含 macOS 硬编码路径 `sys.path.insert(0, "/Users/phoebe/project/zxy/test_Sentinel")`，在 Windows 上运行需修改
 - **Python 版本**：项目使用 Python 3.13，部分依赖（如 `pika`）需要确认兼容性
-- **Docker 资源**：Milvus compose 包含 4 个容器（etcd + MinIO + Milvus + Attu），请确保 Docker 分配了至少 8GB 内存
+- **Docker 资源**：默认 Web 路径只需要 Neo4j；Milvus compose 包含 4 个容器（etcd + MinIO + Milvus + Attu），只有启用 `STASH_BACKEND=milvus` 或向量演示时再启动，并确保 Docker 分配了至少 8GB 内存
 
 ### 依赖与架构
 

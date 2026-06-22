@@ -48,13 +48,13 @@ uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8001
 ### Docker 相关
 
 ```bash
-# 启动所有依赖服务（Neo4j + RabbitMQ + Milvus + etcd + MinIO + Attu + Redis）
+# 启动默认依赖服务（Neo4j；SQLite 黑名单/暂存不需要容器）
 docker compose up -d
 
-# 仅启动特定服务
+# 可选依赖服务
 docker compose up -d neo4j
-docker compose up -d rabbitmq
-docker compose up -d redis
+docker compose --profile legacy-flow up -d redis rabbitmq
+docker compose --profile vector up -d milvus attu
 
 # 停止并清理
 docker compose down -v
@@ -70,6 +70,8 @@ docker compose --env-file .env.example config
 ```
 
 ### Redis 调试
+
+仅在 `BLACKLIST_BACKEND=redis` 或运行 legacy Flow 演示时使用。
 
 ```bash
 # 查看所有人员 KV key

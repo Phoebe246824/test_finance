@@ -7,7 +7,7 @@
 当前项目测试分为三类：
 
 1. **纯函数/单元测试**：文本抽取、风险评分、黑名单匹配、脚本参数等，不依赖 Docker 服务。
-2. **集成测试**：需要 Redis、Milvus、Neo4j 等本地依赖服务，运行前先 `docker compose up -d`。
+2. **集成测试**：默认 Web/SQLite 测试不需要 Redis/Milvus；涉及 Neo4j、Milvus、Redis 的 legacy/enhanced 测试需显式启动对应 profile。
 3. **演示验证**：面向参赛 Demo，验证硬件画像、金融样例和端到端报告生成。
 
 ## 常用命令
@@ -19,8 +19,8 @@ uv run pytest tests/ -v
 # 快速单元测试
 uv run pytest tests/test_extract_subject_id_numbers.py tests/test_risk_scoring.py -q
 
-# 黑名单相关测试
-uv run pytest tests/test_blacklist_filter.py tests/test_blacklist_manager.py -q
+# 黑名单和默认 SQLite 暂存相关测试
+uv run pytest tests/test_blacklist_filter.py tests/test_blacklist_manager.py tests/test_sqlite_blacklist_store.py tests/test_sqlite_stash_store.py -q
 
 # 重置脚本测试
 uv run pytest tests/test_reset_and_seed_blacklist.py -q
@@ -28,10 +28,12 @@ uv run pytest tests/test_reset_and_seed_blacklist.py -q
 
 ## 依赖服务测试
 
-涉及 Milvus、Neo4j、Redis 的测试会读取 `.env` 或 `.env.example` 中的连接配置。运行前确认：
+涉及 Milvus、Neo4j、Redis 的测试会读取 `.env` 或 `.env.example` 中的连接配置。运行前按需启动：
 
 ```bash
 docker compose up -d
+docker compose --profile legacy-flow up -d redis rabbitmq
+docker compose --profile vector up -d milvus attu
 docker compose ps
 ```
 

@@ -8,7 +8,10 @@
 |------|------|--------|
 | `BACKEND_HOST` / `BACKEND_PORT` | 本地 FastAPI 启动地址 | 127.0.0.1:8000 |
 | `VITE_API_BASE_URL` | 前端访问后端 API 的地址 | http://127.0.0.1:8000 |
-| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | RabbitMQ 连接 | localhost:5672, root/pa55w0rd |
+| `DATABASE_URL` | 默认 SQLite 数据库地址 | sqlite:///./data/sentinel_edge.db |
+| `BLACKLIST_BACKEND` | 黑名单后端：`sqlite` 或 `redis` | sqlite |
+| `STASH_BACKEND` | 暂存后端：`sqlite` 或 `milvus` | sqlite |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | RabbitMQ 连接（legacy Flow 可选） | localhost:5672, root/pa55w0rd |
 | `RABBITMQ_MANAGEMENT_PORT` | RabbitMQ Management UI 宿主机端口 | 15672 |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 连接 | bolt://localhost:7687, neo4j/pa55w0rd |
 | `NEO4J_HTTP_PORT` / `NEO4J_BOLT_PORT` | Neo4j Browser / Bolt 宿主机端口 | 7474 / 7687 |
@@ -27,7 +30,7 @@
 | `EMBEDDER_MODEL` | 嵌入模型名称 | BAAI/bge-m3 |
 | `EMBEDDER_API_KEY` | 嵌入 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `EMBEDDER_API_BASE` | 嵌入 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
-| `EMBEDDING_DIM` | 嵌入向量维度，需与 Milvus 暂存 collection 维度一致 | 1024 |
+| `EMBEDDING_DIM` | 嵌入向量维度，启用 Milvus 暂存时需与 collection 维度一致 | 1024 |
 | `RERANKER_MODEL` | 重排序模型 | BAAI/bge-reranker-v2-m3 |
 | `RERANKER_API_KEY` | 重排序 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `RERANKER_BASE_URL` | 重排序 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
@@ -35,17 +38,17 @@
 | `RISK_SEARCH_NUM_RESULTS` | 风险评估搜索返回数 | 20 |
 | `SEARCH_MIN_SCORE` | 搜索相关性阈值（0.0 关闭） | 0.0 |
 | `RISK_THRESHOLD` | 风险评分阈值 | 0.7 |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（黑名单使用） | localhost:6379 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（`BLACKLIST_BACKEND=redis` 时使用） | localhost:6379 |
 | `MINIO_API_PORT` / `MINIO_CONSOLE_PORT` | MinIO API / Console 宿主机端口 | 9000 / 9001 |
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | MinIO 访问凭证 | minioadmin / minioadmin |
 | `MILVUS_GRPC_PORT` / `MILVUS_HTTP_PORT` | Milvus gRPC / HTTP WebUI 宿主机端口 | 19530 / 9091 |
 | `ATTU_PORT` | Attu 宿主机端口，默认避开 FastAPI 的 8000 | 8002 |
-| `MILVUS_URI` / `MILVUS_TOKEN` | Milvus 连接（事件暂存使用） | http://localhost:19530, 空 |
+| `MILVUS_URI` / `MILVUS_TOKEN` | Milvus 连接（`STASH_BACKEND=milvus` 时使用） | http://localhost:19530, 空 |
 | `MILVUS_STASH_COLLECTION` | Milvus 暂存 collection 名称 | stashed_events |
 | `KV_TTL_DAYS` | 暂存事件过期天数 | 90 |
-| `STASH_SEMANTIC_TOP_K` | Milvus 暂存语义召回数量 | 10 |
+| `STASH_SEMANTIC_TOP_K` | Milvus 暂存语义召回数量（可选向量后端） | 10 |
 | `BATCH_MAX_PER_PERSON` | 批量构图时每人最多取事件数 | 20 |
-| `BLACKLIST_REDIS_DB` | 黑名单使用的 Redis DB 编号 | 1 |
+| `BLACKLIST_REDIS_DB` | 黑名单使用的 Redis DB 编号（可选 Redis 后端） | 1 |
 | `BLACKLIST_EVENT_SIMILARITY_THRESHOLD` | 事件相似度阈值 | 0.5 |
 | `BLACKLIST_PERSON_MIN_HITS` | 人员命中次数阈值 | 1 |
 
