@@ -56,14 +56,14 @@ frontend/src/components/TrendReportPanel.vue
 现在已经能做这些事：
 
 1. `POST /api/analyze`：输入事件文本，调用现有 pipeline 分析。
-2. 分析结果写入 SQLite。
+2. 分析结果写入 Milvus events collection。
 3. `/dashboard`：风控总览、风险分布、趋势报告覆盖率、待复核任务。
 4. `/analysis`：前端风险分析页面，展示结果、命中详情、事件图谱、趋势预测报告。
 5. `/events`：事件列表、搜索、删除。
 6. `/events/:eventId`：事件详情、风险分数、命中详情、交互图谱、趋势报告、人工复核。
 7. `/graph/person`：按客户/人员搜索 Neo4j 图谱，支持节点扩展。
 8. `/blacklist`：人员、关键词、高危事件增删查。
-9. `/system`：API、Redis、数据库、硬件信息。
+9. `/system`：API、Milvus、Neo4j、硬件信息。
 
 ## 3. 总体架构
 
@@ -75,9 +75,7 @@ Vue 3 前端
 FastAPI 后端
   |
   |-- main.py 现有 Sentinel pipeline
-  |-- SQLite MVP 数据库
-  |-- Redis 黑名单
-  |-- Milvus 暂存与相似召回
+  |-- Milvus events + 黑名单 stores
   |-- Neo4j/Graphiti 图谱构建
   |-- 本地或远程 LLM 风险分析
 ```
@@ -154,7 +152,7 @@ updated_at
 
 ### 5.2 blacklist_items
 
-用于前端黑名单管理页面，同时 Redis 仍然负责实际快速匹配。
+用于前端黑名单管理页面，实际快速匹配由 Milvus 黑名单 stores 负责。
 
 ```text
 id
@@ -414,8 +412,8 @@ GET /api/system/hardware
 负责：
 
 1. 展示 API 是否正常。
-2. 展示 Redis 是否正常。
-3. 展示数据库是否存在。
+2. 展示 Milvus 是否正常。
+3. 展示 Neo4j 是否正常。
 4. 展示硬件信息。
 
 后续可加：
@@ -491,22 +489,9 @@ updated_at
 4. 一跳/两跳关系切换。
 5. 按客户、账户、商户搜索。
 
-### 第五步：数据库升级到 PostgreSQL
+### 第五步：Milvus schema 演进
 
-SQLite 适合比赛 Demo 和本地开发。正式一点建议换 PostgreSQL：
-
-```text
-DATABASE_URL=postgresql+psycopg://sentinel:password@localhost:5432/sentinel_edge
-```
-
-同时引入：
-
-```text
-SQLAlchemy
-Alembic
-```
-
-这样后续改表不会混乱。
+Milvus 是默认业务存储。后续新增字段时，应先更新 focused store 的 schema、fake client 测试和 `.env.example`，再考虑一次性迁移脚本。
 
 ### 第六步：比赛展示增强
 

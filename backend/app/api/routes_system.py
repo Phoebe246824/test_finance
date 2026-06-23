@@ -1,30 +1,42 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
-from redis.asyncio import Redis
 
-from backend.app.core.config import settings
-from main import load_config
+from backend.app.services import store_provider
+from backend.app.services.neo4j_graph_service import Neo4jGraphService
 from sentinel_edge import collect_hardware_profile
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 
+def _milvus_ready() -> bool:
+    try:
+        stores = store_provider.get_store_bundle()
+        stores.events.ensure_collection()
+    except Exception:
+        return False
+    return True
+
+
+async def _neo4j_ready() -> bool:
+    service = Neo4jGraphService()
+    try:
+        await service.graph_by_terms(["health"], limit=1)
+    except Exception:
+        return False
+    else:
+        return True
+    finally:
+        await service.close()
+
+
 @router.get("/health")
 async def health() -> dict:
-    config = load_config()
-    checks = {"api": True, "redis": False, "database": settings.database_path.exists()}
-    redis = Redis(
-        host=config["redis"]["host"],
-        port=config["redis"]["port"],
-        password=config["redis"]["password"] or None,
-        db=config["redis"]["blacklist_db"],
-    )
-    try:
-        checks["redis"] = bool(await redis.ping())
-    finally:
-        await redis.aclose()
-    return checks
+    return {
+        "api": True,
+        "milvus": _milvus_ready(),
+        "neo4j": await _neo4j_ready(),
+    }
 
 
 @router.get("/hardware")

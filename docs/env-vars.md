@@ -8,8 +8,6 @@
 |------|------|--------|
 | `BACKEND_HOST` / `BACKEND_PORT` | 本地 FastAPI 启动地址 | 127.0.0.1:8000 |
 | `VITE_API_BASE_URL` | 前端访问后端 API 的地址 | http://127.0.0.1:8000 |
-| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | RabbitMQ 连接 | localhost:5672, root/pa55w0rd |
-| `RABBITMQ_MANAGEMENT_PORT` | RabbitMQ Management UI 宿主机端口 | 15672 |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 连接 | bolt://localhost:7687, neo4j/pa55w0rd |
 | `NEO4J_HTTP_PORT` / `NEO4J_BOLT_PORT` | Neo4j Browser / Bolt 宿主机端口 | 7474 / 7687 |
 | `GRAPHITI_DRY_RUN` | 设为 true 跳过 Neo4j 写入，LLM 提取仍会执行 | false |
@@ -27,7 +25,7 @@
 | `EMBEDDER_MODEL` | 嵌入模型名称 | BAAI/bge-m3 |
 | `EMBEDDER_API_KEY` | 嵌入 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `EMBEDDER_API_BASE` | 嵌入 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
-| `EMBEDDING_DIM` | 嵌入向量维度，需与 Milvus 暂存 collection 维度一致 | 1024 |
+| `EMBEDDING_DIM` | embedding 维度，需与 `EMBEDDER_MODEL` 输出一致 | 1024 |
 | `RERANKER_MODEL` | 重排序模型 | BAAI/bge-reranker-v2-m3 |
 | `RERANKER_API_KEY` | 重排序 API 密钥 | 未设置时 fallback 到 LLM_API_KEY |
 | `RERANKER_BASE_URL` | 重排序 API 地址 | 未设置时 fallback 到 LLM_BASE_URL |
@@ -35,18 +33,21 @@
 | `RISK_SEARCH_NUM_RESULTS` | 风险评估搜索返回数 | 20 |
 | `SEARCH_MIN_SCORE` | 搜索相关性阈值（0.0 关闭） | 0.0 |
 | `RISK_THRESHOLD` | 风险评分阈值 | 0.7 |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（黑名单使用） | localhost:6379 |
 | `MINIO_API_PORT` / `MINIO_CONSOLE_PORT` | MinIO API / Console 宿主机端口 | 9000 / 9001 |
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | MinIO 访问凭证 | minioadmin / minioadmin |
 | `MILVUS_GRPC_PORT` / `MILVUS_HTTP_PORT` | Milvus gRPC / HTTP WebUI 宿主机端口 | 19530 / 9091 |
 | `ATTU_PORT` | Attu 宿主机端口，默认避开 FastAPI 的 8000 | 8002 |
-| `MILVUS_URI` / `MILVUS_TOKEN` | Milvus 连接（事件暂存使用） | http://localhost:19530, 空 |
-| `MILVUS_STASH_COLLECTION` | Milvus 暂存 collection 名称 | stashed_events |
+| `MILVUS_URI` | Milvus SDK 连接地址 | `http://127.0.0.1:19530` |
+| `MILVUS_TOKEN` | Milvus 鉴权 token，未启用鉴权时为空 | 空 |
+| `MILVUS_STASH_COLLECTION` | 统一事件 collection 名称 | `events` |
 | `KV_TTL_DAYS` | 暂存事件过期天数 | 90 |
-| `STASH_SEMANTIC_TOP_K` | Milvus 暂存语义召回数量 | 10 |
-| `BATCH_MAX_PER_PERSON` | 批量构图时每人最多取事件数 | 20 |
-| `BLACKLIST_REDIS_DB` | 黑名单使用的 Redis DB 编号 | 1 |
+| `STASH_SEMANTIC_TOP_K` | 高风险补图前语义召回候选数 | `10` |
+| `STASH_RERANK_ENABLED` | 是否启用召回候选重排序 | `true` |
+| `STASH_RERANK_MIN_SCORE` | 召回候选进入补图的最低重排序分数 | `0.7` |
+| `BATCH_MAX_PER_PERSON` | 每个人员 ID 的同人历史召回上限 | `20` |
 | `BLACKLIST_EVENT_SIMILARITY_THRESHOLD` | 事件相似度阈值 | 0.5 |
 | `BLACKLIST_PERSON_MIN_HITS` | 人员命中次数阈值 | 1 |
 
 LLM / Embedder / Reranker 三组凭证独立，可分别配置不同的 API 地址和密钥。`LLM_EXTRACT_*` 与 `LLM_REASON_*` 是聊天 LLM 的工作流分档：留空时复用基础 `LLM_*`，需要多模型常驻时分别指向快抽取模型和高质量研判模型。
+
+`DATABASE_URL`、`BLACKLIST_BACKEND`、`STASH_BACKEND`、`REDIS_*`、`RABBITMQ_*` 不再参与默认运行路径。

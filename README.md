@@ -11,7 +11,7 @@ https://github.com/Phoebe246824/test_finance
 ## 1. 项目能做什么
 
 - 输入一段金融风险事件文本，自动完成黑名单过滤、事件分类、风险评估和趋势预测。
-- 未命中高危规则的事件按低风险展示，并暂存到 Milvus，后续可被高风险事件回捞。
+- 未命中高危规则的事件按低风险展示，并默认写入 Milvus `events` collection，后续可被同客户高风险事件回捞。
 - 命中黑名单或高危规则的事件进入完整 pipeline，写入 Neo4j 图谱并生成风险结果。
 - 前端提供总览、风险分析、事件库、人物图谱、黑名单管理和系统状态页面。
 - 所有图谱页面统一使用可拖拽、可缩放、可展开的 Neo4j 风格关系图组件，支持节点/边属性查看。
@@ -25,10 +25,9 @@ https://github.com/Phoebe246824/test_finance
 - Python 3.13
 - FastAPI
 - CrewAI
-- Redis
-- Milvus
 - Neo4j / Graphiti
-- SQLite
+- Milvus
+- RabbitMQ（legacy Flow 可选）
 
 前端：
 
@@ -45,14 +44,14 @@ test_finance/
 ├── backend/                 # FastAPI 后端
 │   └── app/api/             # analysis/events/graph/blacklist/dashboard/system API
 ├── frontend/                # Vue3 前端
-├── blacklist/               # Redis 黑名单与 Milvus 暂存逻辑
+├── blacklist/               # Milvus 黑名单 stores + events 存储
 ├── graphiti/                # Neo4j/Graphiti 图谱工作流
 ├── trend_prediction/        # 意图分析与趋势预测提示词
 ├── scripts/                 # Demo case、初始化脚本、比赛报告脚本
 ├── tests/                   # 单元测试
 ├── docs/                    # 项目文档
 ├── main.py                  # 原 Sentinel pipeline 主入口
-├── docker-compose.yaml      # Redis/Milvus/Neo4j/RabbitMQ
+├── docker-compose.yaml      # 默认 Milvus + Neo4j；Attu 使用 Compose profile
 ├── pyproject.toml           # Python 依赖
 └── README.md
 ```
@@ -109,11 +108,8 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=pa55w0rd
 
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
 MILVUS_URI=http://127.0.0.1:19530
-ATTU_PORT=8002
+MILVUS_STASH_COLLECTION=events
 
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
@@ -146,7 +142,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 7. 启动基础服务
 
-启动 Redis、Milvus、Neo4j、RabbitMQ：
+默认启动 Milvus 和 Neo4j：
 
 ```bash
 docker compose up -d
@@ -162,21 +158,24 @@ docker compose ps
 
 ```text
 Neo4j Browser: http://localhost:7474
-Milvus Attu:   http://localhost:8002
-RabbitMQ UI:   http://localhost:15672
+Milvus WebUI: http://localhost:9091/webui/
 ```
 
-注意：FastAPI 使用 `127.0.0.1:8000`，Attu 默认使用 `localhost:8002`，两者不要映射到同一个宿主机端口。
+可选启动 Attu：
+
+```bash
+docker compose --profile vector up -d attu
+```
 
 ## 8. 初始化黑名单种子数据
+
+打开前端黑名单页面或调用 `/api/blacklist/*` 时，后端通过 Milvus stores 写入默认金融 Demo 黑名单种子。
+
+需要重置演示数据时运行：
 
 ```bash
 uv run python scripts/reset_and_seed_blacklist.py
 ```
-
-这个脚本会重置 Neo4j/Milvus 相关状态并写入金融 Demo 用到的人员黑名单、关键词和高危事件样本。
-
-如果只打开前端黑名单页面，后端也会自动补齐默认黑名单种子数据，不需要手动新增。
 
 Demo case 在：
 
@@ -307,6 +306,8 @@ npm run build
 
 ### Milvus 连接失败
 
+Milvus 是默认业务存储。若后端启动或事件写入失败，先排查本节。
+
 报错类似：
 
 ```text
@@ -317,7 +318,7 @@ Fail connecting to server on localhost:19530
 
 ```bash
 docker compose ps
-docker compose up -d milvus
+docker compose up -d
 ```
 
 确认 `MILVUS_URI=http://127.0.0.1:19530`。
@@ -377,7 +378,6 @@ cd test_finance
 cp .env.example .env
 uv sync --dev
 docker compose up -d
-uv run python scripts/reset_and_seed_blacklist.py
 uv run uvicorn backend.app.main:app --reload --port 8000
 ```
 

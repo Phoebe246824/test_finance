@@ -93,23 +93,10 @@ def test_assert_case_state_checks_after_case_expectations():
 
 
 class FakeMilvusDiagnosticsStore:
-    """Fake *MilvusStashStore* that exposes ``_ensure_collection()`` and
-    ``_query_rows()`` — the same surface ``diagnose_milvus_failure`` uses.
-
-    Each test constructs this with the *rows* it should return and optionally
-    an *ensure_collection_error* to simulate connection failures.
-
-    .. note::
-
-       The name ``FakeMilvusDiagnosticsStore`` (not ``FakeMilvusStore``)
-       avoids a name collision with the unrelated ``FakeMilvusStore`` at
-       the bottom of this file that is used by the inspector tests.
-    """
-
     def __init__(
         self,
         rows: list[dict] | None = None,
-        collection_name: str = "stashed_events",
+        collection_name: str = "events",
         ensure_collection_error: str | None = None,
         query_error: str | None = None,
     ):
@@ -189,7 +176,7 @@ async def test_diagnose_milvus_failure_backend_access_failed():
 async def test_diagnose_milvus_failure_collection_not_found():
     """Collection missing → error_type='collection_not_found'."""
     store = FakeMilvusDiagnosticsStore(
-        ensure_collection_error="collection not found: stashed_events",
+        ensure_collection_error="collection not found: events",
     )
     diag = await diagnose_milvus_failure(store=store, event_id="E001")
     assert diag.error_type == "collection_not_found"
@@ -363,10 +350,7 @@ async def test_collect_case_state_snapshot_uses_inspectors():
     }
 
 
-class FakeMilvusStore:
-    """Minimal fake for ``MilvusCaseInspector`` tests. Uses ``_query_rows``
-    to capture the filter expression that was sent."""
-
+class FakeMilvusEventsStore:
     def __init__(self, rows):
         self.rows = rows
         self.filters = []
@@ -387,7 +371,7 @@ class FakeMilvusStore:
 @pytest.mark.asyncio
 async def test_milvus_case_inspector_queries_by_event_id():
     inspector = MilvusCaseInspector(
-        store=FakeMilvusStore(
+        store=FakeMilvusEventsStore(
             [
                 {
                     "event_id": "E001",

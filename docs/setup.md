@@ -6,7 +6,7 @@
 
 - **Python**: 3.13+
 - **uv**: 0.11+（依赖管理与脚本运行器，安装方式见 https://docs.astral.sh/uv/）
-- **Docker** + Docker Compose（用于启动 Redis、Milvus、Neo4j、RabbitMQ、MinIO、Attu）
+- **Docker** + Docker Compose（默认启动 Milvus + Neo4j）
 - **Git**
 - **Node.js**: 20+（用于 Vue3 前端）
 
@@ -26,20 +26,20 @@ uv sync --dev
 cp .env.example .env
 # 编辑 .env，至少填入 LLM_API_KEY 和对应 API 地址
 
-# 5. 启动依赖服务（Redis + Milvus + Neo4j + RabbitMQ + MinIO + Attu）
+# 5. 启动默认依赖服务（Milvus + Neo4j）
 docker compose up -d
 
 # 6. 验证各服务连接（浏览器访问）
 # http://localhost:7474 — Neo4j Browser (neo4j/pa55w0rd)
-# http://localhost:15672 — RabbitMQ Management (root/pa55w0rd)
-# http://localhost:8002 — Milvus Attu
-# http://localhost:9091/webui/ — Milvus WebUI
 
-# 7. 初始化金融 Demo 黑名单和暂存数据
-uv run python scripts/reset_and_seed_blacklist.py
-
-# 8. 启动 FastAPI 后端
+# 7. 启动 FastAPI 后端
 uv run uvicorn backend.app.main:app --reload --port 8000
+```
+
+可选：启动 Attu 管理界面。
+
+```bash
+docker compose --profile vector up -d attu
 ```
 
 新开终端启动前端：

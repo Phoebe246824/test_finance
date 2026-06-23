@@ -8,8 +8,24 @@ Agent 设计:
   - RiskEvaluator Agent: 评估风险等级，输出 0-1 风险分数（使用推理模型）
   - 两个 Agent 按 sequential 顺序执行，分类结果作为评级输入
 """
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Crew
 from pydantic import BaseModel
+
+# DEPRECATED: RabbitMQ service entrypoint kept for legacy demos only.
+try:
+    import pika
+except ImportError:
+    pika = None
+
+LEGACY_RABBITMQ_ERROR = (
+    "RabbitMQ entrypoints are deprecated; install the legacy extra to run them: "
+    "uv sync --extra legacy"
+)
+
+
+def _require_pika() -> None:
+    if pika is None:
+        raise RuntimeError(LEGACY_RABBITMQ_ERROR)
 
 
 # ============================================================
@@ -200,4 +216,5 @@ def start_classification_consumer(config: dict) -> None:
             sentinel.internal.high_risk      → 高评级事件（risk_score >= 0.7，Phase 2 使用）
         手动 ACK，异常进入 DLQ
     """
+    _require_pika()
     ...

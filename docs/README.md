@@ -35,7 +35,7 @@
 
 ## 当前运行主线
 
-1. `docker compose up -d` 启动 Redis、Milvus、Neo4j、RabbitMQ、MinIO、Attu 等依赖。
+1. `docker compose up -d` 启动 Milvus、Neo4j、etcd、MinIO 等默认依赖。
 2. `uv run uvicorn backend.app.main:app --reload --port 8000` 启动 FastAPI 后端。
 3. `cd frontend && npm run dev` 启动 Vue3 前端。
 4. 可选运行 `uv run python main.py` 使用原 CrewAI Flow 终端 pipeline。

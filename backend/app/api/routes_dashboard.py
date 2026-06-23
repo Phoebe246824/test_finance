@@ -1,23 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
-from typing import Any
 
 from fastapi import APIRouter
 
-from backend.app.db.session import get_connection
+from backend.app.services import store_provider
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
-
-
-def _loads(value: str | None, fallback: Any) -> Any:
-    if not value:
-        return fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return fallback
 
 
 def _risk_bucket(row: dict) -> str:
@@ -36,31 +25,16 @@ def _risk_bucket(row: dict) -> str:
 
 @router.get("/overview")
 async def overview() -> dict:
+    stores = store_provider.get_store_bundle()
     today = datetime.now().date().isoformat()
     since_7d = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
-
-    with get_connection() as conn:
-        event_rows = [
-            dict(row)
-            for row in conn.execute(
-                """
-                SELECT * FROM financial_events
-                ORDER BY updated_at DESC
-                """
-            ).fetchall()
-        ]
-        review_rows = [
-            dict(row)
-            for row in conn.execute(
-                """
-                SELECT * FROM review_actions
-                ORDER BY created_at DESC
-                """
-            ).fetchall()
-        ]
-        blacklist_count = conn.execute(
-            "SELECT COUNT(*) AS count FROM blacklist_items WHERE enabled = 1"
-        ).fetchone()["count"]
+    event_rows = stores.events.list_events(page=1, page_size=10000)["items"]
+    review_rows = stores.review_actions.list_recent(limit=10000)
+    blacklist_count = (
+        len(stores.persons.list_items())
+        + len(stores.keywords.list_items())
+        + len(stores.event_samples.list_items())
+    )
 
     buckets = {"high": 0, "medium": 0, "low": 0}
     event_type_counts: dict[str, int] = {}
@@ -78,57 +52,55 @@ async def overview() -> dict:
         if row.get("risk_score") is not None:
             score_total += float(row["risk_score"])
             scored_count += 1
-        trend_report = _loads(row.get("trend_report_json"), {})
-        if trend_report:
+        if row.get("trend_report"):
             report_count += 1
-        for keyword in _loads(row.get("matched_keywords_json"), []):
+        for keyword in row.get("matched_keywords") or []:
             keyword_counts[keyword] = keyword_counts.get(keyword, 0) + 1
 
     total = len(event_rows)
-    today_count = sum(1 for row in event_rows if str(row.get("created_at", "")).startswith(today))
-    last_7d_count = sum(1 for row in event_rows if str(row.get("created_at", "")) >= since_7d)
-    pending_review = sum(
-        1
-        for row in event_rows
-        if _risk_bucket(row) == "high" and row["event_id"] not in reviewed_event_ids
-    )
-
     return {
         "metrics": {
             "total_events": total,
-            "today_events": today_count,
-            "last_7d_events": last_7d_count,
+            "today_events": sum(
+                1
+                for row in event_rows
+                if str(row.get("created_at", "")).startswith(today)
+            ),
+            "last_7d_events": sum(
+                1
+                for row in event_rows
+                if str(row.get("created_at", "")) >= since_7d
+            ),
             "high_risk_events": buckets["high"],
-            "pending_review": pending_review,
+            "pending_review": sum(
+                1
+                for row in event_rows
+                if _risk_bucket(row) == "high"
+                and row["event_id"] not in reviewed_event_ids
+            ),
             "blacklist_items": blacklist_count,
-            "avg_risk_score": round(score_total / scored_count, 4) if scored_count else None,
+            "avg_risk_score": round(score_total / scored_count, 4)
+            if scored_count
+            else None,
             "trend_report_coverage": round(report_count / total, 4) if total else 0,
         },
         "risk_distribution": buckets,
         "event_type_distribution": [
             {"name": key, "value": value}
             for key, value in sorted(
-                event_type_counts.items(), key=lambda item: item[1], reverse=True
+                event_type_counts.items(),
+                key=lambda item: item[1],
+                reverse=True,
             )
         ],
         "top_keywords": [
             {"name": key, "value": value}
             for key, value in sorted(
-                keyword_counts.items(), key=lambda item: item[1], reverse=True
+                keyword_counts.items(),
+                key=lambda item: item[1],
+                reverse=True,
             )[:8]
         ],
-        "recent_events": [
-            {
-                "event_id": row["event_id"],
-                "title": row.get("title") or row["event_id"],
-                "summary": row.get("summary") or row.get("raw_content", "")[:120],
-                "status": row.get("status"),
-                "risk_level": row.get("risk_level"),
-                "risk_score": row.get("risk_score"),
-                "event_type": row.get("event_type"),
-                "updated_at": row.get("updated_at"),
-            }
-            for row in event_rows[:8]
-        ],
+        "recent_events": event_rows[:8],
         "recent_reviews": review_rows[:8],
     }

@@ -23,14 +23,21 @@ from models import (
     to_queue_message,
 )
 
-# 惰性导入 pika（未安装时不影响 normalize_event 等函数）
+# DEPRECATED: RabbitMQ service entrypoint kept for legacy demos only.
 try:
     import pika
-
-    PIKA_AVAILABLE = True
 except ImportError:
-    pika = None  # type: ignore
-    PIKA_AVAILABLE = False
+    pika = None
+
+LEGACY_RABBITMQ_ERROR = (
+    "RabbitMQ entrypoints are deprecated; install the legacy extra to run them: "
+    "uv sync --extra legacy"
+)
+
+
+def _require_pika() -> None:
+    if pika is None:
+        raise RuntimeError(LEGACY_RABBITMQ_ERROR)
 
 
 # ============================================================
@@ -113,10 +120,7 @@ def get_rabbitmq_connection(config: dict):
         声明所有需要的 Exchange 和 Queue（durable=True）
         设置 prefetch_count=1 保证顺序处理
     """
-    if not PIKA_AVAILABLE:
-        raise RuntimeError(
-            "pika 未安装，无法连接 RabbitMQ。\n安装方式: pip install pika"
-        )
+    _require_pika()
     credentials = pika.PlainCredentials(
         username=config["user"],
         password=config["password"],
@@ -418,12 +422,10 @@ def create_event_callback(source: str, channel, config: dict):
 
             # 4. 发布到下游队列
             message = to_queue_message(normalized, "normalized", normalized.trace_id)
-            publish_props = None
-            if PIKA_AVAILABLE and pika is not None:
-                publish_props = pika.BasicProperties(
-                    delivery_mode=2,  # 持久化
-                    content_type="application/json",
-                )
+            publish_props = pika.BasicProperties(
+                delivery_mode=2,  # 持久化
+                content_type="application/json",
+            )
             channel.basic_publish(
                 exchange="sentinel.internal",
                 routing_key="normalized",
@@ -479,8 +481,7 @@ def start_consumers(config: dict) -> None:
         启动消费循环 start_consuming()
         注册优雅关闭处理
     """
-    if not PIKA_AVAILABLE:
-        raise RuntimeError("pika 未安装，无法启动消费者。\n安装方式: pip install pika")
+    _require_pika()
 
     logger = setup_logger("ingestion")
 
@@ -658,10 +659,10 @@ def create_app(config: dict):
                 "title": "测试标题"
             }
         """
-        if not PIKA_AVAILABLE:
+        if pika is None:
             raise HTTPException(
                 status_code=500,
-                detail="pika 未安装，无法连接 RabbitMQ。请先安装: pip install pika",
+                detail=LEGACY_RABBITMQ_ERROR,
             )
         try:
             connection, channel = get_rabbitmq_connection(config)

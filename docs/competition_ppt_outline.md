@@ -86,8 +86,8 @@
 ## P5 · 系统总体架构 〔评分 1.3，10 分〕
 
 - 一句核心论点：**全栈本地、链路闭环。**
-- **主架构图**〔素材 #10，需新建〕：`输入 → 标准化 → Redis 黑名单三路过滤 → (未命中)Milvus 暂存 / (命中)本地 LLM 分类 → Graphiti+Neo4j 构图 → 混合检索 → 多维风险评分 → 超阈值则历史回捞+批量补图 → 二次研判 → Dashboard Agent 摘要`。
-- 分层标注：CrewAI Flow / 本地 llama.cpp LLM / Graphiti+Neo4j / Milvus / Redis / FastAPI+Vue3。
+- **主架构图**〔素材 #10，需新建〕：`输入 → 标准化 → Milvus 黑名单三路过滤 → events collection 暂存/全量入库 → 本地 LLM 分类 → Graphiti+Neo4j 构图 → 混合检索 → 多维风险评分 → 超阈值则从 Milvus events 同人员+语义召回 → 批量补图 → 二次研判 → Dashboard Agent 摘要`。
+- 分层标注：CrewAI Flow / 本地 llama.cpp LLM / Graphiti+Neo4j / Milvus / FastAPI+Vue3。
 - 强调全部组件本地部署；工程佐证：「模块数 / 测试用例数 / 10 条金融 Demo 用例」。
 
 ---

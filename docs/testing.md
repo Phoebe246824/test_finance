@@ -7,7 +7,7 @@
 当前项目测试分为三类：
 
 1. **纯函数/单元测试**：文本抽取、风险评分、黑名单匹配、脚本参数等，不依赖 Docker 服务。
-2. **集成测试**：需要 Redis、Milvus、Neo4j 等本地依赖服务，运行前先 `docker compose up -d`。
+2. **集成测试**：默认 Web 测试使用 Milvus store fake；连接真实 Milvus/Neo4j/LLM 的测试需显式启动依赖服务。
 3. **演示验证**：面向参赛 Demo，验证硬件画像、金融样例和端到端报告生成。
 
 ## 常用命令
@@ -19,8 +19,8 @@ uv run pytest tests/ -v
 # 快速单元测试
 uv run pytest tests/test_extract_subject_id_numbers.py tests/test_risk_scoring.py -q
 
-# 黑名单相关测试
-uv run pytest tests/test_blacklist_filter.py tests/test_blacklist_manager.py -q
+# Milvus 默认存储相关测试
+uv run pytest tests/test_milvus_store_base.py tests/test_events_store.py tests/test_blacklist_milvus_stores.py tests/test_blacklist_filter.py tests/test_default_milvus_api.py tests/test_default_milvus_runtime.py -q
 
 # 重置脚本测试
 uv run pytest tests/test_reset_and_seed_blacklist.py -q
@@ -28,20 +28,19 @@ uv run pytest tests/test_reset_and_seed_blacklist.py -q
 
 ## 依赖服务测试
 
-涉及 Milvus、Neo4j、Redis 的测试会读取 `.env` 或 `.env.example` 中的连接配置。运行前确认：
+涉及真实 Milvus、Neo4j 的测试会读取 `.env` 或 `.env.example` 中的连接配置。运行前按需启动：
 
 ```bash
 docker compose up -d
+docker compose --profile vector up -d attu
 docker compose ps
 ```
 
 默认端口：
 
 ```text
-Redis: 6379
 Milvus: 19530 / 9091
 Neo4j: 7474 / 7687
-RabbitMQ: 5672 / 15672
 Attu: 8002
 FastAPI: 8000
 ```

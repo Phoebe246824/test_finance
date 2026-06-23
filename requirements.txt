@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-pika
 python-dotenv
 pydantic
 crewai
@@ -9,7 +8,6 @@ neo4j
 jinja2
 ulid-py
 httpx
-redis
 playwright
 plotly
 pyyaml

@@ -12,7 +12,6 @@ from backend.app.api import (
     routes_system,
 )
 from backend.app.core.config import settings
-from backend.app.db.session import init_db
 
 
 def create_app() -> FastAPI:
@@ -24,10 +23,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    async def _startup() -> None:
-        init_db()
 
     app.include_router(routes_analysis.router)
     app.include_router(routes_dashboard.router)

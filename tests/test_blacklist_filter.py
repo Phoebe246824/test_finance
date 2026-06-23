@@ -1,30 +1,43 @@
-"""测试 BlacklistFilter 三合一 OR 匹配逻辑。"""
-
-import json
-from unittest.mock import AsyncMock, MagicMock
+from __future__ import annotations
 
 import pytest
 
 from blacklist.filter import BlacklistFilter
-from blacklist.store import BlacklistStore
+from blacklist.stores.event_samples_store import EventSampleMatch
 from models import EventSource, NormalizedEvent
 
 
-@pytest.fixture
-def mock_redis():
-    redis = MagicMock()
-    redis.zscore = AsyncMock(return_value=None)
-    redis.zrange = AsyncMock(return_value=[])
-    redis.zincrby = AsyncMock(return_value=1)
-    redis.hget = AsyncMock(return_value=None)
-    redis.hset = AsyncMock(return_value=1)
-    redis.hlen = AsyncMock(return_value=0)
-    redis.hgetall = AsyncMock(return_value={})
-    return redis
+class FakePersonsStore:
+    def __init__(self, hits: set[str] | None = None) -> None:
+        self.hits = {item.upper() for item in hits or set()}
+
+    async def query_person(self, id_number: str) -> float | None:
+        return 1.0 if id_number.upper() in self.hits else None
+
+
+class FakeKeywordsStore:
+    def __init__(self, keywords: list[str] | None = None) -> None:
+        self.keywords = keywords or []
+
+    async def query_keywords(self) -> list[str]:
+        return self.keywords
+
+
+class FakeSamplesStore:
+    def __init__(self, match: EventSampleMatch | None = None) -> None:
+        self.match = match
+
+    async def find_best_match(
+        self,
+        query: str,
+        *,
+        threshold: float,
+    ) -> EventSampleMatch | None:
+        return self.match
 
 
 @pytest.fixture
-def sample_event():
+def sample_event() -> NormalizedEvent:
     return NormalizedEvent(
         event_id="E001",
         source=EventSource.NEWS,
@@ -35,205 +48,205 @@ def sample_event():
 
 
 @pytest.fixture
-def filter_instance(mock_redis):
-    store = BlacklistStore(mock_redis)
+def filter_instance() -> BlacklistFilter:
     return BlacklistFilter(
-        store=store,
+        persons_store=FakePersonsStore(),
+        keywords_store=FakeKeywordsStore(),
+        samples_store=FakeSamplesStore(),
         similarity_threshold=0.5,
-        reranker_api_key="",
     )
 
 
-class TestBlacklistFilterPersonCheck:
-    @pytest.mark.asyncio
-    async def test_person_not_in_blacklist(
-        self, filter_instance, mock_redis, sample_event
-    ):
-        """人员不在黑名单中不应命中。"""
-        mock_redis.zscore.return_value = None
-        hits = await filter_instance._check_persons(sample_event)
-        assert hits == []
-
-    @pytest.mark.asyncio
-    async def test_person_in_blacklist(self, filter_instance, mock_redis, sample_event):
-        """人员在黑名单中应命中，但不在检查阶段自动累积。"""
-        mock_redis.zscore.return_value = 3.0
-        hits = await filter_instance._check_persons(sample_event)
-        assert hits == ["P01"]
-        mock_redis.zincrby.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_no_person_in_text(self, filter_instance, mock_redis):
-        """文本中无可识别人员 ID 应返回空。"""
-        event = NormalizedEvent(
-            event_id="E002",
-            source=EventSource.NEWS,
-            raw_content="今天天气很好，没有特定人员",
-            title="无人员事件",
-        )
-        hits = await filter_instance._check_persons(event)
-        assert hits == []
+@pytest.mark.asyncio
+async def test_person_not_in_blacklist(
+    filter_instance: BlacklistFilter,
+    sample_event: NormalizedEvent,
+) -> None:
+    hits = await filter_instance._check_persons(sample_event)
+    assert hits == []
 
 
-class TestBlacklistFilterKeywordCheck:
-    @pytest.mark.asyncio
-    async def test_no_keywords_in_db(self, filter_instance, mock_redis, sample_event):
-        """敏感词库为空不应命中。"""
-        mock_redis.zrange.return_value = []
-        result = await filter_instance._check_keywords(sample_event)
-        assert result == []
+@pytest.mark.asyncio
+async def test_person_in_blacklist(sample_event: NormalizedEvent) -> None:
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore({"P01"}),
+        keywords_store=FakeKeywordsStore(),
+        samples_store=FakeSamplesStore(),
+        similarity_threshold=0.5,
+    )
 
-    @pytest.mark.asyncio
-    async def test_keyword_matches(self, filter_instance, mock_redis, sample_event):
-        """内容包含敏感词应返回命中的关键词列表。"""
-        mock_redis.zrange.return_value = ["非法".encode()]
-        result = await filter_instance._check_keywords(sample_event)
-        assert result == ["非法"]
-        mock_redis.zincrby.assert_not_called()
+    hits = await filter_instance._check_persons(sample_event)
 
-    @pytest.mark.asyncio
-    async def test_keyword_no_match(self, filter_instance, mock_redis, sample_event):
-        """内容不包含敏感词不应命中。"""
-        mock_redis.zrange.return_value = ["无关词".encode()]
-        result = await filter_instance._check_keywords(sample_event)
-        assert result == []
+    assert hits == ["P01"]
 
 
-class TestBlacklistFilterEventSimilarity:
-    @pytest.mark.asyncio
-    async def test_no_events_in_db(self, filter_instance, mock_redis, sample_event):
-        """事件黑名单为空不应命中。"""
-        mock_redis.hlen.return_value = 0
-        result = await filter_instance._check_event_similarity(sample_event)
-        assert result is False
+@pytest.mark.asyncio
+async def test_no_person_in_text(filter_instance: BlacklistFilter) -> None:
+    event = NormalizedEvent(
+        event_id="E002",
+        source=EventSource.NEWS,
+        raw_content="今天天气很好，没有特定人员",
+        title="无人员事件",
+    )
 
-    @pytest.mark.asyncio
-    async def test_no_reranker_key(self, filter_instance, mock_redis, sample_event):
-        """未配置 Reranker API Key 应跳过相似度检查。"""
-        mock_redis.hlen.return_value = 1
-        mock_redis.hgetall.return_value = {
-            b"E999": json.dumps({"summary": "test"}).encode()
-        }
-        result = await filter_instance._check_event_similarity(sample_event)
-        assert result is False
+    hits = await filter_instance._check_persons(event)
 
-    @pytest.mark.asyncio
-    async def test_event_similarity_details_include_best_match(
-        self, mock_redis, sample_event
-    ):
-        """事件相似度命中时应返回命中的样本和分数。"""
-        mock_redis.hlen.return_value = 2
-        mock_redis.hgetall.return_value = {
-            b"E001": json.dumps(
-                {"event_id": "E001", "summary": "普通工资入账"}
-            ).encode(),
-            b"E-FIN-AML-001": json.dumps(
-                {"event_id": "E-FIN-AML-001", "summary": "疑似分拆交易与洗钱"}
-            ).encode(),
-        }
-        store = BlacklistStore(mock_redis)
-        filter_instance = BlacklistFilter(
-            store=store,
-            similarity_threshold=0.5,
-            reranker_api_key="test-key",
-            reranker_base_url="http://reranker.test/v1",
-            reranker_model="test-reranker",
-        )
-        filter_instance._rerank_similarity = AsyncMock(return_value=(1, 0.91))
-
-        result = await filter_instance._check_event_similarity_details(sample_event)
-
-        assert result.hit is True
-        assert result.score == pytest.approx(0.91)
-        assert result.event_id == "E-FIN-AML-001"
-        assert result.summary == "疑似分拆交易与洗钱"
+    assert hits == []
 
 
-class TestBlacklistFilterCheck:
-    @pytest.mark.asyncio
-    async def test_all_miss_stash(self, filter_instance, mock_redis, sample_event):
-        """三维度均未命中应返回 STASH (False)。"""
-        mock_redis.zscore.return_value = None
-        mock_redis.zrange.return_value = []
-        mock_redis.hlen.return_value = 0
-        (
-            should_proceed,
-            matched_persons,
-            matched_keywords,
-            event_hit,
-        ) = await filter_instance.check(sample_event)
-        assert should_proceed is False
-        assert matched_persons == []
-        assert matched_keywords == []
-        assert event_hit is False
+@pytest.mark.asyncio
+async def test_no_keywords_in_db(
+    filter_instance: BlacklistFilter,
+    sample_event: NormalizedEvent,
+) -> None:
+    result = await filter_instance._check_keywords(sample_event)
+    assert result == []
 
-    @pytest.mark.asyncio
-    async def test_person_hit_pass(self, filter_instance, mock_redis, sample_event):
-        """人员命中应返回 PASS (True)。"""
-        mock_redis.zscore.return_value = 2.0
-        mock_redis.zrange.return_value = []
-        mock_redis.hlen.return_value = 0
-        (
-            should_proceed,
-            matched_persons,
-            matched_keywords,
-            event_hit,
-        ) = await filter_instance.check(sample_event)
-        assert should_proceed is True
-        assert matched_persons == ["P01"]
-        assert matched_keywords == []
-        assert event_hit is False
 
-    @pytest.mark.asyncio
-    async def test_keyword_hit_pass(self, filter_instance, mock_redis):
-        """敏感词命中应返回 PASS。"""
-        event = NormalizedEvent(
-            event_id="E003",
-            source=EventSource.NEWS,
-            raw_content="某公司发布新产品",
-            title="无人员事件",
-        )
-        mock_redis.zscore.return_value = None
-        mock_redis.zrange.return_value = ["新产品".encode()]
-        mock_redis.hlen.return_value = 0
-        filter_instance = BlacklistFilter(
-            BlacklistStore(mock_redis), reranker_api_key=""
-        )
-        (
-            should_proceed,
-            matched_persons,
-            matched_keywords,
-            event_hit,
-        ) = await filter_instance.check(event)
-        assert should_proceed is True
-        assert matched_persons == []
-        assert matched_keywords == ["新产品"]
-        assert event_hit is False
+@pytest.mark.asyncio
+async def test_keyword_matches(sample_event: NormalizedEvent) -> None:
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore(),
+        keywords_store=FakeKeywordsStore(["非法"]),
+        samples_store=FakeSamplesStore(),
+        similarity_threshold=0.5,
+    )
 
-    @pytest.mark.asyncio
-    async def test_keyword_hit_pass_without_person_ids(
-        self, filter_instance, mock_redis
-    ):
-        """无人员但命中敏感词时仍应 PASS。"""
-        event = NormalizedEvent(
-            event_id="E004",
-            source=EventSource.NEWS,
-            raw_content="某工业园区仓库发生爆炸，周边企业员工已紧急疏散。",
-            title="爆炸事件",
-        )
-        mock_redis.zscore.return_value = None
-        mock_redis.zrange.return_value = ["爆炸".encode(), "制裁".encode()]
-        mock_redis.hlen.return_value = 0
+    result = await filter_instance._check_keywords(sample_event)
 
-        (
-            should_proceed,
-            matched_persons,
-            matched_keywords,
-            event_hit,
-        ) = await filter_instance.check(event)
+    assert result == ["非法"]
 
-        assert should_proceed is True
-        assert matched_persons == []
-        assert matched_keywords == ["爆炸"]
-        assert event_hit is False
-        mock_redis.zincrby.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_keyword_no_match(sample_event: NormalizedEvent) -> None:
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore(),
+        keywords_store=FakeKeywordsStore(["无关词"]),
+        samples_store=FakeSamplesStore(),
+        similarity_threshold=0.5,
+    )
+
+    result = await filter_instance._check_keywords(sample_event)
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_no_event_sample_match(
+    filter_instance: BlacklistFilter,
+    sample_event: NormalizedEvent,
+) -> None:
+    result = await filter_instance._check_event_similarity(sample_event)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_event_similarity_details_come_from_event_sample_store(
+    sample_event: NormalizedEvent,
+) -> None:
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore(),
+        keywords_store=FakeKeywordsStore(),
+        samples_store=FakeSamplesStore(
+            EventSampleMatch(
+                hit=True,
+                score=0.91,
+                event_id="E-FIN-AML-001",
+                summary="疑似分拆交易与洗钱",
+                threshold=0.5,
+            )
+        ),
+        similarity_threshold=0.5,
+    )
+
+    result = await filter_instance._check_event_similarity_details(sample_event)
+
+    assert result.hit is True
+    assert result.score == pytest.approx(0.91)
+    assert result.event_id == "E-FIN-AML-001"
+    assert result.summary == "疑似分拆交易与洗钱"
+
+
+@pytest.mark.asyncio
+async def test_all_miss_stash(
+    filter_instance: BlacklistFilter,
+    sample_event: NormalizedEvent,
+) -> None:
+    should_proceed, matched_persons, matched_keywords, event_hit = (
+        await filter_instance.check(sample_event)
+    )
+
+    assert should_proceed is False
+    assert matched_persons == []
+    assert matched_keywords == []
+    assert event_hit is False
+
+
+@pytest.mark.asyncio
+async def test_person_hit_pass(sample_event: NormalizedEvent) -> None:
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore({"P01"}),
+        keywords_store=FakeKeywordsStore(),
+        samples_store=FakeSamplesStore(),
+        similarity_threshold=0.5,
+    )
+
+    should_proceed, matched_persons, matched_keywords, event_hit = (
+        await filter_instance.check(sample_event)
+    )
+
+    assert should_proceed is True
+    assert matched_persons == ["P01"]
+    assert matched_keywords == []
+    assert event_hit is False
+
+
+@pytest.mark.asyncio
+async def test_keyword_hit_pass() -> None:
+    event = NormalizedEvent(
+        event_id="E003",
+        source=EventSource.NEWS,
+        raw_content="某公司发布新产品",
+        title="无人员事件",
+    )
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore(),
+        keywords_store=FakeKeywordsStore(["新产品"]),
+        samples_store=FakeSamplesStore(),
+        similarity_threshold=0.5,
+    )
+
+    should_proceed, matched_persons, matched_keywords, event_hit = (
+        await filter_instance.check(event)
+    )
+
+    assert should_proceed is True
+    assert matched_persons == []
+    assert matched_keywords == ["新产品"]
+    assert event_hit is False
+
+
+@pytest.mark.asyncio
+async def test_keyword_hit_pass_without_person_ids() -> None:
+    event = NormalizedEvent(
+        event_id="E004",
+        source=EventSource.NEWS,
+        raw_content="某工业园区仓库发生爆炸，周边企业员工已紧急疏散。",
+        title="爆炸事件",
+    )
+    filter_instance = BlacklistFilter(
+        persons_store=FakePersonsStore(),
+        keywords_store=FakeKeywordsStore(["爆炸", "制裁"]),
+        samples_store=FakeSamplesStore(),
+        similarity_threshold=0.5,
+    )
+
+    should_proceed, matched_persons, matched_keywords, event_hit = (
+        await filter_instance.check(event)
+    )
+
+    assert should_proceed is True
+    assert matched_persons == []
+    assert matched_keywords == ["爆炸"]
+    assert event_hit is False
+

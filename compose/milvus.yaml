@@ -71,6 +71,7 @@ services:
       - devopsnetwork
 
   attu:
+    profiles: ["vector"]
     container_name: milvus-attu
     image: zilliz/attu:v2.5.6
     environment:

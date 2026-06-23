@@ -9,8 +9,22 @@ Sentinel 舆情分析系统 — 知识图谱服务 (Graph)
   - 利用 Bi-temporal 模型追踪事实演变
 """
 from graphiti_core import Graphiti
-from graphiti_core.nodes import EpisodeType
-from datetime import datetime
+
+# DEPRECATED: RabbitMQ service entrypoint kept for legacy demos only.
+try:
+    import pika
+except ImportError:
+    pika = None
+
+LEGACY_RABBITMQ_ERROR = (
+    "RabbitMQ entrypoints are deprecated; install the legacy extra to run them: "
+    "uv sync --extra legacy"
+)
+
+
+def _require_pika() -> None:
+    if pika is None:
+        raise RuntimeError(LEGACY_RABBITMQ_ERROR)
 
 
 # ============================================================
@@ -196,4 +210,5 @@ async def start_graph_consumer(config: dict) -> None:
         手动 ACK，异常进入 DLQ
         优雅关闭时调用 close_graphiti()
     """
+    _require_pika()
     ...

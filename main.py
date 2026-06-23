@@ -24,7 +24,6 @@ os.environ["COLUMNS"] = os.getenv("SENTINEL_CREWAI_WIDTH", "96")
 from crewai import Agent, Crew, Process, Task
 from crewai.flow.flow import Flow, listen, router, start
 from rich.console import Console
-from redis.asyncio import Redis
 
 try:
     from crewai.events.utils.console_formatter import ConsoleFormatter
@@ -40,8 +39,8 @@ except Exception:
     pass
 
 from blacklist.filter import BlacklistFilter
-from blacklist.milvus_stash import MilvusStashStore
-from blacklist.store import BlacklistStore
+from blacklist.stores.events_store import EventsStore
+from blacklist.stores.runtime import get_runtime_store_bundle
 from graphiti.graphiti_workflow import (
     add_event_to_graph,
     batch_add_to_graph,
@@ -88,12 +87,6 @@ def load_config() -> dict:
         dict: 合并后的配置字典
     """
     config = {
-        "rabbitmq": {
-            "host": os.getenv("RABBITMQ_HOST") or "localhost",
-            "port": int(os.getenv("RABBITMQ_PORT") or "5672"),
-            "user": os.getenv("RABBITMQ_USER") or "root",
-            "password": os.getenv("RABBITMQ_PASSWORD") or "pa55w0rd",
-        },
         "neo4j": {
             "uri": os.getenv("NEO4J_URI") or "bolt://localhost:7687",
             "user": os.getenv("NEO4J_USER") or "neo4j",
@@ -165,17 +158,12 @@ def load_config() -> dict:
                 ),
             }
         },
-        "redis": {
-            "host": os.getenv("REDIS_HOST") or "localhost",
-            "port": int(os.getenv("REDIS_PORT") or "6379"),
-            "password": os.getenv("REDIS_PASSWORD") or "",
-            "blacklist_db": int(os.getenv("BLACKLIST_REDIS_DB") or "1"),
-        },
+        "storage": {"backend": "milvus"},
         "milvus": {
             "uri": os.getenv("MILVUS_URI") or "http://localhost:19530",
             "token": os.getenv("MILVUS_TOKEN") or "",
             "stash_collection": os.getenv("MILVUS_STASH_COLLECTION")
-            or "stashed_events",
+            or "events",
             "stash_ttl_days": int(os.getenv("KV_TTL_DAYS") or "90"),
             "semantic_top_k": int(os.getenv("STASH_SEMANTIC_TOP_K") or "10"),
             "rerank_min_score": float(os.getenv("STASH_RERANK_MIN_SCORE") or "0.7"),
@@ -187,10 +175,9 @@ def load_config() -> dict:
     }
     logger = get_logger("main.config")
     logger.info(
-        "config loaded: rabbitmq=%s:%s, neo4j=%s, llm=%s, embedder=%s",
-        config["rabbitmq"]["host"],
-        config["rabbitmq"]["port"],
+        "config loaded: neo4j=%s, milvus=%s, llm=%s, embedder=%s",
         config["neo4j"]["uri"],
+        config["milvus"]["uri"],
         config["llm"]["model"],
         config["embedder"]["model"],
     )
@@ -334,6 +321,16 @@ def print_blacklist_check_result(result) -> None:
             f"event_id={event_similarity.event_id or '未知'}, "
             f"summary={event_similarity.summary or '无'}"
         )
+
+
+def event_similarity_payload(event_similarity) -> dict:
+    return {
+        "hit": event_similarity.hit,
+        "score": event_similarity.score,
+        "event_id": event_similarity.event_id,
+        "summary": event_similarity.summary,
+        "threshold": event_similarity.threshold,
+    }
 
 
 def format_risk_score(score: float | None) -> str:
@@ -1273,7 +1270,7 @@ async def rerank_historical_candidates(
 
 async def batch_graph_event_with_related_stash(
     config: dict,
-    stash_store: MilvusStashStore | None,
+    stash_store: EventsStore | None,
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
 ) -> dict:
@@ -1298,17 +1295,17 @@ async def batch_graph_event_with_related_stash(
     )
     summary["fetched_count"] = len(historical_events)
     logger.info(
-        "Milvus recall fetched_count=%d event_ids=%s",
+        "stash recall fetched_count=%d event_ids=%s",
         len(historical_events),
         [event.get("event_id") for event in historical_events if event.get("event_id")],
     )
 
     if not historical_events:
-        print_info("Milvus 暂存回捞为空，跳过批量构图")
+        print_info("暂存回捞为空，跳过批量构图")
         return summary
 
     print_info(
-        f"从 Milvus 取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
+        f"从暂存后端取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
     )
     graphiti = None
     try:
@@ -1377,7 +1374,7 @@ async def batch_graph_event_with_related_stash(
                 }
             )
             logger.info(
-                "skip Milvus candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
+                "skip stash candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
                 historical_event.get("event_id"),
                 reason,
                 historical_event.get("match_source"),
@@ -1428,11 +1425,11 @@ async def batch_graph_event_with_related_stash(
 
         if skipped_irrelevant_results:
             print_info(
-                f"Milvus 回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
+                f"暂存回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
             )
         if skipped_existing_results:
             print_info(
-                f"Milvus 回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
+                f"暂存回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
             )
 
         if batch_texts:
@@ -1441,7 +1438,7 @@ async def batch_graph_event_with_related_stash(
                 graphiti, batch_texts, group_id, dry_run
             )
         else:
-            print_info("Milvus 回捞后无新增候选需要批量构图")
+            print_info("暂存回捞后无新增候选需要批量构图")
             batch_results = []
 
         all_results = [
@@ -1465,11 +1462,11 @@ async def batch_graph_event_with_related_stash(
             ]
             consumed_event_ids.extend(skipped_existing_event_ids)
             await stash_store.mark_events_graph_built(consumed_event_ids)
-            print_info("批量构图/跳过检查完成，已标记相关 Milvus 暂存事件为已构图")
+            print_info("批量构图/跳过检查完成，已标记相关暂存事件为已构图")
         else:
             failed = sum(1 for r in all_results if not r.get("success", True))
             print_info(
-                f"批量构图部分失败 ({failed}/{len(all_results)})，Milvus 暂存保留待重试"
+                f"批量构图部分失败 ({failed}/{len(all_results)})，暂存事件保留待重试"
             )
         return summary
     except Exception as e:
@@ -1679,12 +1676,12 @@ class SentinelPipelineFlow(Flow):
                 eligible_count,
             )
             if fetched_count == 0:
-                print_info("Milvus 暂存回捞为空，跳过二次检索和二次风险评估")
+                print_info("暂存回捞为空，跳过二次检索和二次风险评估")
             elif eligible_count == 0:
-                print_info("Milvus 回捞候选均未通过过滤，跳过二次检索和二次风险评估")
+                print_info("暂存回捞候选均未通过过滤，跳过二次检索和二次风险评估")
             else:
                 print_info(
-                    "Milvus 回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
+                    "暂存回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
                 )
             return self.state.get("first_risk_context", {})
 
@@ -1811,77 +1808,99 @@ async def process_message_detailed(
         normalized_event.source,
     )
 
-    # 黑名单过滤 + Milvus 暂存
-    blacklist_redis_client: Redis | None = None
-    try:
-        blacklist_redis_client = Redis(
-            host=config["redis"]["host"],
-            port=config["redis"]["port"],
-            password=config["redis"]["password"] or None,
-            db=config["redis"]["blacklist_db"],
-            decode_responses=False,
-        )
+    stores = get_runtime_store_bundle(config)
+    id_numbers = extract_person_id_numbers(normalized_event.raw_content)
+    bl_filter = BlacklistFilter(
+        persons_store=stores.persons,
+        keywords_store=stores.keywords,
+        samples_store=stores.event_samples,
+    )
 
-        store = BlacklistStore(blacklist_redis_client)
-        stash_store = MilvusStashStore.from_config(config)
-        bl_filter = BlacklistFilter(store)
+    blacklist_result = await bl_filter.check_with_details(normalized_event)
+    print_blacklist_check_result(blacklist_result)
+    storage_summary = {
+        "backend": "milvus",
+        "events_collection": config["milvus"]["stash_collection"],
+    }
 
-        id_numbers = extract_person_id_numbers(normalized_event.raw_content)
-        blacklist_result = await bl_filter.check_with_details(normalized_event)
-        print_blacklist_check_result(blacklist_result)
-
-        if not blacklist_result.should_proceed:
-            stashed_count = await stash_store.stash_event(
-                normalized_event, id_numbers or []
-            )
-            print_info(f"EVENT_ID: {normalized_event.event_id}")
-            if stashed_count:
-                print_info("事件未命中黑名单，已暂存到 Milvus")
-            else:
-                print_info("事件未命中黑名单，Milvus 已存在相同内容，跳过重复暂存")
-            return {
-                "event_id": normalized_event.event_id,
-                "status": "stashed",
-                "risk_level": "low",
-                "risk_score": 0.0,
-                "summary": normalized_event.summary,
-                "event_type": normalized_event.event_type,
-                "dimension_scores": {},
-                "trend_report": {},
-                "blacklist": {
-                    "decision": "STASH",
-                    "matched_persons": blacklist_result.matched_persons,
-                    "matched_keywords": blacklist_result.matched_keywords,
-                    "event_similarity": blacklist_result.event_similarity.__dict__,
-                },
-                "stashed_count": stashed_count,
-                "raw_content": normalized_event.raw_content,
-                "title": normalized_event.title,
-            }
-
-        for pid in blacklist_result.matched_persons:
-            await store.append_person(pid)
-        for keyword in blacklist_result.matched_keywords:
-            await store.append_keyword(keyword)
-        if blacklist_result.event_hit:
-            await store.append_event(
-                normalized_event.event_id,
-                normalized_event.summary or normalized_event.raw_content[:200],
-            )
-
-        print_info("消息处理开始")
-        flow = SentinelPipelineFlow(
-            config,
+    if not blacklist_result.should_proceed:
+        stashed_count = await stores.events.upsert_event(
             normalized_event,
-            None,
-            store,
-            stash_store,
-            id_numbers,
+            person_ids=id_numbers or [],
+            status="stashed",
+            blacklist_decision="miss",
+            matched_persons=blacklist_result.matched_persons,
+            matched_keywords=blacklist_result.matched_keywords,
+            event_similarity=event_similarity_payload(
+                blacklist_result.event_similarity
+            ),
+            dedupe_content=True,
         )
-        await flow.kickoff_async()
         print_info(f"EVENT_ID: {normalized_event.event_id}")
-        print_info("消息处理完成")
+        if stashed_count:
+            print_info("事件未命中黑名单，已暂存到 Milvus events")
+        else:
+            print_info("事件未命中黑名单，Milvus events 已存在相同内容，跳过重复暂存")
         return {
+            "event_id": normalized_event.event_id,
+            "status": "stashed",
+            "risk_level": "low",
+            "risk_score": 0.0,
+            "summary": normalized_event.summary,
+            "event_type": normalized_event.event_type,
+            "dimension_scores": {},
+            "trend_report": {},
+            "blacklist": {
+                "decision": "STASH",
+                "matched_persons": blacklist_result.matched_persons,
+                "matched_keywords": blacklist_result.matched_keywords,
+                "event_similarity": event_similarity_payload(
+                    blacklist_result.event_similarity
+                ),
+            },
+            "stashed_count": stashed_count,
+            "storage": storage_summary,
+            "raw_content": normalized_event.raw_content,
+            "title": normalized_event.title,
+        }
+
+    await stores.events.upsert_event(
+        normalized_event,
+        person_ids=id_numbers or [],
+        status="pending",
+        blacklist_decision="pending",
+        matched_persons=blacklist_result.matched_persons,
+        matched_keywords=blacklist_result.matched_keywords,
+        event_similarity=event_similarity_payload(
+            blacklist_result.event_similarity
+        ),
+    )
+
+    for pid in blacklist_result.matched_persons:
+        await stores.persons.append_person(pid)
+    for keyword in blacklist_result.matched_keywords:
+        await stores.keywords.append_keyword(keyword)
+    if blacklist_result.event_hit:
+        await stores.event_samples.append_event(
+            normalized_event.event_id,
+            normalized_event.summary or normalized_event.raw_content[:200],
+            normalized_event.raw_content,
+        )
+
+    print_info("消息处理开始")
+    flow = SentinelPipelineFlow(
+        config,
+        normalized_event,
+        None,
+        stores,
+        stores.events,
+        id_numbers,
+    )
+    await flow.kickoff_async()
+    dimension_scores = flow.state.get("risk_result", {}).get("dimension_scores", {})
+    trend_report = flow.state.get("trend_report", {})
+    await stores.events.upsert_analysis_result(
+        {
             "event_id": normalized_event.event_id,
             "status": "analyzed",
             "risk_level": normalized_event.risk_level,
@@ -1889,25 +1908,46 @@ async def process_message_detailed(
             "summary": normalized_event.summary,
             "event_type": normalized_event.event_type,
             "reasoning": normalized_event.reasoning,
-            "dimension_scores": flow.state.get("risk_result", {}).get(
-                "dimension_scores", {}
-            ),
-            "trend_report": flow.state.get("trend_report", {}),
+            "dimension_scores": dimension_scores,
+            "trend_report": trend_report,
             "blacklist": {
                 "decision": "PASS",
                 "matched_persons": blacklist_result.matched_persons,
                 "matched_keywords": blacklist_result.matched_keywords,
-                "event_similarity": blacklist_result.event_similarity.__dict__,
+                "event_similarity": event_similarity_payload(
+                    blacklist_result.event_similarity
+                ),
             },
-            "graph_result": flow.state.get("graph_result"),
-            "second_risk_applied": bool(flow.state.get("second_risk_applied")),
             "raw_content": normalized_event.raw_content,
             "title": normalized_event.title,
         }
-
-    finally:
-        if blacklist_redis_client is not None:
-            await blacklist_redis_client.aclose()
+    )
+    print_info(f"EVENT_ID: {normalized_event.event_id}")
+    print_info("消息处理完成")
+    return {
+        "event_id": normalized_event.event_id,
+        "status": "analyzed",
+        "risk_level": normalized_event.risk_level,
+        "risk_score": normalized_event.risk_score,
+        "summary": normalized_event.summary,
+        "event_type": normalized_event.event_type,
+        "reasoning": normalized_event.reasoning,
+        "dimension_scores": dimension_scores,
+        "trend_report": trend_report,
+        "blacklist": {
+            "decision": "PASS",
+            "matched_persons": blacklist_result.matched_persons,
+            "matched_keywords": blacklist_result.matched_keywords,
+            "event_similarity": event_similarity_payload(
+                blacklist_result.event_similarity
+            ),
+        },
+        "graph_result": flow.state.get("graph_result"),
+        "second_risk_applied": bool(flow.state.get("second_risk_applied")),
+        "storage": storage_summary,
+        "raw_content": normalized_event.raw_content,
+        "title": normalized_event.title,
+    }
 
 
 async def run_flow(config: dict):

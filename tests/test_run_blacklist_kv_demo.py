@@ -48,7 +48,14 @@ async def test_main_catches_assertion_failure(monkeypatch, capsys):
     async def fake_create_subprocess_exec(*args, **kwargs):
         return fake_process
 
-    async def fake_read_until_prompt(process, context):
+    async def fake_read_until_prompt(
+        process,
+        *,
+        context,
+        prompt_text,
+        timeout_seconds,
+    ):
+        del process, prompt_text, timeout_seconds
         nonlocal prompts_seen
         prompts_seen += 1
         return "EVENT_ID: E001\n"
@@ -91,7 +98,7 @@ def test_child_failure_report_prints_child_output_to_stderr(capsys):
         returncode=None,
     )
 
-    demo._report_child_failure(err, FakeProcess())
+    demo.report_child_failure(err, FakeProcess(), demo.DETAIL_LOGGER)
 
     captured = capsys.readouterr()
     assert "[ERROR] 子进程异常 — timeout" in captured.err
@@ -109,7 +116,14 @@ async def test_main_launches_child_with_unbuffered_stdout(monkeypatch):
         launch["kwargs"] = kwargs
         return fake_process
 
-    async def fake_read_until_prompt(process, context):
+    async def fake_read_until_prompt(
+        process,
+        *,
+        context,
+        prompt_text,
+        timeout_seconds,
+    ):
+        del process, prompt_text, timeout_seconds
         if context == "initial startup":
             raise demo.ReadPromptError(
                 reason="timeout",
@@ -176,7 +190,14 @@ async def test_main_configures_file_logging_for_detail_logs(monkeypatch, tmp_pat
     async def fake_create_subprocess_exec(*args, **kwargs):
         return fake_process
 
-    async def fake_read_until_prompt(process, context):
+    async def fake_read_until_prompt(
+        process,
+        *,
+        context,
+        prompt_text,
+        timeout_seconds,
+    ):
+        del process, prompt_text, timeout_seconds
         if context == "initial startup":
             raise demo.ReadPromptError(
                 reason="timeout",
