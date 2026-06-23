@@ -6,7 +6,7 @@
 
 - **Python**: 3.13+
 - **uv**: 0.11+（依赖管理与脚本运行器，安装方式见 https://docs.astral.sh/uv/）
-- **Docker** + Docker Compose（默认只需 Neo4j；Redis、Milvus、RabbitMQ 为可选 legacy/enhanced 依赖）
+- **Docker** + Docker Compose（默认启动 Milvus + Neo4j）
 - **Git**
 - **Node.js**: 20+（用于 Vue3 前端）
 
@@ -26,7 +26,7 @@ uv sync --dev
 cp .env.example .env
 # 编辑 .env，至少填入 LLM_API_KEY 和对应 API 地址
 
-# 5. 启动默认依赖服务（Neo4j；黑名单和暂存默认走 SQLite）
+# 5. 启动默认依赖服务（Milvus + Neo4j）
 docker compose up -d
 
 # 6. 验证各服务连接（浏览器访问）
@@ -36,11 +36,10 @@ docker compose up -d
 uv run uvicorn backend.app.main:app --reload --port 8000
 ```
 
-可选：运行 legacy Redis/RabbitMQ 或 Milvus 向量暂存演示。
+可选：启动 Attu 管理界面。
 
 ```bash
-docker compose --profile legacy-flow up -d redis rabbitmq
-docker compose --profile vector up -d milvus attu
+docker compose --profile vector up -d attu
 ```
 
 新开终端启动前端：

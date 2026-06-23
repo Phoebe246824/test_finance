@@ -8,7 +8,7 @@
 
 ## 2. 系统总体架构
 
-描述 CrewAI Flow 编排链路：标准化、黑名单过滤、Milvus 暂存、Graphiti 构图、混合检索、风险评估、批量补图、Dashboard Agent。配套放置架构图和数据流图。
+描述 CrewAI Flow 编排链路：输入 → 标准化 → Milvus 黑名单三路过滤 → events collection 暂存/全量入库 → 本地 LLM 分类 → Graphiti+Neo4j 构图 → 混合检索 → 多维风险评分 → 超阈值则从 Milvus events 同人员+语义召回 → 批量补图 → 二次研判 → Dashboard Agent 摘要。配套放置架构图和数据流图。
 
 ## 3. 模型与智能体设计
 
@@ -30,7 +30,7 @@
 
 ## 6. 隐私保护与安全性
 
-说明数据不出机、内网部署、日志脱敏、访问控制、Redis/Milvus/Neo4j 本地化部署，以及外部 API 禁用或最小化策略。
+说明数据不出机、内网部署、日志脱敏、访问控制、Milvus/Neo4j 本地化部署，以及外部 API 禁用或最小化策略。
 
 ## 7. 行业应用价值与落地分析
 

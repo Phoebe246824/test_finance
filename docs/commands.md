@@ -48,13 +48,12 @@ uv run uvicorn dashboard:create_dashboard_app --factory --reload --port 8001
 ### Docker 相关
 
 ```bash
-# 启动默认依赖服务（Neo4j；SQLite 黑名单/暂存不需要容器）
+# 启动默认依赖服务（Milvus + Neo4j）
 docker compose up -d
 
 # 可选依赖服务
 docker compose up -d neo4j
-docker compose --profile legacy-flow up -d redis rabbitmq
-docker compose --profile vector up -d milvus attu
+docker compose --profile vector up -d attu
 
 # 停止并清理
 docker compose down -v
@@ -69,25 +68,16 @@ docker compose logs -f neo4j
 docker compose --env-file .env.example config
 ```
 
-### Redis 调试
-
-仅在 `BLACKLIST_BACKEND=redis` 或运行 legacy Flow 演示时使用。
+### 重置 Milvus 演示数据
 
 ```bash
-# 查看所有人员 KV key
-docker exec redis redis-cli KEYS "person:*"
+uv run python scripts/reset_and_seed_blacklist.py
+```
 
-# 查看黑名单人员及命中次数
-docker exec redis redis-cli ZRANGE person_blacklist 0 -1 WITHSCORES
+### 清理 Milvus 重复事件
 
-# 查看敏感词库
-docker exec redis redis-cli ZRANGE keyword_blacklist 0 -1 WITHSCORES
-
-# 查看高危事件数量
-docker exec redis redis-cli HLEN event_blacklist
-
-# 清空所有数据
-docker exec redis redis-cli FLUSHALL
+```bash
+uv run python scripts/cleanup_milvus_duplicates.py --limit 10000
 ```
 
 ### 测试
@@ -100,7 +90,7 @@ uv run pytest tests/ -v
 uv run pytest tests/test_blacklist_filter.py -v
 
 # 运行并生成覆盖率报告（需安装 pytest-cov）
-uv run pytest tests/ --cov=blacklist --cov=kvstore --cov=utils
+uv run pytest tests/ --cov=blacklist --cov=backend --cov=utils
 ```
 
 ### Graphiti 测试

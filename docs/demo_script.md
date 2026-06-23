@@ -22,11 +22,11 @@ uv run python scripts/sentinel_competition_demo.py
 uv run python main.py
 ```
 
-输入 `finance_01_low_risk_salary_stash` 或一条正常工资入账/日常消费事件，展示未命中金融风险关键词后写入 Milvus 暂存池，形成客户正常行为基线。
+输入 `finance_01_low_risk_salary_stash` 或一条正常工资入账/日常消费事件，展示未命中金融风险关键词后写入 Milvus events collection，形成客户正常行为基线。
 
 ## 1:40-2:30 高风险触发与历史回捞
 
-输入 `finance_04_aml_high_risk_recall`。展示系统完成分类、单条构图、首次风险评估，然后从 Milvus 回捞同一客户 P102 的历史分拆转账线索并批量补图。
+输入 `finance_04_aml_high_risk_recall`。展示系统完成分类、单条构图、首次风险评估，然后从 Milvus events collection 回捞同一客户 P102 的历史分拆转账线索并批量补图。
 
 ## 2:30-2:50 二次研判与趋势分析
 
