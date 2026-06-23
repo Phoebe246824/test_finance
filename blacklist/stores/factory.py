@@ -46,6 +46,8 @@ def create_store_bundle(config: dict[str, Any]) -> StoreBundle:
             embedding_fn=embedding_fn,
             embedding_dim=embedding_dim,
             ttl_days=ttl_days,
+            collection_name=str(milvus_config.get("stash_collection") or "events"),
+            semantic_score_threshold=float(milvus_config.get("rerank_min_score") or 0.0),
         ),
         persons=PersonsStore(client=client, embedding_dim=embedding_dim),
         keywords=KeywordsStore(client=client, embedding_dim=embedding_dim),

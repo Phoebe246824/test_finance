@@ -50,6 +50,35 @@ def merge_recall_matches(
     )
 
 
+def semantic_hits(
+    hits: list[dict[str, Any]],
+    eligible_ids: set[str],
+    min_score: float,
+) -> list[dict[str, Any]]:
+    rows = [
+        row
+        for hit in hits
+        if (row := semantic_row(hit, eligible_ids)) is not None
+    ]
+    return [
+        row
+        for row in rows
+        if float(row.get("semantic_score") or 0.0) >= min_score
+    ]
+
+
+def semantic_row(hit: dict[str, Any], eligible_ids: set[str]) -> dict[str, Any] | None:
+    entity = dict(hit.get("entity") or {})
+    event_id = str(entity.get("event_id") or hit.get("id"))
+    if event_id not in eligible_ids:
+        return None
+    return {
+        **entity,
+        "event_id": event_id,
+        "semantic_score": float(hit.get("distance") or 0.0),
+    }
+
+
 def recall_event(row: dict[str, Any]) -> dict[str, Any]:
     item = api_event(row)
     item["match_source"] = row["match_source"]
@@ -60,4 +89,3 @@ def recall_event(row: dict[str, Any]) -> dict[str, Any]:
 
 def source_rank(source: str) -> int:
     return {"both": 3, "person_match": 2, "semantic_match": 1}.get(source, 0)
-

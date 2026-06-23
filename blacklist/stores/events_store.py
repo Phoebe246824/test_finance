@@ -10,7 +10,15 @@ from blacklist.stores.events_codec import (
     content_hash,
     event_row,
 )
-from blacklist.stores.events_recall import merge_recall_matches, person_matches
+from blacklist.stores.events_maintenance import (
+    duplicate_event_ids,
+    expired_event_ids,
+)
+from blacklist.stores.events_recall import (
+    merge_recall_matches,
+    person_matches,
+    semantic_hits,
+)
 from blacklist.stores.events_schema import (
     EVENT_OUTPUT_FIELDS,
     EVENT_PRIMARY_FIELD,
@@ -34,10 +42,14 @@ class EventsStore(MilvusBaseStore):
         embedding_fn: EmbeddingFn,
         embedding_dim: int = 1024,
         ttl_days: int = 90,
+        collection_name: str = EVENTS_COLLECTION,
+        semantic_score_threshold: float = 0.0,
     ) -> None:
         super().__init__(client, embedding_dim=embedding_dim)
+        self.collection_name = collection_name
         self._embedding_fn = embedding_fn
         self._ttl_days = ttl_days
+        self._semantic_score_threshold = semantic_score_threshold
 
     def fields(self) -> list[FieldSpec]:
         return event_fields(self._embedding_dim)
@@ -192,6 +204,20 @@ class EventsStore(MilvusBaseStore):
         delete_ids = duplicate_event_ids(rows)
         return self.delete_rows(self.id_filter("event_id", delete_ids)) if delete_ids else 0
 
+    def cleanup_expired(
+        self,
+        *,
+        now: datetime | None = None,
+        graph_built_retention_days: int | None = None,
+    ) -> int:
+        delete_ids = expired_event_ids(
+            self.query_rows,
+            self.quote,
+            now=now or datetime.now(),
+            graph_built_retention_days=graph_built_retention_days,
+        )
+        return self.delete_rows(self.id_filter("event_id", delete_ids)) if delete_ids else 0
+
     def _eligible_rows(self, current_event_id: str) -> list[dict[str, Any]]:
         return self.query_rows(
             " and ".join(
@@ -222,7 +248,8 @@ class EventsStore(MilvusBaseStore):
             limit=top_k,
             output_fields=self.output_fields,
         )
-        return [semantic_row(hit, set(eligible_ids)) for hit in result[0] if result]
+        hits = result[0] if result else []
+        return semantic_hits(hits, set(eligible_ids), self._semantic_score_threshold)
 
     @staticmethod
     def _matches_filters(
@@ -235,30 +262,3 @@ class EventsStore(MilvusBaseStore):
             return False
         haystack = " ".join(str(row.get(field) or "") for field in ("raw_content", "title", "summary"))
         return keyword is None or keyword in haystack
-
-
-def semantic_row(hit: dict[str, Any], eligible_ids: set[str]) -> dict[str, Any]:
-    entity = dict(hit.get("entity") or {})
-    event_id = str(entity.get("event_id") or hit.get("id"))
-    if event_id not in eligible_ids:
-        return {}
-    return {
-        **entity,
-        "event_id": event_id,
-        "semantic_score": float(hit.get("distance") or 0.0),
-    }
-
-
-def duplicate_event_ids(rows: list[dict[str, Any]]) -> list[str]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        raw_content = str(row.get("raw_content") or "")
-        row_hash = str(row.get("content_hash") or content_hash(raw_content))
-        grouped.setdefault(row_hash, []).append(row)
-    delete_ids: list[str] = []
-    for duplicate_rows in grouped.values():
-        duplicate_rows.sort(
-            key=lambda item: (str(item.get("created_at") or ""), str(item.get("event_id") or ""))
-        )
-        delete_ids.extend(str(row["event_id"]) for row in duplicate_rows[1:] if row.get("event_id"))
-    return delete_ids

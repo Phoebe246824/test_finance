@@ -228,4 +228,3 @@ def test_list_events_filters_and_orders_by_updated_at(
 
     assert result["total"] == 1
     assert [item["event_id"] for item in result["items"]] == ["E002"]
-
