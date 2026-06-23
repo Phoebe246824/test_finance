@@ -1,4 +1,16 @@
 from blacklist.stores.base import EmbeddingFn, FieldSpec, MilvusBaseStore
+from blacklist.stores.event_samples_store import EventSampleMatch, EventSamplesStore
 from blacklist.stores.events_store import EventsStore
+from blacklist.stores.keywords_store import KeywordsStore
+from blacklist.stores.persons_store import PersonsStore
 
-__all__ = ["EmbeddingFn", "EventsStore", "FieldSpec", "MilvusBaseStore"]
+__all__ = [
+    "EmbeddingFn",
+    "EventSampleMatch",
+    "EventSamplesStore",
+    "EventsStore",
+    "FieldSpec",
+    "KeywordsStore",
+    "MilvusBaseStore",
+    "PersonsStore",
+]
