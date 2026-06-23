@@ -89,7 +89,7 @@ class FakeReviews:
         return self.rows[:limit]
 
 
-class FakeBlacklistStore:
+class FakeBlacklistItemsStore:
     def __init__(self) -> None:
         self.items: dict[str, dict[str, str]] = {}
 
@@ -149,9 +149,9 @@ class FakeStoreBundle:
     def __init__(self) -> None:
         self.events = FakeEvents()
         self.review_actions = FakeReviews()
-        self.persons = FakeBlacklistStore()
-        self.keywords = FakeBlacklistStore()
-        self.event_samples = FakeBlacklistStore()
+        self.persons = FakeBlacklistItemsStore()
+        self.keywords = FakeBlacklistItemsStore()
+        self.event_samples = FakeBlacklistItemsStore()
 
 
 def test_default_api_uses_milvus_store_provider(

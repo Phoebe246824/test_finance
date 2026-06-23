@@ -93,19 +93,6 @@ def test_assert_case_state_checks_after_case_expectations():
 
 
 class FakeMilvusDiagnosticsStore:
-    """Fake *MilvusStashStore* that exposes ``_ensure_collection()`` and
-    ``_query_rows()`` — the same surface ``diagnose_milvus_failure`` uses.
-
-    Each test constructs this with the *rows* it should return and optionally
-    an *ensure_collection_error* to simulate connection failures.
-
-    .. note::
-
-       The name ``FakeMilvusDiagnosticsStore`` (not ``FakeMilvusStore``)
-       avoids a name collision with the unrelated ``FakeMilvusStore`` at
-       the bottom of this file that is used by the inspector tests.
-    """
-
     def __init__(
         self,
         rows: list[dict] | None = None,
@@ -363,10 +350,7 @@ async def test_collect_case_state_snapshot_uses_inspectors():
     }
 
 
-class FakeMilvusStore:
-    """Minimal fake for ``MilvusCaseInspector`` tests. Uses ``_query_rows``
-    to capture the filter expression that was sent."""
-
+class FakeMilvusEventsStore:
     def __init__(self, rows):
         self.rows = rows
         self.filters = []
@@ -387,7 +371,7 @@ class FakeMilvusStore:
 @pytest.mark.asyncio
 async def test_milvus_case_inspector_queries_by_event_id():
     inspector = MilvusCaseInspector(
-        store=FakeMilvusStore(
+        store=FakeMilvusEventsStore(
             [
                 {
                     "event_id": "E001",
