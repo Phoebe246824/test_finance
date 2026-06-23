@@ -1,8 +1,10 @@
 from blacklist.stores.base import EmbeddingFn, FieldSpec, MilvusBaseStore
 from blacklist.stores.event_samples_store import EventSampleMatch, EventSamplesStore
 from blacklist.stores.events_store import EventsStore
+from blacklist.stores.factory import StoreBundle, create_store_bundle
 from blacklist.stores.keywords_store import KeywordsStore
 from blacklist.stores.persons_store import PersonsStore
+from blacklist.stores.review_actions_store import ReviewActionsStore
 
 __all__ = [
     "EmbeddingFn",
@@ -13,4 +15,7 @@ __all__ = [
     "KeywordsStore",
     "MilvusBaseStore",
     "PersonsStore",
+    "ReviewActionsStore",
+    "StoreBundle",
+    "create_store_bundle",
 ]
