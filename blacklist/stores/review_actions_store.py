@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
 from pymilvus import DataType
 
 from blacklist.stores.base import FieldSpec, MilvusBaseStore
+
+REVIEW_ACTIONS_QUERY_LIMIT = 10000
+logger = logging.getLogger(__name__)
 
 
 class ReviewActionsStore(MilvusBaseStore):
@@ -48,8 +52,13 @@ class ReviewActionsStore(MilvusBaseStore):
         rows = self.query_rows(
             'action_id != ""',
             ["action_id", "event_id", "action_type", "comment", "created_at"],
-            limit=10000,
+            limit=REVIEW_ACTIONS_QUERY_LIMIT,
         )
+        if len(rows) >= REVIEW_ACTIONS_QUERY_LIMIT:
+            logger.warning(
+                "Milvus review actions list reached query cap=%d; totals may be truncated",
+                REVIEW_ACTIONS_QUERY_LIMIT,
+            )
         return sorted(
             rows,
             key=lambda item: str(item.get("created_at") or ""),
