@@ -147,8 +147,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 启动 Redis、Milvus、Neo4j、RabbitMQ：
 
 ```bash
-docker compose up -d
+docker compose up -d redis neo4j milvus rabbitmq
 ```
+
+不建议直接执行 `docker compose up -d`，因为 compose 里还包含 Milvus Attu，默认会占用宿主机 `8000` 端口，容易和 FastAPI 的 `127.0.0.1:8000` 冲突。
 
 查看容器状态：
 
@@ -160,11 +162,11 @@ docker compose ps
 
 ```text
 Neo4j Browser: http://localhost:7474
-Milvus Attu:   以 docker compose 实际映射端口为准，不要占用 FastAPI 的 8000
+Milvus WebUI:  http://localhost:9091/webui/
 RabbitMQ UI:   http://localhost:15672
 ```
 
-注意：FastAPI 使用 `127.0.0.1:8000`。如果 Attu 或其他服务也占用了 `localhost:8000`，浏览器可能误连导致 404 或 Network Error。
+注意：FastAPI 使用 `127.0.0.1:8000`。如果 Attu 或其他服务也占用了 `localhost:8000`，后端会启动失败，或者浏览器可能误连导致 404 / Network Error。
 
 ## 8. 初始化黑名单种子数据
 
@@ -206,7 +208,7 @@ http://127.0.0.1:8000/api/system/health
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -221,8 +223,15 @@ http://localhost:5173
 如果 npm 因为本机缓存权限失败，可以使用项目内缓存：
 
 ```bash
-npm_config_cache=./.npm-cache npm install
+npm_config_cache=./.npm-cache npm ci
 npm_config_cache=./.npm-cache npm run dev
+```
+
+仓库不会提交 `frontend/node_modules/`、`frontend/.npm-cache/` 和 `frontend/dist/`。其他人 clone 后需要自行安装依赖；`frontend/dist/` 由下面的构建命令生成：
+
+```bash
+cd frontend
+npm run build
 ```
 
 ## 11. 前端页面
@@ -299,6 +308,7 @@ uv run pytest -q
 
 ```bash
 cd frontend
+npm ci
 npm run build
 ```
 
@@ -359,13 +369,13 @@ http://127.0.0.1:8000/docs
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-### npm install 权限错误
+### npm ci 权限错误
 
 使用项目内缓存：
 
 ```bash
 cd frontend
-npm_config_cache=./.npm-cache npm install
+npm_config_cache=./.npm-cache npm ci
 ```
 
 ## 15. 给队友的最短启动步骤
@@ -375,7 +385,7 @@ git clone https://github.com/Phoebe246824/test_finance.git
 cd test_finance
 cp .env.example .env
 uv sync --dev
-docker compose up -d
+docker compose up -d redis neo4j milvus rabbitmq
 uv run python scripts/reset_and_seed_blacklist.py
 uv run uvicorn backend.app.main:app --reload --port 8000
 ```
@@ -384,7 +394,7 @@ uv run uvicorn backend.app.main:app --reload --port 8000
 
 ```bash
 cd test_finance/frontend
-npm_config_cache=./.npm-cache npm install
+npm_config_cache=./.npm-cache npm ci
 npm_config_cache=./.npm-cache npm run dev
 ```
 
