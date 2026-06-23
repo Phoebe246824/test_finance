@@ -5,13 +5,12 @@ Sentinel 舆情分析系统 — 共享数据模型
 
 设计原则:
   - 模型定义在此文件集中管理
-  - 服务间通过 RabbitMQ 传递 JSON，用这些模型序列化/反序列化
+  - legacy RabbitMQ 队列通过 JSON 传递这些模型
   - 每个模型都包含 trace_id 用于链路追踪
 """
 from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Any
 import json
 
 
@@ -135,7 +134,7 @@ class ClassifiedEvent(BaseModel):
 
 
 # ============================================================
-#  RabbitMQ 消息封装
+#  Legacy RabbitMQ message envelope
 # ============================================================
 
 class QueueMessage(BaseModel):

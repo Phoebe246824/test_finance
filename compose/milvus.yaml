@@ -1,7 +1,6 @@
 services:
 
   etcd:
-    profiles: ["vector"]
     container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.25
     environment:
@@ -25,7 +24,6 @@ services:
       - devopsnetwork
 
   minio:
-    profiles: ["vector"]
     container_name: milvus-minio
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     environment:
@@ -46,7 +44,6 @@ services:
       - devopsnetwork
 
   milvus:
-    profiles: ["vector"]
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.15
     command: ["milvus", "run", "standalone"]
