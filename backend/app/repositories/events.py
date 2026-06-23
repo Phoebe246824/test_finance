@@ -9,10 +9,8 @@ class EventRepository:
     def __init__(self, stores: Any | None = None) -> None:
         self._stores = stores or store_provider.get_store_bundle()
 
-    def upsert_from_analysis(self, result: dict[str, Any]) -> None:
-        raise RuntimeError(
-            "upsert_from_analysis is asynchronous; call EventsStore.upsert_analysis_result"
-        )
+    async def upsert_from_analysis(self, result: dict[str, Any]) -> int:
+        return await self._stores.events.upsert_analysis_result(result)
 
     def list_events(
         self,
