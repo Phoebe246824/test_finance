@@ -1815,12 +1815,6 @@ async def process_message_detailed(
         keywords_store=stores.keywords,
         samples_store=stores.event_samples,
     )
-    await stores.events.upsert_event(
-        normalized_event,
-        person_ids=id_numbers or [],
-        status="pending",
-        blacklist_decision="pending",
-    )
 
     blacklist_result = await bl_filter.check_with_details(normalized_event)
     print_blacklist_check_result(blacklist_result)
@@ -1868,6 +1862,18 @@ async def process_message_detailed(
             "raw_content": normalized_event.raw_content,
             "title": normalized_event.title,
         }
+
+    await stores.events.upsert_event(
+        normalized_event,
+        person_ids=id_numbers or [],
+        status="pending",
+        blacklist_decision="pending",
+        matched_persons=blacklist_result.matched_persons,
+        matched_keywords=blacklist_result.matched_keywords,
+        event_similarity=event_similarity_payload(
+            blacklist_result.event_similarity
+        ),
+    )
 
     for pid in blacklist_result.matched_persons:
         await stores.persons.append_person(pid)
