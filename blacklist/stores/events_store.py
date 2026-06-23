@@ -60,6 +60,7 @@ class EventsStore(MilvusBaseStore):
             person_ids=id_numbers,
             status="stashed",
             blacklist_decision="miss",
+            dedupe_content=True,
         )
 
     async def upsert_event(
@@ -72,10 +73,12 @@ class EventsStore(MilvusBaseStore):
         matched_persons: list[str] | None = None,
         matched_keywords: list[str] | None = None,
         event_similarity: dict[str, Any] | None = None,
+        dedupe_content: bool = False,
     ) -> int:
-        duplicate_rows = self.query_by_content_hash(content_hash(event.raw_content))
-        if duplicate_rows and duplicate_rows[0].get("event_id") != event.event_id:
-            return 0
+        if dedupe_content:
+            duplicate_rows = self.query_by_content_hash(content_hash(event.raw_content))
+            if duplicate_rows and duplicate_rows[0].get("event_id") != event.event_id:
+                return 0
         row = event_row(
             event,
             embedding=await self.resolve_embedding(self._embedding_fn, event.raw_content),
@@ -198,7 +201,7 @@ class EventsStore(MilvusBaseStore):
     def cleanup_duplicate_content(self, *, limit: int = 10000) -> int:
         rows = self.query_rows(
             'event_id != ""',
-            ["event_id", "content_hash", "raw_content", "created_at"],
+            ["event_id", "content_hash", "raw_content", "created_at", "status"],
             limit=limit,
         )
         delete_ids = duplicate_event_ids(rows)

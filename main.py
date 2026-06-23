@@ -1834,6 +1834,7 @@ async def process_message_detailed(
             event_similarity=event_similarity_payload(
                 blacklist_result.event_similarity
             ),
+            dedupe_content=True,
         )
         print_info(f"EVENT_ID: {normalized_event.event_id}")
         if stashed_count:

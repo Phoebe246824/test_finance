@@ -95,6 +95,27 @@ async def test_stash_event_deduplicates_by_content_hash(
 
 
 @pytest.mark.asyncio
+async def test_upsert_event_keeps_pending_duplicate_content_with_new_event_id(
+    store: EventsStore,
+    client: FakeMilvusClient,
+    now: datetime,
+) -> None:
+    stashed = make_event("STASHED", "客户 P102 工资入账后日常消费", now)
+    pending = make_event("PENDING", "客户 P102   工资入账后日常消费", now)
+
+    assert await store.stash_event(stashed, ["P102"]) == 1
+    written = await store.upsert_event(
+        pending,
+        person_ids=["P102"],
+        status="pending",
+    )
+
+    assert written == 1
+    assert sorted(client.rows["events"]) == ["PENDING", "STASHED"]
+    assert client.rows["events"]["PENDING"]["status"] == "pending"
+
+
+@pytest.mark.asyncio
 async def test_fetch_related_events_merges_same_person_and_semantic_matches(
     store: EventsStore,
     now: datetime,
@@ -228,3 +249,21 @@ def test_list_events_filters_and_orders_by_updated_at(
 
     assert result["total"] == 1
     assert [item["event_id"] for item in result["items"]] == ["E002"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_duplicate_content_preserves_non_stashed_duplicate_events(
+    store: EventsStore,
+    client: FakeMilvusClient,
+    now: datetime,
+) -> None:
+    stashed = make_event("STASHED", "客户 P102 工资入账后日常消费", now)
+    pending = make_event("PENDING", "客户 P102   工资入账后日常消费", now)
+
+    await store.stash_event(stashed, ["P102"])
+    await store.upsert_event(pending, person_ids=["P102"], status="pending")
+
+    deleted = store.cleanup_duplicate_content()
+
+    assert deleted == 0
+    assert sorted(client.rows["events"]) == ["PENDING", "STASHED"]

@@ -45,6 +45,8 @@ def expired_event_ids(
 def duplicate_event_ids(rows: list[dict[str, Any]]) -> list[str]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
+        if row.get("status") != "stashed":
+            continue
         raw_content = str(row.get("raw_content") or "")
         row_hash = str(row.get("content_hash") or content_hash(raw_content))
         grouped.setdefault(row_hash, []).append(row)
