@@ -87,12 +87,6 @@ def load_config() -> dict:
         dict: 合并后的配置字典
     """
     config = {
-        "rabbitmq": {
-            "host": os.getenv("RABBITMQ_HOST") or "localhost",
-            "port": int(os.getenv("RABBITMQ_PORT") or "5672"),
-            "user": os.getenv("RABBITMQ_USER") or "root",
-            "password": os.getenv("RABBITMQ_PASSWORD") or "pa55w0rd",
-        },
         "neo4j": {
             "uri": os.getenv("NEO4J_URI") or "bolt://localhost:7687",
             "user": os.getenv("NEO4J_USER") or "neo4j",

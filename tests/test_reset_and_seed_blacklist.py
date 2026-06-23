@@ -49,3 +49,8 @@ async def test_seed_blacklist_stores_writes_persons_keywords_and_samples() -> No
     assert set(client.rows["blacklist_event_samples"]) == {
         event_id for event_id, _summary in EVENT_SEEDS
     }
+    assert client.flushed == [
+        "blacklist_persons",
+        "blacklist_keywords",
+        "blacklist_event_samples",
+    ]

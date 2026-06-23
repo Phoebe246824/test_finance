@@ -80,5 +80,18 @@ def test_base_store_creates_collection_once_with_schema() -> None:
     assert client.create_calls[0]["collection_name"] == "dummy_collection"
     schema = client.create_calls[0]["schema"]
     field_names = [field.name for field in schema.fields]
-    assert field_names == ["dummy_id", "name", "enabled"]
+    assert field_names == ["dummy_id", "name", "enabled", "_storage_vector"]
 
+
+def test_base_store_adds_internal_vector_for_scalar_only_rows() -> None:
+    client = FakeMilvusClient()
+    store = DummyStore(client=client)
+
+    count = store.upsert_rows(
+        [{"dummy_id": "D001", "name": "demo", "enabled": True}]
+    )
+
+    assert count == 1
+    assert client.rows["dummy_collection"]["D001"]["_storage_vector"] == [0.0, 0.0]
+    index_params = client.index_params["dummy_collection"]
+    assert index_params is not None

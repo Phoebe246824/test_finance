@@ -5,11 +5,14 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
 from pymilvus import DataType, MilvusClient
 
 EmbeddingFn = Callable[[str], list[float] | Awaitable[list[float]]]
+INTERNAL_VECTOR_FIELD: Final = "_storage_vector"
+INTERNAL_VECTOR_DIM: Final = 2
+INTERNAL_VECTOR_VALUE: Final = (0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -45,7 +48,7 @@ class MilvusBaseStore:
             return
 
         schema = MilvusClient.create_schema(auto_id=False, enable_dynamic_field=False)
-        for field in self.fields():
+        for field in self._schema_fields():
             kwargs: dict[str, Any] = {
                 "field_name": field.name,
                 "datatype": field.dtype,
@@ -64,10 +67,11 @@ class MilvusBaseStore:
             schema.add_field(**kwargs)
 
         index_params = None
-        if self.vector_field:
+        index_field = self._index_vector_field()
+        if index_field:
             index_params = MilvusClient.prepare_index_params()
             index_params.add_index(
-                field_name=self.vector_field,
+                field_name=index_field,
                 index_type="AUTOINDEX",
                 metric_type="COSINE",
             )
@@ -86,7 +90,10 @@ class MilvusBaseStore:
         if not rows:
             return 0
         self.ensure_collection()
-        result = self._client.upsert(collection_name=self.collection_name, data=rows)
+        result = self._client.upsert(
+            collection_name=self.collection_name,
+            data=self._storage_rows(rows),
+        )
         self.flush()
         return int(result.get("upsert_count", len(rows)))
 
@@ -123,6 +130,30 @@ class MilvusBaseStore:
         if flush is not None:
             flush(collection_name=self.collection_name)
 
+    def _schema_fields(self) -> list[FieldSpec]:
+        fields = self.fields()
+        if self.vector_field:
+            return fields
+        return [
+            *fields,
+            FieldSpec(
+                INTERNAL_VECTOR_FIELD,
+                DataType.FLOAT_VECTOR,
+                dim=INTERNAL_VECTOR_DIM,
+            ),
+        ]
+
+    def _index_vector_field(self) -> str:
+        return self.vector_field or INTERNAL_VECTOR_FIELD
+
+    def _storage_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.vector_field:
+            return rows
+        return [
+            {**row, INTERNAL_VECTOR_FIELD: list(INTERNAL_VECTOR_VALUE)}
+            for row in rows
+        ]
+
     @staticmethod
     async def resolve_embedding(embedding_fn: EmbeddingFn, text: str) -> list[float]:
         embedding = embedding_fn(text)
@@ -142,4 +173,3 @@ class MilvusBaseStore:
     def id_filter(field_name: str, values: list[str]) -> str:
         quoted = ", ".join(json.dumps(value) for value in values)
         return f"{field_name} in [{quoted}]"
-

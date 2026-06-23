@@ -126,12 +126,50 @@ async def seed_blacklist_stores(
         embedding_fn=embedding_fn,
         embedding_dim=embedding_dim,
     )
-    for person_id in PERSON_SEEDS:
-        await persons.append_person(person_id)
-    for keyword in KEYWORD_SEEDS:
-        await keywords.append_keyword(keyword)
-    for event_id, summary in EVENT_SEEDS:
-        await samples.append_event(event_id, summary, summary)
+    now = persons.now_iso()
+    persons.upsert_rows(
+        [
+            {
+                "person_id": person_id.upper(),
+                "summary": "",
+                "description": "",
+                "hit_count": 1,
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for person_id in PERSON_SEEDS
+        ]
+    )
+    keywords.upsert_rows(
+        [
+            {
+                "keyword_id": keywords.keyword_id(keyword),
+                "keyword": keyword,
+                "summary": "",
+                "description": "",
+                "hit_count": 1,
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for keyword in KEYWORD_SEEDS
+        ]
+    )
+    samples.upsert_rows(
+        [
+            {
+                "sample_id": event_id,
+                "summary": summary,
+                "description": summary,
+                "embedding": await samples.resolve_embedding(embedding_fn, summary),
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for event_id, summary in EVENT_SEEDS
+        ]
+    )
     return {
         "persons": len(PERSON_SEEDS),
         "keywords": len(KEYWORD_SEEDS),
