@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 import pytest
@@ -249,6 +250,39 @@ def test_list_events_filters_and_orders_by_updated_at(
 
     assert result["total"] == 1
     assert [item["event_id"] for item in result["items"]] == ["E002"]
+
+
+def test_list_events_warns_when_scan_reaches_query_cap(
+    store: EventsStore,
+    client: FakeMilvusClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client.rows["events"] = {
+        f"E{index:05d}": {
+            "event_id": f"E{index:05d}",
+            "raw_content": "低风险工资入账",
+            "title": "工资",
+            "summary": "工资",
+            "status": "stashed",
+            "risk_level": "low",
+            "risk_score": 0.0,
+            "event_type": "正常交易",
+            "created_at": "2026-06-23T09:00:00",
+            "updated_at": "2026-06-23T09:00:00",
+            "matched_keywords": "[]",
+            "matched_persons": "[]",
+            "event_similarity": "{}",
+            "dimension_scores": "{}",
+            "trend_report": "{}",
+        }
+        for index in range(10_000)
+    }
+
+    with caplog.at_level(logging.WARNING):
+        result = store.list_events(page=1, page_size=5)
+
+    assert result["total"] == 10_000
+    assert "Milvus events list reached query cap" in caplog.text
 
 
 @pytest.mark.asyncio

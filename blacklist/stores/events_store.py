@@ -11,8 +11,10 @@ from blacklist.stores.events_codec import (
     event_row,
 )
 from blacklist.stores.events_maintenance import (
+    LIST_EVENTS_QUERY_LIMIT,
     duplicate_event_ids,
     expired_event_ids,
+    warn_if_list_events_capped,
 )
 from blacklist.stores.events_recall import (
     merge_recall_matches,
@@ -125,7 +127,12 @@ class EventsStore(MilvusBaseStore):
         risk_level: str | None = None,
         keyword: str | None = None,
     ) -> dict[str, Any]:
-        rows = self.query_rows('event_id != ""', self.output_fields, limit=10000)
+        rows = self.query_rows(
+            'event_id != ""',
+            self.output_fields,
+            limit=LIST_EVENTS_QUERY_LIMIT,
+        )
+        warn_if_list_events_capped(len(rows))
         filtered = [
             row
             for row in rows
