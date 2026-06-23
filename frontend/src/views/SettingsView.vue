@@ -78,12 +78,56 @@ const serviceFallbacks: ModelService[] = [
   { name: 'LLM 大模型服务', type: '大语言模型', deployment: '本地部署', endpoint: '本地模型（Qwen3-8B）', status: '正常', default: false, updatedAt: '' },
 ]
 
+const defaultModelServices: ModelService[] = [
+  {
+    name: '本地大模型（Qwen3-8B）',
+    type: '大语言模型',
+    deployment: '本地部署',
+    endpoint: 'http://localhost:8001/v1',
+    status: '运行中',
+    default: true,
+    updatedAt: '2026-06-14 14:22:31',
+  },
+  {
+    name: '向量模型（text-embedding-v3）',
+    type: '向量模型',
+    deployment: '本地部署',
+    endpoint: 'http://localhost:8001/embeddings',
+    status: '运行中',
+    default: true,
+    updatedAt: '2026-06-14 14:21:10',
+  },
+  {
+    name: '重排序模型（bge-reranker）',
+    type: '重排序模型',
+    deployment: '本地部署',
+    endpoint: 'http://localhost:8001/reranker',
+    status: '运行中',
+    default: false,
+    updatedAt: '2026-06-14 14:20:05',
+  },
+  {
+    name: '图谱抽取模型（graph-extract）',
+    type: '信息抽取模型',
+    deployment: '本地部署',
+    endpoint: 'http://localhost:8001/graph',
+    status: '运行中',
+    default: false,
+    updatedAt: '2026-06-14 14:19:42',
+  },
+]
+
 const serviceCards = computed(() =>
   serviceFallbacks.map((fallback) => {
     const exact = modelServices.value.find((item) => item.name === fallback.name)
     return exact || fallback
   }),
 )
+
+function hasLegacyModelServices(services: ModelService[]) {
+  const legacyNames = ['API 服务', 'Milvus 向量库', 'Redis 服务', 'Neo4j 图数据库', 'SQLite 数据库', 'LLM 大模型服务']
+  return services.some((service) => legacyNames.includes(service.name))
+}
 
 function serviceIconName(name: string) {
   if (name.includes('Redis')) return 'redis'
@@ -118,7 +162,10 @@ const totalWeight = computed(() =>
 function applySettings(data: AppSettings) {
   Object.assign(systemConfig, data.system_config || defaultSystemConfig)
   Object.assign(modelParams, data.model_params || defaultModelParams)
-  modelServices.value = data.model_services || []
+  const incomingModelServices = data.model_services || []
+  modelServices.value = incomingModelServices.length && !hasLegacyModelServices(incomingModelServices)
+    ? incomingModelServices
+    : defaultModelServices
   users.value = data.users || []
   notificationChannels.value = data.notification_channels || []
   notificationEvents.value = data.notification_events || notificationEvents.value
@@ -288,8 +335,8 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section v-else-if="activeTab === '模型设置'" class="settings-section">
-      <div class="section-title">
+    <section v-else-if="activeTab === '模型设置'" class="settings-section model-service-section">
+      <div class="section-title model-service-title">
         <div>
           <h2>模型服务配置</h2>
           <p class="muted small">配置风险分析所使用的模型与服务</p>
@@ -299,7 +346,7 @@ onMounted(async () => {
           <button class="button" @click="saveLocal('已打开新增模型流程')">+ 新增模型</button>
         </div>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap model-service-table">
         <table>
           <thead>
             <tr>
@@ -319,7 +366,7 @@ onMounted(async () => {
               <td>{{ row.type }}</td>
               <td>{{ row.deployment }}</td>
               <td>{{ row.endpoint }}</td>
-              <td><span class="status-ok">● {{ row.status }}</span></td>
+              <td><span class="status-ok model-running">● {{ row.status }}</span></td>
               <td>{{ row.default ? '是' : '否' }}</td>
               <td>{{ row.updatedAt }}</td>
               <td>

@@ -35,7 +35,7 @@ function personName(item: any) {
   const value = String(item.value || '')
   const parts = value.split(/[｜|,，\s]+/).filter(Boolean)
   if (parts.length > 1) return parts.slice(1).join(' ')
-  return item.summary || item.description || '-'
+  return item.summary || '-'
 }
 
 const filteredItems = computed(() => {
@@ -165,8 +165,8 @@ onMounted(load)
             <thead>
               <tr>
                 <template v-if="active === 'persons'">
-                  <th>值（人员ID/名称）</th>
-                  <th>摘要</th>
+                  <th>人员ID</th>
+                  <th>名称</th>
                   <th>说明</th>
                 </template>
                 <template v-else>
@@ -181,8 +181,8 @@ onMounted(load)
             <tbody>
               <tr v-for="item in filteredItems" :key="item.id">
                 <template v-if="active === 'persons'">
-                  <td><strong>{{ personId(item) }}</strong>　{{ personName(item) }}</td>
-                  <td>{{ item.summary || item.description || '无摘要' }}</td>
+                  <td><strong>{{ personId(item) }}</strong></td>
+                  <td>{{ personName(item) }}</td>
                   <td>{{ item.description || '无说明' }}</td>
                 </template>
                 <template v-else>
