@@ -40,7 +40,7 @@ except Exception:
 
 from blacklist.filter import BlacklistFilter
 from blacklist.stores.events_store import EventsStore
-from blacklist.stores.factory import create_store_bundle
+from blacklist.stores.runtime import get_runtime_store_bundle
 from graphiti.graphiti_workflow import (
     add_event_to_graph,
     batch_add_to_graph,
@@ -1808,7 +1808,7 @@ async def process_message_detailed(
         normalized_event.source,
     )
 
-    stores = create_store_bundle(config)
+    stores = get_runtime_store_bundle(config)
     id_numbers = extract_person_id_numbers(normalized_event.raw_content)
     bl_filter = BlacklistFilter(
         persons_store=stores.persons,
