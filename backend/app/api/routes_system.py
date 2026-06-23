@@ -1,32 +1,41 @@
 from __future__ import annotations
 
-import os
-import sqlite3
-
 from fastapi import APIRouter
 
-from backend.app.db.session import get_connection
+from backend.app.services import store_provider
+from backend.app.services.neo4j_graph_service import Neo4jGraphService
 from sentinel_edge import collect_hardware_profile
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 
-def _database_ready() -> bool:
+def _milvus_ready() -> bool:
     try:
-        with get_connection() as conn:
-            conn.execute("SELECT 1").fetchone()
-    except (RuntimeError, sqlite3.Error):
+        stores = store_provider.get_store_bundle()
+        stores.events.ensure_collection()
+    except Exception:
         return False
     return True
+
+
+async def _neo4j_ready() -> bool:
+    service = Neo4jGraphService()
+    try:
+        await service.graph_by_terms(["health"], limit=1)
+    except Exception:
+        return False
+    else:
+        return True
+    finally:
+        await service.close()
 
 
 @router.get("/health")
 async def health() -> dict:
     return {
         "api": True,
-        "database": _database_ready(),
-        "blacklist_backend": (os.getenv("BLACKLIST_BACKEND") or "sqlite").lower(),
-        "stash_backend": (os.getenv("STASH_BACKEND") or "sqlite").lower(),
+        "milvus": _milvus_ready(),
+        "neo4j": await _neo4j_ready(),
     }
 
 

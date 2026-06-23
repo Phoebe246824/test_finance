@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from pymilvus import DataType
@@ -20,6 +21,17 @@ class ReviewActionsStore(MilvusBaseStore):
             FieldSpec("created_at", DataType.VARCHAR, max_length=64),
         ]
 
+    def create(self, event_id: str, action_type: str, comment: str) -> dict[str, Any]:
+        row = {
+            "action_id": uuid.uuid4().hex,
+            "event_id": event_id,
+            "action_type": action_type,
+            "comment": comment,
+            "created_at": self.now_iso(),
+        }
+        self.upsert_rows([row])
+        return row
+
     def list_for_event(self, event_id: str) -> list[dict[str, Any]]:
         rows = self.query_rows(
             f"event_id == {self.quote(event_id)}",
@@ -31,3 +43,15 @@ class ReviewActionsStore(MilvusBaseStore):
             key=lambda item: str(item.get("created_at") or ""),
             reverse=True,
         )
+
+    def list_recent(self, limit: int = 8) -> list[dict[str, Any]]:
+        rows = self.query_rows(
+            'action_id != ""',
+            ["action_id", "event_id", "action_type", "comment", "created_at"],
+            limit=10000,
+        )
+        return sorted(
+            rows,
+            key=lambda item: str(item.get("created_at") or ""),
+            reverse=True,
+        )[:limit]
