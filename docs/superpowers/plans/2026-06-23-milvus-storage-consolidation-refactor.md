@@ -3496,7 +3496,7 @@ git commit -m "docs: document milvus-only storage architecture"
 Run:
 
 ```bash
-uv run pytest tests/test_milvus_store_base.py tests/test_events_store.py tests/test_blacklist_milvus_stores.py tests/test_blacklist_filter.py tests/test_default_milvus_runtime.py tests/test_default_milvus_api.py tests/test_reset_and_seed_blacklist.py tests/test_blacklist_demo_assertions.py tests/test_milvus_stash_flow.py -q
+uv run pytest tests/test_milvus_store_base.py tests/test_events_store.py tests/test_blacklist_milvus_stores.py tests/test_blacklist_filter.py tests/test_default_milvus_runtime.py tests/test_default_milvus_api.py tests/test_reset_and_seed_blacklist.py tests/test_blacklist_demo_assertions.py tests/test_run_blacklist_kv_demo.py -q
 ```
 
 Expected: PASS.
@@ -3529,7 +3529,7 @@ Run:
 
 ```bash
 uv run python -c "import main; import backend.app.main; import consumer; import classifier; import graph_service; print('imports ok')"
-rg -n "blacklist\\.store|sqlite_store|sqlite_stash|runtime_storage|milvus_stash|backend\\.app\\.db\\.session|SQLiteBlacklistStore|SQLiteStashStore|BlacklistStore|MilvusStashStore" blacklist backend main.py scripts tests
+rg -n "blacklist\\.store\\b|sqlite_store|sqlite_stash|runtime_storage|milvus_stash|backend\\.app\\.db\\.session|SQLiteBlacklistStore|SQLiteStashStore|BlacklistStore|MilvusStashStore" blacklist backend main.py scripts tests
 rg -n "DATABASE_URL|BLACKLIST_BACKEND|STASH_BACKEND|REDIS_HOST|RABBITMQ_HOST|stashed_events" main.py blacklist backend scripts tests .env.example docker-compose.yaml compose docs README.md
 ```
 
@@ -3537,7 +3537,7 @@ Expected:
 
 - First command prints `imports ok`.
 - Second `rg` has no output.
-- Third `rg` has no output except historical report docs under `docs/reports/` and source specs under `docs/superpowers/specs/`.
+- Third `rg` has no output except historical report docs under `docs/reports/`, source specs/plans under `docs/superpowers/`, and the explicit deprecation note in `docs/env-vars.md`.
 
 - [ ] **Step 5: Manual QA with live Milvus/Neo4j**
 

@@ -14,7 +14,7 @@
 2. 后端调用 Sentinel pipeline 分析风险。
 3. 页面展示风险等级、风险分数、命中原因、关联历史交易、知识图谱摘要和处置建议。
 4. 管理员可以维护金融黑名单关键词、客户黑名单和高危事件样本。
-5. 演示时能看到本地模型、Milvus、Neo4j、Redis 和 AMD 硬件画像。
+5. 演示时能看到本地模型、Milvus、Neo4j 和 AMD 硬件画像。
 
 ## 第 1 阶段：先让后端稳定跑起来
 
@@ -22,7 +22,7 @@
 
 需要做：
 
-- 修好 Docker 服务：Redis、Milvus、Neo4j 必须是 `Up` 或 `healthy`。
+- 修好 Docker 服务：Milvus、Neo4j 必须是 `Up` 或 `healthy`。
 - 重建 Python 3.13 环境，因为当前 Python 3.14 会让 CrewAI/ChromaDB 导入失败。
 - 确认本地 LLM endpoint 可用，例如 Ollama 或 LM Studio 的 OpenAI-compatible API。
 - 运行金融种子：
@@ -48,11 +48,9 @@ python scripts/sentinel_competition_demo.py --run-pipeline
 后端：
 
 - FastAPI：写 HTTP API。
-- SQLAlchemy 2.x：操作 SQLite/PostgreSQL。
-- Alembic：管理数据库表结构变更。
+- Milvus stores：操作事件、审核动作和黑名单业务数据。
 - Pydantic：定义请求和响应格式。
-- Redis：继续存黑名单和缓存。
-- Milvus：继续做相似交易召回。
+- Milvus：存事件、黑名单和相似交易召回向量。
 - Neo4j：继续做关系图谱。
 
 前端：
@@ -106,9 +104,7 @@ test_finance/
 
 这个项目不是只用一个数据库，建议按用途分工：
 
-- **PostgreSQL 或 SQLite**：存业务主表，前端列表和详情页主要查这里。开发早期用 SQLite，正式演示或部署用 PostgreSQL。
-- **Redis**：继续存黑名单、关键词、短期缓存和任务状态。
-- **Milvus**：继续存事件向量和暂存池，用来做相似交易召回。不要把它当普通业务数据库。
+- **Milvus**：存业务事件、审核动作、黑名单、事件向量和暂存池，用来支撑列表、详情、黑名单过滤和相似交易召回。
 - **Neo4j**：继续存客户、账户、商户、设备、交易之间的关系图谱。
 - **本地文件或对象存储**：存日志、报告 JSON、PPT、视频素材。
 
@@ -185,23 +181,11 @@ system_metrics
 - created_at
 ```
 
-第一版为了简单，可以先用 SQLite：
-
-```text
-DATABASE_URL=sqlite:///./sentinel_edge.db
-```
-
-后面要正式一点，再换 PostgreSQL：
-
-```text
-DATABASE_URL=postgresql+psycopg://sentinel:password@localhost:5432/sentinel_edge
-```
-
 简单理解：
 
-- 页面要展示的东西，放 PostgreSQL/SQLite。
-- 要快速判断命中不命中，放 Redis。
-- 要查“相似文本/相似交易”，放 Milvus。
+- 页面要展示的事件和审核动作，放 Milvus。
+- 要快速判断命中不命中，查 Milvus 黑名单 stores。
+- 要查“相似文本/相似交易”，查 Milvus events 向量。
 - 要查“客户 A 和账户 B、设备 C、商户 D 有什么关系”，放 Neo4j。
 
 ### 接口怎么设计
@@ -298,7 +282,7 @@ POST /api/blacklist/events
 
 ```text
 GET /api/system/health
-返回 Redis、Milvus、Neo4j、本地 LLM 是否可用。
+返回 Milvus、Neo4j、本地 LLM 是否可用。
 
 GET /api/system/hardware
 返回 AMD/GPU/NPU/模型配置画像。
@@ -311,7 +295,7 @@ GET /api/system/metrics
 
 - 后端继续用 FastAPI。
 - 先复用现在的 `dashboard.py`，不要另起一套复杂后端。
-- 分析结果先存 SQLite，后面再换 PostgreSQL。
+- 分析结果写入 Milvus events collection。
 
 ### 后端怎么拆
 
@@ -351,7 +335,7 @@ workers/          # 后台任务，跑耗时 pipeline
 - **事件列表页**：按时间查看历史分析记录。
 - **事件详情页**：展示风险分、命中规则、关联历史、模型解释。
 - **黑名单管理页**：维护关键词、客户编号、高危事件样本。
-- **系统状态页**：展示 Milvus/Neo4j/Redis/LLM/硬件画像。
+- **系统状态页**：展示 Milvus/Neo4j/LLM/硬件画像。
 
 技术选择：
 
@@ -409,7 +393,7 @@ components/
 - DimensionScoreBars.vue   # 多维度评分条
 - BlacklistHitPanel.vue    # 命中详情
 - RelatedEventsTable.vue   # 关联历史事件
-- SystemHealthCards.vue    # Redis/Milvus/Neo4j/LLM 状态卡片
+- SystemHealthCards.vue    # Milvus/Neo4j/LLM 状态卡片
 ```
 
 前端 API 文件：
