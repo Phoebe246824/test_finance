@@ -1,0 +1,11 @@
+Use case: ui-mockup
+Asset type: Login page background for Sentinel Edge financial risk-control dashboard
+Primary request: A pale blue, high-end fintech security login background matching a Chinese enterprise dashboard prototype.
+Scene/backdrop: Bright futuristic financial control room horizon, subtle city skyline, holographic globe and circular platform near the lower center, thin dotted network arcs and soft floating technology nodes.
+Subject: Abstract AI risk-control and endpoint security atmosphere, no people, no readable text.
+Style/medium: Polished raster illustration with realistic light diffusion, enterprise SaaS visual language.
+Composition/framing: 16:9 wide background, keep the central upper area calm and bright for logo and login card, visual detail mostly on lower half and far sides.
+Lighting/mood: Clean daylight, white-blue glow, quiet and trustworthy.
+Color palette: White, ice blue, light cobalt accents, low contrast.
+Constraints: No logos, no text, no dark gradients, no decorative bokeh blobs, no busy center.
+Avoid: Purple theme, heavy cyberpunk, dark security operations center, stock-photo people, watermarks.

@@ -25,5 +25,17 @@ class Settings:
     def database_url(self) -> str:
         return os.getenv("DATABASE_URL") or f"sqlite:///{self.database_path}"
 
+    @property
+    def auth_enabled(self) -> bool:
+        return os.getenv("AUTH_ENABLED", "true").lower() not in {"0", "false", "no"}
+
+    @property
+    def admin_token(self) -> str:
+        return os.getenv("SENTINEL_ADMIN_TOKEN", "sentinel-admin-token")
+
+    @property
+    def reviewer_token(self) -> str:
+        return os.getenv("SENTINEL_REVIEWER_TOKEN", "sentinel-reviewer-token")
+
 
 settings = Settings()

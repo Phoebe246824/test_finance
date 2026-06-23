@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Sentinel Edge</title>
+  <desc id="desc">A shield logo with a paper-plane signal and connected risk nodes.</desc>
+  <defs>
+    <linearGradient id="shield" x1="42" x2="214" y1="30" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17467f"/>
+      <stop offset="0.55" stop-color="#0b2d5d"/>
+      <stop offset="1" stop-color="#061b3c"/>
+    </linearGradient>
+    <linearGradient id="plane" x1="90" x2="176" y1="86" y2="168" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c8d0d9"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <path d="M128 18 43 48v69c0 55 34 98 85 121 51-23 85-66 85-121V48L128 18Z" fill="url(#shield)"/>
+  <path d="M128 18 43 48v69c0 55 34 98 85 121 51-23 85-66 85-121V48L128 18Z" fill="none" stroke="#dce8f7" stroke-opacity=".85" stroke-width="7"/>
+  <g fill="none" stroke="#e8edf4" stroke-linecap="round" stroke-width="8" opacity=".9">
+    <path d="M45 102h54"/>
+    <path d="M67 181 121 90"/>
+    <path d="M128 20v65"/>
+    <path d="M74 56 120 129"/>
+    <path d="M173 61v142"/>
+    <path d="M213 113h-48"/>
+    <path d="M94 206v-42"/>
+  </g>
+  <g filter="url(#glow)" fill="none" stroke="#56e59a" stroke-linecap="round" stroke-width="6">
+    <path d="M151 61 196 76"/>
+    <path d="M153 62 174 128"/>
+    <path d="M196 76v58"/>
+    <path d="M174 128 196 134"/>
+  </g>
+  <g fill="#f6f8fb" stroke="#cfd8e5" stroke-width="6">
+    <circle cx="151" cy="61" r="17"/>
+    <circle cx="196" cy="76" r="17"/>
+    <circle cx="196" cy="134" r="17"/>
+  </g>
+  <path d="M91 127 183 78l-42 95-10-43-40-3Z" fill="url(#plane)"/>
+  <path d="M131 130 183 78 115 143" fill="none" stroke="#09214a" stroke-opacity=".34" stroke-linecap="round" stroke-width="5"/>
+  <g fill="#f6f8fb" stroke="#f6f8fb" stroke-width="2">
+    <circle cx="84" cy="161" r="12"/>
+    <circle cx="113" cy="181" r="12"/>
+  </g>
+  <g fill="#0b2d5d">
+    <circle cx="84" cy="161" r="5"/>
+    <circle cx="113" cy="181" r="5"/>
+  </g>
+</svg>

@@ -18,3 +18,7 @@ services:
       - ./volumes/rabbitmq/myplugins:/myplugins
     networks:
       - devopsnetwork
+
+networks:
+  devopsnetwork:
+    driver: bridge

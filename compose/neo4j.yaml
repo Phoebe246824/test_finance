@@ -16,3 +16,7 @@ services:
       - ./volumes/neo4j/plugins:/plugins
     networks:
       - devopsnetwork
+
+networks:
+  devopsnetwork:
+    driver: bridge

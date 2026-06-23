@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
+from backend.app.core.security import CurrentUser, require_roles
 from backend.app.db.session import get_connection
+from backend.app.services.audit_service import write_audit_log
 from main import load_config
 from blacklist.store import BlacklistStore
 
@@ -222,7 +224,11 @@ async def list_blacklist_items(item_type: str) -> dict:
 
 
 @router.post("/{item_type}")
-async def create_blacklist_item(item_type: str, payload: BlacklistCreate) -> dict:
+async def create_blacklist_item(
+    item_type: str,
+    payload: BlacklistCreate,
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
     if item_type not in {"persons", "keywords", "events"}:
         raise HTTPException(status_code=404, detail="unknown blacklist type")
 
@@ -238,6 +244,13 @@ async def create_blacklist_item(item_type: str, payload: BlacklistCreate) -> dic
             await store.append_event(payload.value, payload.summary or payload.description)
             normalized = "event"
         _upsert_item(normalized, payload.value, payload.summary, payload.description)
+        write_audit_log(
+            actor=user,
+            action="blacklist.create",
+            resource_type=normalized,
+            resource_id=payload.value,
+            detail={"summary": payload.summary, "description": payload.description},
+        )
         return {"created": True, "item_type": normalized, "value": payload.value}
     finally:
         await redis.aclose()
@@ -248,6 +261,7 @@ async def update_blacklist_item(
     item_type: str,
     value: str,
     payload: BlacklistCreate,
+    user: CurrentUser = Depends(require_roles("admin")),
 ) -> dict:
     if item_type not in {"persons", "keywords", "events"}:
         raise HTTPException(status_code=404, detail="unknown blacklist type")
@@ -279,13 +293,29 @@ async def update_blacklist_item(
         else:
             await store.remove_event(value)
             await store.append_event(payload.value, payload.summary or payload.description)
+        write_audit_log(
+            actor=user,
+            action="blacklist.update",
+            resource_type=normalized,
+            resource_id=payload.value,
+            detail={
+                "old_value": value,
+                "new_value": payload.value,
+                "summary": payload.summary,
+                "description": payload.description,
+            },
+        )
         return {"updated": True, "item_type": normalized, "value": payload.value}
     finally:
         await redis.aclose()
 
 
 @router.delete("/{item_type}/{value}")
-async def delete_blacklist_item(item_type: str, value: str) -> dict:
+async def delete_blacklist_item(
+    item_type: str,
+    value: str,
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
     if item_type not in {"persons", "keywords", "events"}:
         raise HTTPException(status_code=404, detail="unknown blacklist type")
 
@@ -303,6 +333,12 @@ async def delete_blacklist_item(item_type: str, value: str) -> dict:
         db_removed = _disable_item(normalized, value)
         if not removed and not db_removed:
             raise HTTPException(status_code=404, detail="blacklist item not found")
+        write_audit_log(
+            actor=user,
+            action="blacklist.delete",
+            resource_type=normalized,
+            resource_id=value,
+        )
         return {"deleted": True, "item_type": normalized, "value": value}
     finally:
         await redis.aclose()

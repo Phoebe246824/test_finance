@@ -9,3 +9,7 @@ services:
       - ./volumes/redis/data:/data
     networks:
       - devopsnetwork
+
+networks:
+  devopsnetwork:
+    driver: bridge

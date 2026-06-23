@@ -89,6 +89,31 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 UNIQUE(item_type, value)
             );
+
+            CREATE TABLE IF NOT EXISTS risk_rule_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_key TEXT UNIQUE NOT NULL,
+                config_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_key TEXT UNIQUE NOT NULL,
+                config_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor TEXT NOT NULL,
+                role TEXT NOT NULL,
+                action TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT,
+                detail_json TEXT,
+                created_at TEXT NOT NULL
+            );
             """
         )
         columns = {

@@ -87,6 +87,8 @@ class EventRepository:
         page_size: int = 20,
         risk_level: str | None = None,
         keyword: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> dict:
         where = []
         params: list[Any] = []
@@ -97,6 +99,12 @@ class EventRepository:
             where.append("(raw_content LIKE ? OR title LIKE ? OR summary LIKE ?)")
             like = f"%{keyword}%"
             params.extend([like, like, like])
+        if date_from:
+            where.append("date(created_at) >= date(?)")
+            params.append(date_from)
+        if date_to:
+            where.append("date(created_at) <= date(?)")
+            params.append(date_to)
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
         offset = (page - 1) * page_size
         with get_connection() as conn:

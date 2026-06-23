@@ -121,6 +121,15 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
+Web 写操作默认需要登录。开发环境可先使用 `.env.example` 中的默认 token：
+
+```text
+管理员：sentinel-admin-token
+审核员：sentinel-reviewer-token
+```
+
+管理员可以维护黑名单、风险规则、删除事件并查看审计日志；审核员可以提交分析任务和添加人工复核动作。
+
 ## 6. 安装 Python 依赖
 
 ```bash
@@ -232,7 +241,8 @@ npm_config_cache=./.npm-cache npm run dev
 
 1. 打开 `/dashboard` 看整体状态。
 2. 打开 `/blacklist` 确认黑名单种子存在。
-3. 打开 `/analysis` 粘贴金融 Demo case。
+3. 在左侧输入管理员或审核员 token 登录。
+4. 打开 `/analysis` 粘贴金融 Demo case。
 4. 分析完成后查看风险等级、命中详情、图谱和趋势报告。
 5. 打开 `/events` 进入事件详情。
 6. 在详情页点击图谱节点、扩展节点，并添加人工复核动作。
