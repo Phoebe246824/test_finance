@@ -135,6 +135,26 @@ class EventsStore(MilvusBaseStore):
             limit=1,
         )
 
+    def ensure_collection_ready(self) -> None:
+        self.ensure_collection()
+
+    def query_event_rows(
+        self,
+        event_id: str,
+        output_fields: list[str],
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.query_rows(
+            self.id_filter("event_id", [event_id]),
+            output_fields,
+            limit=limit,
+        )
+
+    def count_rows_for_diagnostics(self, *, limit: int = 10000) -> int | None:
+        rows = self.query_rows('event_id != ""', ["event_id"], limit=limit)
+        return len(rows) if rows else 0
+
     async def fetch_related_events(
         self,
         event: NormalizedEvent,
@@ -242,4 +262,3 @@ def duplicate_event_ids(rows: list[dict[str, Any]]) -> list[str]:
         )
         delete_ids.extend(str(row["event_id"]) for row in duplicate_rows[1:] if row.get("event_id"))
     return delete_ids
-

@@ -109,7 +109,7 @@ class FakeMilvusDiagnosticsStore:
     def __init__(
         self,
         rows: list[dict] | None = None,
-        collection_name: str = "stashed_events",
+        collection_name: str = "events",
         ensure_collection_error: str | None = None,
         query_error: str | None = None,
     ):
@@ -189,7 +189,7 @@ async def test_diagnose_milvus_failure_backend_access_failed():
 async def test_diagnose_milvus_failure_collection_not_found():
     """Collection missing → error_type='collection_not_found'."""
     store = FakeMilvusDiagnosticsStore(
-        ensure_collection_error="collection not found: stashed_events",
+        ensure_collection_error="collection not found: events",
     )
     diag = await diagnose_milvus_failure(store=store, event_id="E001")
     assert diag.error_type == "collection_not_found"

@@ -9,158 +9,28 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from blacklist.milvus_stash import MilvusStashStore
+from scripts.milvus_demo_diagnostics import (
+    MilvusDiagnostics,
+    default_events_store,
+    diagnose_milvus_failure,
+)
+
+__all__ = [
+    "CASE_TEXT_PERSISTENCE_QUERY",
+    "EPISODIC_CONTENT_SCHEMA_QUERY",
+    "AssertionFailure",
+    "MilvusCaseInspector",
+    "MilvusDiagnostics",
+    "Neo4jCaseInspector",
+    "assert_case_state",
+    "collect_case_state_snapshot",
+    "diagnose_milvus_failure",
+]
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 # ── Diagnostics ──────────────────────────────────────────────────────────
-
-
-@dataclass
-class MilvusDiagnostics:
-    """Structured diagnostics to distinguish failure classes for a missing or inaccessible Milvus row.
-
-    Fields
-    ------
-    connectivity_ok
-        ``True`` if a lightweight Milvus API call (e.g. ``has_collection``) succeeded.
-    collection_exists
-        ``True`` if the stash collection exists in Milvus.
-    collection_name
-        The stash collection name that was checked.
-    queried_event_id
-        The *event_id* that was looked up (may be ``None`` if not provided).
-    row_found
-        ``True`` if at least one row matched *queried_event_id*.
-    row_data
-        The first matching row dict, if any.
-    error_type
-        Canonical failure class string. One of:
-        ``None`` (no error), ``"missing_event_id"``, ``"backend_access_failed"``,
-        ``"collection_not_found"``, ``"row_not_found"``.
-    error_message
-        Human-readable summary of the failure.
-    connection_error
-        Raw exception message from the connectivity check, if any.
-    collection_error
-        Raw exception message from the collection / query step, if any.
-    all_rows_count
-        Total rows in the collection (queried with no filter), or ``None``
-        if the query failed.  Helps distinguish ``collection_not_found``
-        from ``row_not_found`` when the collection exists but is empty.
-    """
-
-    connectivity_ok: bool | None = None
-    collection_exists: bool | None = None
-    collection_name: str | None = None
-    queried_event_id: str | None = None
-    row_found: bool | None = None
-    row_data: dict[str, Any] | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    connection_error: str | None = None
-    collection_error: str | None = None
-    all_rows_count: int | None = None
-
-
-async def diagnose_milvus_failure(
-    store: MilvusStashStore | None = None,
-    event_id: str | None = None,
-) -> MilvusDiagnostics:
-    """Diagnose why a Milvus row is missing or inaccessible.
-
-    Returns a :class:`MilvusDiagnostics` with structured fields that
-    distinguish the following failure classes:
-
-    * ``missing_event_id`` – no *event_id* was provided.
-    * ``backend_access_failed`` – cannot reach the Milvus server at all.
-    * ``collection_not_found`` – connection works but the stash collection
-      does not exist.
-    * ``row_not_found`` – collection exists, connection works, but no
-      row matches *event_id*.
-
-    When *event_id* is ``None`` or the store cannot connect, the returned
-    object's fields reflect exactly where the chain broke.
-
-    Uses the store's canonical collection-read path so the diagnostic probes
-    stay aligned with :class:`MilvusCaseInspector` without reaching into the
-    store's private helpers directly.
-    """
-    # ---- check 1: event_id present ----------------------------------------
-    if not event_id:
-        return MilvusDiagnostics(
-            queried_event_id=event_id,
-            error_type="missing_event_id",
-            error_message="No event_id provided for diagnosis",
-        )
-
-    store = store or MilvusStashStore()
-    collection_name: str = store._collection_name
-    diag = MilvusDiagnostics(
-        collection_name=collection_name,
-        queried_event_id=event_id,
-    )
-
-    # ---- check 2: connectivity + collection existence ----------------------
-    try:
-        store.ensure_collection_ready()
-        diag.collection_exists = True
-        diag.connectivity_ok = True
-    except Exception as exc:
-        diag.connectivity_ok = False
-        # Distinguish "Milvus server unreachable" from "collection missing"
-        err_msg = str(exc)
-        if "collection not found" in err_msg.lower() or "not exist" in err_msg.lower():
-            diag.collection_exists = False
-            diag.error_type = "collection_not_found"
-        else:
-            diag.error_type = "backend_access_failed"
-        diag.connection_error = err_msg
-        diag.error_message = f"Milvus connectivity / collection check failed: {exc}"
-        return diag
-
-    # ---- check 3: query for specific event_id via store's own path ---------
-    try:
-        raw_rows = store.query_event_rows(
-            event_id,
-            ["event_id", "person_ids", "is_graph_built", "raw_content"],
-        )
-        if not raw_rows:
-            diag.row_found = False
-            diag.error_type = "row_not_found"
-            diag.all_rows_count = store.count_rows_for_diagnostics()
-            diag.error_message = (
-                f"Collection {collection_name!r} exists with "
-                f"{diag.all_rows_count} total rows, but no row found for "
-                f"event_id={event_id!r}"
-            )
-            return diag
-
-        diag.row_found = True
-        # Use the same dict-shape logic as MilvusCaseInspector.inspect_case
-        first = raw_rows[0]
-        diag.row_data = {
-            "event_id": first.get("event_id"),
-            "person_ids": sorted(first.get("person_ids") or []),
-            "is_graph_built": first.get("is_graph_built"),
-        }
-        diag.error_type = None
-        diag.error_message = None
-    except Exception as exc:
-        err_msg = str(exc)
-        if "collection not found" in err_msg.lower() or "not exist" in err_msg.lower():
-            diag.error_type = "collection_not_found"
-            diag.collection_exists = False
-        else:
-            diag.error_type = "backend_access_failed"
-        diag.collection_error = err_msg
-        diag.error_message = (
-            f"Milvus _query_rows error for event_id={event_id!r}: {err_msg}"
-        )
-        return diag
-
-    return diag
 
 
 CASE_TEXT_PERSISTENCE_QUERY = """
@@ -264,16 +134,12 @@ async def collect_case_state_snapshot(
 
 
 class MilvusCaseInspector:
-    def __init__(self, store: MilvusStashStore | None = None):
+    def __init__(self, store: Any | None = None):
         self._store = store or self._create_store_from_env()
 
     @staticmethod
-    def _create_store_from_env() -> MilvusStashStore:
-        return MilvusStashStore(
-            collection_name=os.getenv("MILVUS_STASH_COLLECTION") or "stashed_events",
-            ttl_days=int(os.getenv("KV_TTL_DAYS") or "90"),
-            embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
-        )
+    def _create_store_from_env() -> Any:
+        return default_events_store()
 
     async def inspect_case(self, case: dict[str, Any]) -> dict[str, Any]:
         event_id = case.get("event_id")
@@ -293,7 +159,6 @@ class MilvusCaseInspector:
             "is_graph_built": row.get("is_graph_built"),
             "event_id": row.get("event_id"),
         }
-
 
 class Neo4jCaseInspector:
     def __init__(

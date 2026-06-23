@@ -7,13 +7,13 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from redis.asyncio import Redis
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blacklist.store import BlacklistStore  # noqa: E402
+from blacklist.milvus_client import MilvusConfig, create_milvus_client  # noqa: E402
+from blacklist.stores.factory import create_embedding_fn  # noqa: E402
 from log_utils import get_logger, setup_file_logging  # noqa: E402
 from scripts.blacklist_demo_cases import TEST_CASES  # noqa: E402
 from scripts.blacklist_demo_assertions import (  # noqa: E402
@@ -21,10 +21,14 @@ from scripts.blacklist_demo_assertions import (  # noqa: E402
     assert_case_state,
     collect_case_state_snapshot,
 )
+from scripts.demo_process_io import read_until_prompt  # noqa: E402
+from scripts.demo_subprocess_report import (  # noqa: E402
+    ReadPromptError,
+    report_child_failure,
+)
 from scripts.reset_and_seed_blacklist import (  # noqa: E402
-    EVENT_SEEDS,
-    KEYWORD_SEEDS,
-    PERSON_SEEDS,
+    reset_milvus_collections,
+    seed_blacklist_stores,
 )
 
 PROMPT_TEXT = "请输入消息内容:"
@@ -42,26 +46,6 @@ def log_detail(*args: object, sep: str = " ", end: str = "\n") -> None:
         DETAIL_LOGGER.info("%s", text.rstrip("\n"))
 
 
-class ReadPromptError(Exception):
-    """子进程提示等待失败 — 携带已缓冲的子进程输出。"""
-
-    def __init__(
-        self,
-        reason: str,
-        context: str,
-        accumulated: str,
-        returncode: int | None = None,
-    ):
-        self.reason = reason
-        self.context = context
-        self.accumulated = accumulated
-        self.returncode = returncode
-        parts = [f"read_until_prompt {reason}: {context}"]
-        if returncode is not None:
-            parts.append(f"(exit code {returncode})")
-        super().__init__("; ".join(parts))
-
-
 def print_case(case: dict) -> None:
     separator = "=" * 100
     print(separator)
@@ -71,61 +55,6 @@ def print_case(case: dict) -> None:
     print("- 预期检查点:")
     for item in case["expect"]:
         print(f"  - {item}")
-
-
-async def read_until_prompt(process: asyncio.subprocess.Process, context: str) -> str:
-    """读取子进程 stdout 直到看见 PROMPT_TEXT。"""
-    assert process.stdout is not None
-    output_parts: list[str] = []
-    accumulated = ""
-    try:
-        while True:
-            chunk = await asyncio.wait_for(
-                process.stdout.read(1024), timeout=WAIT_TIMEOUT_SECONDS
-            )
-            if not chunk:
-                try:
-                    remaining = await asyncio.wait_for(
-                        process.stdout.read(), timeout=1.0
-                    )
-                    if remaining:
-                        text = remaining.decode("utf-8", errors="replace")
-                        print(text, end="")
-                        output_parts.append(text)
-                        accumulated += text
-                except (asyncio.TimeoutError, Exception):
-                    pass
-
-                exit_code: int | None = None
-                try:
-                    exit_code = await asyncio.wait_for(process.wait(), timeout=1.0)
-                except (asyncio.TimeoutError, Exception):
-                    pass
-                raise ReadPromptError(
-                    reason="child_stdout_closed",
-                    context=context,
-                    accumulated="".join(output_parts),
-                    returncode=exit_code,
-                )
-            text = chunk.decode("utf-8", errors="replace")
-            print(text, end="")
-            output_parts.append(text)
-            accumulated += text
-            if PROMPT_TEXT in accumulated:
-                break
-    except asyncio.TimeoutError:
-        exit_code: int | None = None
-        try:
-            exit_code = await asyncio.wait_for(process.wait(), timeout=0.1)
-        except (asyncio.TimeoutError, Exception):
-            pass
-        raise ReadPromptError(
-            reason="timeout",
-            context=context,
-            accumulated="".join(output_parts),
-            returncode=exit_code,
-        )
-    return "".join(output_parts)
 
 
 def extract_event_id(output: str) -> str | None:
@@ -206,62 +135,32 @@ async def validate_after_case(
 
 async def reset_demo_state_preserve_neo4j() -> None:
     load_dotenv(dotenv_path=ROOT / ".env")
-
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = int(os.getenv("REDIS_PORT", "6379"))
-    password = os.getenv("REDIS_PASSWORD") or None
-    blacklist_db = int(os.getenv("BLACKLIST_REDIS_DB", "1"))
-
     milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
     milvus_token = os.getenv("MILVUS_TOKEN", "")
-    milvus_collection = os.getenv("MILVUS_STASH_COLLECTION", "stashed_events")
-
-    redis = Redis(host=host, port=port, password=password, db=blacklist_db)
-    store = BlacklistStore(redis)
+    client = create_milvus_client(MilvusConfig(uri=milvus_uri, token=milvus_token))
+    embedding_fn = create_embedding_fn(
+        {
+            "model": os.getenv("EMBEDDER_MODEL") or "BAAI/bge-m3",
+            "api_key": os.getenv("EMBEDDER_API_KEY")
+            or os.getenv("LLM_API_KEY")
+            or "",
+            "api_base": os.getenv("EMBEDDER_API_BASE")
+            or "https://api.openai.com/v1",
+        }
+    )
 
     try:
-        before_blacklist = await redis.dbsize()
-        await redis.flushdb()
-
-        for person_id in PERSON_SEEDS:
-            await store.append_person(person_id)
-        for keyword in KEYWORD_SEEDS:
-            await store.append_keyword(keyword)
-        for event_id, summary in EVENT_SEEDS:
-            await store.append_event(event_id, summary)
-
-        dropped_milvus_collection = reset_milvus_collection(
-            uri=milvus_uri,
-            token=milvus_token,
-            collection_name=milvus_collection,
+        dropped = reset_milvus_collections(client)
+        seeded = await seed_blacklist_stores(
+            client=client,
+            embedding_fn=embedding_fn,
+            embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
         )
 
-        log_detail("Reset demo state and seeded blacklist Redis:")
+        log_detail("Reset demo state and seeded Milvus blacklist stores:")
         log_detail("  Neo4j: preserved existing graph nodes")
-        log_detail(
-            f"  Blacklist DB ({blacklist_db}): cleared {before_blacklist} keys, "
-            f"seeded {len(PERSON_SEEDS)} persons, {len(KEYWORD_SEEDS)} keywords, {len(EVENT_SEEDS)} events"
-        )
-        milvus_status = "dropped" if dropped_milvus_collection else "not found"
-        log_detail(f"  Milvus stash ({milvus_collection}): collection {milvus_status}")
-    finally:
-        await redis.aclose()
-
-
-def reset_milvus_collection(
-    *,
-    uri: str,
-    token: str,
-    collection_name: str,
-) -> bool:
-    from pymilvus import MilvusClient
-
-    client = MilvusClient(uri=uri, token=token or None)
-    try:
-        if not client.has_collection(collection_name):
-            return False
-        client.drop_collection(collection_name)
-        return True
+        log_detail(f"  Dropped Milvus collections: {dropped}")
+        log_detail(f"  Seeded blacklist stores: {seeded}")
     finally:
         close = getattr(client, "close", None)
         if close is not None:
@@ -278,7 +177,7 @@ async def main() -> int:
     try:
         print(f"自动回放详细日志文件: {detail_log_path}")
         print(f"main.py 流程日志目录: {main_log_dir}")
-        print("[1/3] 保留 Neo4j，重置 Redis、Milvus 并预置黑名单测试数据...\n")
+        print("[1/3] 保留 Neo4j，重置 Milvus 并预置黑名单测试数据...\n")
         await reset_demo_state_preserve_neo4j()
 
         print("\n[2/3] 输出本次自动回放的测试数据与检查点\n")
@@ -313,7 +212,12 @@ async def main() -> int:
         assert process.stdin is not None
         assert process.stdout is not None
 
-        await read_until_prompt(process, "initial startup")
+        await read_until_prompt(
+            process,
+            context="initial startup",
+            prompt_text=PROMPT_TEXT,
+            timeout_seconds=WAIT_TIMEOUT_SECONDS,
+        )
 
         processed_cases: list[dict] = []
         for index, case in enumerate(TEST_CASES, start=1):
@@ -322,7 +226,12 @@ async def main() -> int:
             print_case(case)
             process.stdin.write((case["text"] + "\n").encode("utf-8"))
             await process.stdin.drain()
-            output = await read_until_prompt(process, f"case {case['id']}")
+            output = await read_until_prompt(
+                process,
+                context=f"case {case['id']}",
+                prompt_text=PROMPT_TEXT,
+                timeout_seconds=WAIT_TIMEOUT_SECONDS,
+            )
             processed_case = {**case, "event_id": extract_event_id(output)}
             processed_cases.append(processed_case)
             await validate_after_case(processed_case, processed_cases, neo4j_baseline)
@@ -337,12 +246,12 @@ async def main() -> int:
             raise RuntimeError(f"main.py exited with code {returncode}")
 
         print("=" * 100)
-        print("自动回放完成，请结合日志与 Redis 检查结果")
+        print("自动回放完成，请结合日志与 Milvus/Neo4j 检查结果")
         print("=" * 100)
         return 0
     except ReadPromptError as e:
         if process is not None:
-            _report_child_failure(e, process)
+            report_child_failure(e, process, DETAIL_LOGGER)
         return 1
     except AssertionError as e:
         print(f"\n[ERROR] 数据库校验失败: {e}")
@@ -358,28 +267,6 @@ async def main() -> int:
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
-
-
-def _report_child_failure(err: ReadPromptError, process: asyncio.subprocess.Process) -> None:
-    """Print a structured failure report for a subprocess crash / timeout."""
-    exit_str = str(err.returncode) if err.returncode is not None else "仍在运行 (timeout)"
-    report_lines = [
-        "\n" + "!" * 70,
-        f"[ERROR] 子进程异常 — {err.reason}",
-        f"[ERROR] 上下文: {err.context}",
-        f"[ERROR] 子进程状态: {exit_str}",
-    ]
-    if err.accumulated:
-        summary = err.accumulated
-        if len(summary) > 3000:
-            summary = "(最后 3000 字符)\n" + summary[-3000:]
-        report_lines.append(f"[ERROR] 子进程最后输出 ({len(err.accumulated)} chars):")
-        report_lines.append(summary)
-    report_lines.append("!" * 70)
-    report = "\n".join(report_lines) + "\n"
-    print(report, end="", file=sys.stderr)
-    DETAIL_LOGGER.error("%s", report.rstrip("\n"))
-
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
