@@ -18,8 +18,21 @@ from blacklist.stores.factory import create_embedding_fn  # noqa: E402
 
 def main() -> None:
     load_dotenv(ROOT / ".env")
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Clean duplicate or expired Milvus event rows."
+    )
+    parser.add_argument(
+        "--expired",
+        action="store_true",
+        help="Delete expired event rows instead of duplicate content rows.",
+    )
     parser.add_argument("--limit", type=int, default=10000)
+    parser.add_argument(
+        "--graph-built-retention-days",
+        type=int,
+        default=None,
+        help="Also delete graph-built rows older than this many days when --expired is set.",
+    )
     args = parser.parse_args()
     client = create_milvus_client(
         MilvusConfig(
@@ -43,8 +56,14 @@ def main() -> None:
             embedding_fn=embedding_fn,
             embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
         )
-        deleted_count = store.cleanup_duplicate_content(limit=args.limit)
-        print(f"Deleted duplicate Milvus event rows: {deleted_count}")
+        if args.expired:
+            deleted_count = store.cleanup_expired(
+                graph_built_retention_days=args.graph_built_retention_days
+            )
+            print(f"Deleted expired Milvus event rows: {deleted_count}")
+        else:
+            deleted_count = store.cleanup_duplicate_content(limit=args.limit)
+            print(f"Deleted duplicate Milvus event rows: {deleted_count}")
     finally:
         close = getattr(client, "close", None)
         if close is not None:

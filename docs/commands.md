@@ -80,6 +80,12 @@ uv run python scripts/reset_and_seed_blacklist.py
 uv run python scripts/cleanup_milvus_duplicates.py --limit 10000
 ```
 
+### 清理 Milvus 过期事件
+
+```bash
+uv run python scripts/cleanup_milvus_duplicates.py --expired --graph-built-retention-days 7
+```
+
 ### 测试
 
 ```bash
