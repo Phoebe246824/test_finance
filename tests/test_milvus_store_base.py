@@ -8,6 +8,10 @@ from blacklist.milvus_client import (
     milvus_config_from_app,
 )
 from blacklist.stores.base import FieldSpec, MilvusBaseStore
+from blacklist.stores.factory import (
+    events_collection_from_config,
+    milvus_collection_names,
+)
 from tests.fakes.fake_milvus import FakeMilvusClient
 
 
@@ -39,6 +43,29 @@ def test_milvus_config_from_app_falls_back_to_env(monkeypatch) -> None:
     result = milvus_config_from_app({})
 
     assert result == MilvusConfig(uri="http://env-milvus:19530", token="env-token")
+
+
+def test_events_collection_from_config_prefers_config_over_env(monkeypatch) -> None:
+    monkeypatch.setenv("MILVUS_STASH_COLLECTION", "env_events")
+
+    result = events_collection_from_config(
+        {"milvus": {"stash_collection": "configured_events"}}
+    )
+
+    assert result == "configured_events"
+
+
+def test_milvus_collection_names_include_configured_and_default_events() -> None:
+    result = milvus_collection_names({"milvus": {"stash_collection": "risk_events"}})
+
+    assert result == (
+        "blacklist_event_samples",
+        "blacklist_keywords",
+        "blacklist_persons",
+        "events",
+        "review_actions",
+        "risk_events",
+    )
 
 
 def test_create_milvus_client_passes_uri_and_token(monkeypatch) -> None:

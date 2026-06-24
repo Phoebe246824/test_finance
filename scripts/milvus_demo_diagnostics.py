@@ -6,7 +6,7 @@ from typing import Any
 
 from blacklist.milvus_client import MilvusConfig, create_milvus_client
 from blacklist.stores.events_store import EventsStore
-from blacklist.stores.factory import create_embedding_fn
+from blacklist.stores.factory import create_embedding_fn, events_collection_from_config
 
 
 @dataclass
@@ -121,4 +121,5 @@ def default_events_store() -> EventsStore:
         embedding_fn=embedding_fn,
         ttl_days=int(os.getenv("KV_TTL_DAYS") or "90"),
         embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
+        collection_name=events_collection_from_config(),
     )

@@ -15,17 +15,12 @@ if str(ROOT) not in sys.path:
 
 from blacklist.milvus_client import MilvusConfig, create_milvus_client  # noqa: E402
 from blacklist.stores.event_samples_store import EventSamplesStore  # noqa: E402
-from blacklist.stores.factory import create_embedding_fn  # noqa: E402
+from blacklist.stores.factory import (  # noqa: E402
+    create_embedding_fn,
+    milvus_collection_names,
+)
 from blacklist.stores.keywords_store import KeywordsStore  # noqa: E402
 from blacklist.stores.persons_store import PersonsStore  # noqa: E402
-
-COLLECTIONS = (
-    "events",
-    "review_actions",
-    "blacklist_persons",
-    "blacklist_keywords",
-    "blacklist_event_samples",
-)
 
 PERSON_SEEDS = ["P05", "P105"]
 
@@ -104,10 +99,11 @@ async def reset_neo4j_graph(
 
 def reset_milvus_collections(
     client: Any,
-    collections: tuple[str, ...] = COLLECTIONS,
+    collections: tuple[str, ...] | None = None,
 ) -> list[str]:
+    collection_names = milvus_collection_names() if collections is None else collections
     dropped: list[str] = []
-    for collection_name in sorted(collections):
+    for collection_name in sorted(collection_names):
         if client.has_collection(collection_name):
             client.drop_collection(collection_name)
             dropped.append(collection_name)
@@ -179,6 +175,9 @@ async def seed_blacklist_stores(
 
 async def main() -> None:
     load_dotenv(dotenv_path=ROOT / ".env")
+    milvus_config = {
+        "stash_collection": os.getenv("MILVUS_STASH_COLLECTION") or "events",
+    }
     client = create_milvus_client(
         MilvusConfig(
             uri=os.getenv("MILVUS_URI", "http://localhost:19530"),
@@ -196,7 +195,10 @@ async def main() -> None:
         }
     )
     try:
-        dropped = reset_milvus_collections(client)
+        dropped = reset_milvus_collections(
+            client,
+            collections=milvus_collection_names({"milvus": milvus_config}),
+        )
         seeded = await seed_blacklist_stores(
             client=client,
             embedding_fn=embedding_fn,

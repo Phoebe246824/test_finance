@@ -35,6 +35,35 @@ def test_reset_milvus_collections_drops_existing_collections() -> None:
     assert client.collections == set()
 
 
+def test_reset_milvus_collections_drops_configured_events_collection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeMilvusClient()
+    for collection in (
+        "events",
+        "risk_events",
+        "blacklist_persons",
+        "blacklist_keywords",
+        "blacklist_event_samples",
+        "review_actions",
+    ):
+        client.collections.add(collection)
+
+    monkeypatch.setenv("MILVUS_STASH_COLLECTION", "risk_events")
+
+    dropped = reset_milvus_collections(client)
+
+    assert dropped == [
+        "blacklist_event_samples",
+        "blacklist_keywords",
+        "blacklist_persons",
+        "events",
+        "review_actions",
+        "risk_events",
+    ]
+    assert client.collections == set()
+
+
 @pytest.mark.asyncio
 async def test_seed_blacklist_stores_writes_persons_keywords_and_samples() -> None:
     client = FakeMilvusClient()

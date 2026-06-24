@@ -13,7 +13,10 @@ if str(ROOT) not in sys.path:
 
 from blacklist.milvus_client import MilvusConfig, create_milvus_client  # noqa: E402
 from blacklist.stores.events_store import EventsStore  # noqa: E402
-from blacklist.stores.factory import create_embedding_fn  # noqa: E402
+from blacklist.stores.factory import (  # noqa: E402
+    create_embedding_fn,
+    events_collection_from_config,
+)
 
 
 def main() -> None:
@@ -55,6 +58,7 @@ def main() -> None:
             client=client,
             embedding_fn=embedding_fn,
             embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
+            collection_name=events_collection_from_config(),
         )
         if args.expired:
             deleted_count = store.cleanup_expired(

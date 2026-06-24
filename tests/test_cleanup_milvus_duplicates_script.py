@@ -19,9 +19,11 @@ class FakeClient:
 class FakeEventsStore:
     duplicate_limit: int | None = None
     expired_retention_days: int | None = None
+    last_kwargs: dict[str, Any] = {}
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
+        FakeEventsStore.last_kwargs = dict(kwargs)
 
     def cleanup_duplicate_content(self, *, limit: int = 10000) -> int:
         FakeEventsStore.duplicate_limit = limit
@@ -40,6 +42,7 @@ class FakeEventsStore:
 def reset_fake_store() -> None:
     FakeEventsStore.duplicate_limit = None
     FakeEventsStore.expired_retention_days = None
+    FakeEventsStore.last_kwargs = {}
 
 
 @pytest.fixture
@@ -57,11 +60,13 @@ def test_cleanup_script_keeps_duplicate_cleanup_as_default(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(sys, "argv", ["cleanup_milvus_duplicates.py", "--limit", "123"])
+    monkeypatch.setenv("MILVUS_STASH_COLLECTION", "risk_events")
 
     cleanup_script.main()
 
     assert FakeEventsStore.duplicate_limit == 123
     assert FakeEventsStore.expired_retention_days is None
+    assert FakeEventsStore.last_kwargs["collection_name"] == "risk_events"
     assert fake_client.closed is True
     assert "Deleted duplicate Milvus event rows: 2" in capsys.readouterr().out
 
@@ -81,10 +86,12 @@ def test_cleanup_script_can_delete_expired_events(
             "7",
         ],
     )
+    monkeypatch.setenv("MILVUS_STASH_COLLECTION", "risk_events")
 
     cleanup_script.main()
 
     assert FakeEventsStore.duplicate_limit is None
     assert FakeEventsStore.expired_retention_days == 7
+    assert FakeEventsStore.last_kwargs["collection_name"] == "risk_events"
     assert fake_client.closed is True
     assert "Deleted expired Milvus event rows: 3" in capsys.readouterr().out

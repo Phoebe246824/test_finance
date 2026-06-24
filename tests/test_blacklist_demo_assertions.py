@@ -1,5 +1,6 @@
 import pytest
 
+from scripts import milvus_demo_diagnostics
 from scripts.blacklist_demo_assertions import (
     CASE_TEXT_PERSISTENCE_QUERY,
     EPISODIC_CONTENT_SCHEMA_QUERY,
@@ -235,6 +236,26 @@ async def test_diagnose_milvus_failure_all_rows_count_on_error():
     diag = await diagnose_milvus_failure(store=store, event_id="E001")
     assert diag.error_type == "row_not_found"
     assert diag.all_rows_count == 1
+
+
+def test_default_events_store_uses_configured_collection_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MILVUS_STASH_COLLECTION", "risk_events")
+    monkeypatch.setattr(
+        milvus_demo_diagnostics,
+        "create_milvus_client",
+        lambda config: FakeMilvusDiagnosticsStore(),
+    )
+    monkeypatch.setattr(
+        milvus_demo_diagnostics,
+        "create_embedding_fn",
+        lambda config: lambda text: [0.0],
+    )
+
+    store = milvus_demo_diagnostics.default_events_store()
+
+    assert store.collection_name == "risk_events"
 
 
 @pytest.mark.asyncio
