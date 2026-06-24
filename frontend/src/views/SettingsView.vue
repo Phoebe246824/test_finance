@@ -585,24 +585,6 @@ async function handleTestNotification(ch: NotificationChannel) {
   }
 }
 
-async function handleExportData() {
-  showNotice('数据导出任务已提交')
-}
-
-async function handleCleanupData() {
-  if (!window.confirm('确认清理过期数据？此操作不可撤销。')) return
-  showNotice('数据清理任务已提交')
-}
-
-async function handleBackupData() {
-  showNotice('数据备份任务已提交')
-}
-
-async function handleRestoreData() {
-  if (!window.confirm('确认从备份恢复数据？当前数据将被覆盖。')) return
-  showNotice('数据恢复任务已提交')
-}
-
 onMounted(async () => {
   await Promise.all([loadSettings(), loadRiskRules()])
   await Promise.all([loadModelServices(), loadUsers(), loadNotificationChannels(), loadAuditLogs()])
@@ -907,10 +889,10 @@ watch(activeTab, (tab) => {
         </div>
         <h2>数据管理</h2>
         <div class="toolbar">
-          <button class="button secondary" @click="handleExportData">导出数据</button>
-          <button class="button danger" @click="handleCleanupData">清理数据</button>
-          <button class="button secondary" @click="handleBackupData">数据备份</button>
-          <button class="button secondary" @click="handleRestoreData">数据恢复</button>
+          <button class="button secondary" disabled title="即将推出">导出数据</button>
+          <button class="button danger" disabled title="即将推出">清理数据</button>
+          <button class="button secondary" disabled title="即将推出">数据备份</button>
+          <button class="button secondary" disabled title="即将推出">数据恢复</button>
         </div>
         <h2>自动清理策略</h2>
         <div class="settings-row"><label>保留最近</label><select v-model.number="dataManagement.retentionDays" class="select"><option :value="90">90 天</option><option :value="180">180 天</option><option :value="365">365 天</option></select></div>
