@@ -33,6 +33,45 @@ _TIER_ENV_PREFIXES: dict[str, str] = {
 REASON_MAX_ATTEMPTS = int(os.getenv("REASON_MAX_ATTEMPTS") or "2")
 REASON_MAX_STEPS = int(os.getenv("REASON_MAX_STEPS") or "4")
 
+_TIER_SERVICE_TYPES: dict[str, list[str]] = {
+    "extract": ["信息抽取模型", "大语言模型"],
+    "reason": ["大语言模型"],
+}
+
+
+def _settings_model_params() -> dict:
+    try:
+        from backend.app.services.settings_service import load_app_settings
+        settings, _ = load_app_settings()
+        return settings.get("model_params") or {}
+    except Exception:
+        return {}
+
+
+def _settings_service_endpoint(service_type: str) -> str | None:
+    try:
+        from backend.app.services.settings_service import load_app_settings
+        settings, _ = load_app_settings()
+        services = settings.get("model_services") or []
+        candidates = [
+            s for s in services
+            if s.get("type") == service_type and s.get("status") not in ("停用", "未运行")
+        ]
+        if not candidates:
+            return None
+        default_svc = next((s for s in candidates if s.get("default")), candidates[0])
+        return default_svc.get("endpoint") or None
+    except Exception:
+        return None
+
+
+def _tier_service_endpoint(tier: str) -> str | None:
+    for service_type in _TIER_SERVICE_TYPES.get(tier, []):
+        endpoint = _settings_service_endpoint(service_type)
+        if endpoint:
+            return endpoint
+    return None
+
 
 def _tier_for_stage(stage: str) -> str:
     """返回 stage 对应的模型档位，未知 stage 直接失败。"""
@@ -54,7 +93,8 @@ def _tier_env(tier: str, name: str) -> str | None:
 def _stage_llm_config(stage: str) -> dict[str, str]:
     """解析 stage 对应的 OpenAI-compatible LLM 连接配置。"""
     tier = _tier_for_stage(stage)
-    base_url = _tier_env(tier, "BASE_URL")
+    settings_endpoint = _tier_service_endpoint(tier)
+    base_url = settings_endpoint or _tier_env(tier, "BASE_URL")
     if not base_url:
         logger.warning(
             "LLM stage %s is falling back to default cloud LLM base_url "
@@ -73,10 +113,11 @@ def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None
     """获取硅基流动或 OpenAI-compatible LLM 实例。"""
     if not model:
         model = os.getenv("LLM_MODEL") or "gpt-4o"
+    params = _settings_model_params()
     llm = LLM(
         model=model,
-        max_completion_tokens=8192,
-        top_p=0.85,
+        max_completion_tokens=int(params.get("maxTokens", 8192)),
+        top_p=float(params.get("topP", 0.85)),
         api_key=api_key or os.getenv("LLM_API_KEY") or "",
         base_url=base_url or os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1",
         temperature=temperature,
