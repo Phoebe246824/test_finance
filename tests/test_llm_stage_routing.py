@@ -31,7 +31,10 @@ def reload_provider(monkeypatch, env: dict[str, str]):
 
     import providers.llm_provider as llm_provider
 
-    return importlib.reload(llm_provider)
+    reloaded = importlib.reload(llm_provider)
+    monkeypatch.setattr(reloaded, '_settings_model_params', lambda: {})
+    monkeypatch.setattr(reloaded, '_settings_service_endpoint', lambda _type: None)
+    return reloaded
 
 
 def test_get_llm_for_uses_base_llm_when_tier_env_is_blank(monkeypatch):
