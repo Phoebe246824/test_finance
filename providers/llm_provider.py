@@ -7,6 +7,7 @@ import logging
 import os
 
 from crewai import LLM
+from crewai.agent.planning_config import PlanningConfig
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -29,8 +30,8 @@ _TIER_ENV_PREFIXES: dict[str, str] = {
     "reason": "LLM_REASON",
 }
 
-# REASON_MAX_ATTEMPTS is read at import time; runtime env changes require reload.
 REASON_MAX_ATTEMPTS = int(os.getenv("REASON_MAX_ATTEMPTS") or "2")
+REASON_MAX_STEPS = int(os.getenv("REASON_MAX_STEPS") or "4")
 
 
 def _tier_for_stage(stage: str) -> str:
@@ -96,14 +97,16 @@ def get_llm_for(stage: str, temperature: float | None = None) -> LLM:
     )
 
 
-def reasoning_kwargs_for(stage: str) -> dict[str, int | bool]:
+def reasoning_kwargs_for(stage: str) -> dict[str, PlanningConfig]:
     """返回 CrewAI Agent reasoning 参数；抽取档保持默认关闭。"""
     tier = _tier_for_stage(stage)
     if tier != "reason" or stage == "dashboard":
         return {}
     return {
-        "reasoning": True,
-        "max_reasoning_attempts": REASON_MAX_ATTEMPTS,
+        "planning_config": PlanningConfig(
+            max_attempts=REASON_MAX_ATTEMPTS,
+            max_steps=REASON_MAX_STEPS,
+        ),
     }
 
 

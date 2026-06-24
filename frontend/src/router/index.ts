@@ -6,6 +6,8 @@ import EventDetailView from '../views/EventDetailView.vue'
 import BlacklistView from '../views/BlacklistView.vue'
 import SystemStatusView from '../views/SystemStatusView.vue'
 import PersonGraphView from '../views/PersonGraphView.vue'
+import RiskRulesView from '../views/RiskRulesView.vue'
+import SettingsView from '../views/SettingsView.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -17,6 +19,8 @@ export const router = createRouter({
     { path: '/events/:eventId', component: EventDetailView },
     { path: '/graph/person', component: PersonGraphView },
     { path: '/blacklist', component: BlacklistView },
+    { path: '/settings', component: SettingsView },
+    { path: '/risk-rules', component: RiskRulesView },
     { path: '/system', component: SystemStatusView },
   ],
 })

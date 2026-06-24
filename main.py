@@ -71,8 +71,24 @@ from trend_prediction.task_templates import (
     get_trend_prediction_task,
 )
 from utils.text import extract_person_id_numbers, extract_subject_id_numbers
+from pipeline_progress import (
+    ProgressCallback,
+    pipeline_progress,
+)
 
 load_dotenv()
+
+
+def report_pipeline_progress(
+    callback: ProgressCallback | None,
+    stage_key: str,
+    stage_label: str,
+    stage_index: int,
+    stage_detail: str,
+) -> None:
+    if callback is None:
+        return
+    callback(pipeline_progress(stage_key, stage_label, stage_index, stage_detail))
 
 # ============================================================
 #  全局配置加载
@@ -251,10 +267,28 @@ def _coerce_dimension_score(value) -> float:
     return min(max(score, 0.0), 1.0)
 
 
-def _risk_level_from_score(score: float) -> str:
-    if score >= 0.7:
+def _risk_thresholds(config: dict | None = None) -> dict[str, float]:
+    raw_thresholds = (config or {}).get("risk_scoring", {}).get("thresholds", {})
+    try:
+        high = float(raw_thresholds.get("high", 0.70))
+    except (TypeError, ValueError):
+        high = 0.70
+    try:
+        medium = float(raw_thresholds.get("medium", 0.35))
+    except (TypeError, ValueError):
+        medium = 0.35
+    high = min(max(high, 0.0), 1.0)
+    medium = min(max(medium, 0.0), 1.0)
+    if medium > high:
+        medium = high
+    return {"high": high, "medium": medium}
+
+
+def _risk_level_from_score(score: float, config: dict | None = None) -> str:
+    thresholds = _risk_thresholds(config)
+    if score >= thresholds["high"]:
         return "high"
-    if score >= 0.35:
+    if score >= thresholds["medium"]:
         return "medium"
     return "low"
 
@@ -274,7 +308,7 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         weighted_score += score * weight
 
     calculated_score = round(min(max(weighted_score, 0.0), 1.0), 4)
-    calculated_level = _risk_level_from_score(calculated_score)
+    calculated_level = _risk_level_from_score(calculated_score, config)
     model_score = None
     model_score_raw = result_dict.get("risk_score")
     if model_score_raw is not None:
@@ -283,8 +317,9 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         except (TypeError, ValueError):
             model_score = None
 
-    final_score = model_score if model_score is not None else calculated_score
-    final_level = result_dict.get("risk_level") or _risk_level_from_score(final_score)
+    has_dimension_input = bool(dimension_scores)
+    final_score = calculated_score if has_dimension_input else (model_score or calculated_score)
+    final_level = _risk_level_from_score(final_score, config)
 
     return {
         "risk_level": final_level,
@@ -294,9 +329,10 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         "calculated_risk_level": calculated_level,
         "model_reported_risk_score": model_score_raw,
         "model_reported_risk_level": result_dict.get("risk_level"),
-        "risk_score_source": "model_reported"
-        if model_score is not None
-        else "calculated",
+        "risk_thresholds": _risk_thresholds(config),
+        "risk_score_source": "calculated"
+        if has_dimension_input
+        else "model_reported_no_dimensions",
         "reasoning": result_dict.get("reasoning", ""),
     }
 
@@ -448,8 +484,14 @@ async def evaluate_risk(
 
     related_events = _build_related_events_context(results)
     weights = _normalize_risk_weights(config)
+    thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
         f"{name}(权重{weight:.2f})" for name, weight in weights.items()
+    )
+    threshold_instruction = (
+        f">={thresholds['high']:.2f} 为 high，"
+        f">={thresholds['medium']:.2f} 且 <{thresholds['high']:.2f} 为 medium，"
+        f"<{thresholds['medium']:.2f} 为 low"
     )
     risk_task = Task(
         name="风险评估",
@@ -459,7 +501,7 @@ async def evaluate_risk(
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}。"
         "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
-        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。",
+        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：{threshold_instruction}。",
         agent=risk_evaluator,
         output_format="json",
         expected_output="JSON 格式：{dimension_scores:{customer_identity:number,transaction_behavior:number,counterparty:number,amount_velocity:number,device_geo:number,history_context:number,compliance_signal:number}, risk_score:number, risk_level:string, reasoning:string}",
@@ -481,6 +523,7 @@ async def evaluate_risk(
             "source": event.source,
             "related_events": related_events,
             "dimension_instruction": dimension_instruction,
+            "threshold_instruction": threshold_instruction,
         }
     )
 
@@ -533,8 +576,14 @@ async def second_evaluate_risk(
 
     related_events = "\n".join(related_events_parts)
     weights = _normalize_risk_weights(config)
+    thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
         f"{name}(权重{weight:.2f})" for name, weight in weights.items()
+    )
+    threshold_instruction = (
+        f">={thresholds['high']:.2f} 为 high，"
+        f">={thresholds['medium']:.2f} 且 <{thresholds['high']:.2f} 为 medium，"
+        f"<{thresholds['medium']:.2f} 为 low"
     )
     risk_task = Task(
         name="二次风险评估",
@@ -544,7 +593,7 @@ async def second_evaluate_risk(
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}。"
         "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
-        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。"
+        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：{threshold_instruction}。"
         "不要输出 markdown。",
         agent=risk_evaluator,
         output_format="json",
@@ -568,6 +617,7 @@ async def second_evaluate_risk(
             "source": event.source,
             "related_events": related_events,
             "dimension_instruction": dimension_instruction,
+            "threshold_instruction": threshold_instruction,
         }
     )
 
@@ -1496,6 +1546,7 @@ class SentinelPipelineFlow(Flow):
         store=None,
         stash_store=None,
         id_numbers=None,
+        progress_callback: ProgressCallback | None = None,
     ):
         super().__init__()
         self.config = config
@@ -1504,11 +1555,27 @@ class SentinelPipelineFlow(Flow):
         self._store = store
         self._stash_store = stash_store
         self._id_numbers = id_numbers or []
+        self._progress_callback = progress_callback
         self._log = get_logger("main.flow")
+
+    def _progress(self, stage_key: str, stage_label: str, stage_index: int, detail: str):
+        report_pipeline_progress(
+            self._progress_callback,
+            stage_key,
+            stage_label,
+            stage_index,
+            detail,
+        )
 
     @start()
     async def classification(self):
         event = self.normalized_event
+        self._progress(
+            "classification",
+            "事件分类",
+            4,
+            "正在识别事件类型和关键实体",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 1: Classification — 事件分类")
         self._log.info("=" * 60)
@@ -1531,6 +1598,12 @@ class SentinelPipelineFlow(Flow):
     @listen(classification)
     async def single_graph_build(self):
         event = self.normalized_event
+        self._progress(
+            "single_graph",
+            "单条构图",
+            5,
+            "正在把当前事件写入知识图谱",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 2: Graph — 单条构图")
         self._log.info("=" * 60)
@@ -1565,6 +1638,12 @@ class SentinelPipelineFlow(Flow):
     @listen(single_graph_build)
     async def search_first_risk_context(self, result):
         event = self.normalized_event
+        self._progress(
+            "first_search",
+            "首次上下文检索",
+            6,
+            "正在检索历史关系和相似风险上下文",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 3: Search — 首次风险上下文检索")
         self._log.info("=" * 60)
@@ -1583,6 +1662,12 @@ class SentinelPipelineFlow(Flow):
     @listen(search_first_risk_context)
     async def first_risk_evaluation(self, result):
         classified_event = self.normalized_event
+        self._progress(
+            "first_risk",
+            "首次风险评估",
+            7,
+            "正在计算多维风险分数和风险等级",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 4: Risk — 首次风险评估")
         self._log.info("=" * 60)
@@ -1638,6 +1723,12 @@ class SentinelPipelineFlow(Flow):
     @listen("batch_graph")
     async def batch_graph_build_from_stash(self, result):
         event = self.normalized_event
+        self._progress(
+            "batch_graph",
+            "批量补图",
+            8,
+            "高危事件命中阈值，正在回捞相关暂存事件并补图",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 5: Graph — 批量补图")
         self._log.info("=" * 60)
@@ -1656,6 +1747,12 @@ class SentinelPipelineFlow(Flow):
     @listen(batch_graph_build_from_stash)
     async def search_second_risk_context(self, result):
         event = self.normalized_event
+        self._progress(
+            "second_search",
+            "二次上下文检索",
+            9,
+            "正在基于补图结果重新检索风险上下文",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 6: Search — 二次风险上下文检索")
         self._log.info("=" * 60)
@@ -1698,6 +1795,12 @@ class SentinelPipelineFlow(Flow):
     @listen(search_second_risk_context)
     async def second_risk_evaluation_stage(self, result):
         event = self.normalized_event
+        self._progress(
+            "second_risk",
+            "二次风险评估",
+            10,
+            "正在结合补图后的上下文修正风险评估",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 7: Risk — 二次风险评估")
         self._log.info("=" * 60)
@@ -1753,6 +1856,12 @@ class SentinelPipelineFlow(Flow):
     @listen("go_dashboard")
     async def dashboard(self, result):
         event = self.normalized_event
+        self._progress(
+            "trend",
+            "意图与趋势分析",
+            11,
+            "正在生成意图分析和趋势预测报告",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 8: Dashboard — 意图分析与趋势预测")
         self._log.info("=" * 60)
@@ -1791,7 +1900,9 @@ async def process_message(message: str, config: dict | None = None) -> str:
 
 
 async def process_message_detailed(
-    message: str, config: dict | None = None
+    message: str,
+    config: dict | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """Process one user message and return a structured summary for API callers."""
     if config is None:
@@ -1800,6 +1911,13 @@ async def process_message_detailed(
     logger = get_logger("main.flow")
     logger.info("user input: %s", message)
 
+    report_pipeline_progress(
+        progress_callback,
+        "normalize",
+        "事件标准化",
+        1,
+        "正在解析原始事件文本并生成事件对象",
+    )
     payload = {"data": message}
     normalized_event = await normalize_payload_to_event(payload, config)
     logger.info(
@@ -1816,6 +1934,13 @@ async def process_message_detailed(
         samples_store=stores.event_samples,
     )
 
+    report_pipeline_progress(
+        progress_callback,
+        "blacklist",
+        "黑名单过滤",
+        2,
+        "正在匹配人员、关键词和相似历史事件",
+    )
     blacklist_result = await bl_filter.check_with_details(normalized_event)
     print_blacklist_check_result(blacklist_result)
     storage_summary = {
@@ -1824,6 +1949,13 @@ async def process_message_detailed(
     }
 
     if not blacklist_result.should_proceed:
+        report_pipeline_progress(
+            progress_callback,
+            "stash",
+            "事件暂存",
+            3,
+            "未命中高危规则，正在暂存事件等待后续回捞",
+        )
         stashed_count = await stores.events.upsert_event(
             normalized_event,
             person_ids=id_numbers or [],
@@ -1888,6 +2020,13 @@ async def process_message_detailed(
         )
 
     print_info("消息处理开始")
+    report_pipeline_progress(
+        progress_callback,
+        "prepare_flow",
+        "准备流水线",
+        3,
+        "黑名单命中，正在启动分类、构图和风险评估流水线",
+    )
     flow = SentinelPipelineFlow(
         config,
         normalized_event,
@@ -1895,10 +2034,18 @@ async def process_message_detailed(
         stores,
         stores.events,
         id_numbers,
+        progress_callback,
     )
     await flow.kickoff_async()
     dimension_scores = flow.state.get("risk_result", {}).get("dimension_scores", {})
     trend_report = flow.state.get("trend_report", {})
+    report_pipeline_progress(
+        progress_callback,
+        "persist",
+        "写入分析结果",
+        12,
+        "正在保存风险评估、图谱和趋势分析结果",
+    )
     await stores.events.upsert_analysis_result(
         {
             "event_id": normalized_event.event_id,

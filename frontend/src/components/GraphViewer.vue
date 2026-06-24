@@ -31,6 +31,7 @@ const props = withDefaults(
 const emit = defineEmits<{ expand: [node: NodeItem] }>()
 
 const selected = ref<{ kind: 'node' | 'edge'; data: any } | null>(null)
+const detailOpen = ref(true)
 const zoom = ref(1)
 const pan = ref({ x: 0, y: 0 })
 const dragging = ref(false)
@@ -186,6 +187,7 @@ const layout = computed(() => {
 const graphClass = computed(() => ({
   'graph-miro': true,
   'graph-miro-fullscreen': fullscreen.value,
+  'graph-miro-detail-closed': !detailOpen.value,
   tall: props.tall,
 }))
 
@@ -315,7 +317,7 @@ function resetView() {
 }
 
 function nodePointerDown(event: PointerEvent, node: NodeItem) {
-  selected.value = { kind: 'node', data: node }
+  selectItem('node', node)
   const point = graphPoint(event)
   const position = layout.value.positions[node.id]
   nodeDrag.value = {
@@ -323,6 +325,16 @@ function nodePointerDown(event: PointerEvent, node: NodeItem) {
     dx: point.x - position.x,
     dy: point.y - position.y,
   }
+}
+
+function selectItem(kind: 'node' | 'edge', data: any) {
+  selected.value = { kind, data }
+  detailOpen.value = true
+}
+
+function closeDetail() {
+  detailOpen.value = false
+  selected.value = null
 }
 </script>
 
@@ -379,14 +391,14 @@ function nodePointerDown(event: PointerEvent, node: NodeItem) {
                 :d="edge.path"
                 class="miro-edge"
                 marker-end="url(#arrow)"
-                @click.stop="selected = { kind: 'edge', data: edge }"
+                @click.stop="selectItem('edge', edge)"
               />
               <text
                 class="miro-edge-label"
                 :x="edge.labelX"
                 :y="edge.labelY"
                 text-anchor="middle"
-                @click.stop="selected = { kind: 'edge', data: edge }"
+                @click.stop="selectItem('edge', edge)"
               >
                 {{ short(edge.label || edge.type, 28) }}
               </text>
@@ -397,7 +409,7 @@ function nodePointerDown(event: PointerEvent, node: NodeItem) {
               :key="node.id"
               class="miro-node"
               @pointerdown.stop="nodePointerDown($event, node)"
-              @click.stop="selected = { kind: 'node', data: node }"
+              @click.stop="selectItem('node', node)"
             >
               <circle
                 :cx="layout.positions[node.id]?.x"
@@ -430,11 +442,11 @@ function nodePointerDown(event: PointerEvent, node: NodeItem) {
         </div>
       </div>
 
-      <aside class="miro-detail">
+      <aside v-if="detailOpen" class="miro-detail">
         <template v-if="selected">
           <div class="detail-heading">
             <h3>{{ selected.kind === 'node' ? 'Node Details' : 'Edge Details' }}</h3>
-            <button class="button secondary" @click="selected = null">关闭</button>
+            <button class="button secondary icon-button" title="关闭详情" @click="closeDetail">×</button>
           </div>
           <span v-if="selected.kind === 'node'" class="detail-pill">
             {{ typeLabels[normalizedType(selected.data)] || normalizedType(selected.data) }}
@@ -470,7 +482,13 @@ function nodePointerDown(event: PointerEvent, node: NodeItem) {
             </div>
           </div>
         </template>
-        <p v-else class="muted">点击图中的节点或边查看详细信息。</p>
+        <div v-else class="detail-empty">
+          <div class="detail-heading">
+            <h3>详情</h3>
+            <button class="button secondary icon-button" title="关闭详情" @click="closeDetail">×</button>
+          </div>
+          <p class="muted">点击图中的节点或边查看详细信息。</p>
+        </div>
       </aside>
     </div>
   </div>

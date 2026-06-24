@@ -8,14 +8,21 @@ import DimensionScoreBars from '../components/DimensionScoreBars.vue'
 import GraphViewer from '../components/GraphViewer.vue'
 import TrendReportPanel from '../components/TrendReportPanel.vue'
 import ReviewActionPanel from '../components/ReviewActionPanel.vue'
+import RiskEvidencePanel from '../components/RiskEvidencePanel.vue'
 import { useWorkbenchStore } from '../stores/workbench'
 import { effectiveRiskLevel, riskRuleText, riskScoreText } from '../utils/risk'
+import { getRiskRules } from '../api/riskRules'
 
 const route = useRoute()
 const store = useWorkbenchStore()
 const event = ref<any>(null)
 const graph = ref<{ nodes: any[]; edges: any[]; source?: string }>({ nodes: [], edges: [] })
+const riskRules = ref<any>(null)
 const error = ref('')
+
+function eventTime(value: any) {
+  return value?.updated_at || value?.created_at || '-'
+}
 
 async function load() {
   const eventId = String(route.params.eventId)
@@ -23,6 +30,8 @@ async function load() {
     event.value = await getEvent(eventId)
     graph.value = store.eventGraphs[eventId] || await getEventGraph(eventId)
     store.setEventGraph(eventId, graph.value)
+    const rulesPayload = await getRiskRules()
+    riskRules.value = rulesPayload.rules
   } catch (err: any) {
     error.value = err?.message || '加载详情失败'
   }
@@ -54,11 +63,7 @@ onMounted(load)
 
   <div v-if="error" class="error">{{ error }}</div>
   <div v-if="event" class="stack">
-    <div class="grid-3">
-      <div class="metric">
-        <span>风险等级</span>
-        <RiskBadge :level="effectiveRiskLevel(event)" />
-      </div>
+    <div class="detail-metric-strip">
       <div class="metric">
         <span>风险分数</span>
         <strong>{{ riskScoreText(event.risk_score) }}</strong>
@@ -67,37 +72,55 @@ onMounted(load)
         <span>事件类型</span>
         <strong>{{ event.event_type || '未知' }}</strong>
       </div>
-    </div>
-
-    <div class="grid-main-side">
-      <div class="panel stack">
-        <h2>关系图谱</h2>
-        <GraphViewer :nodes="graph.nodes" :edges="graph.edges" expandable tall @expand="expand" />
+      <div class="metric">
+        <span>状态</span>
+        <strong>{{ event.status }}</strong>
       </div>
-      <BlacklistHitPanel
-        :blacklist="{
-          decision: event.blacklist_decision,
-          matched_persons: event.matched_persons,
-          matched_keywords: event.matched_keywords,
-          event_similarity: event.event_similarity,
-        }"
-      />
-    </div>
-
-    <div class="grid-2">
-      <div class="panel stack">
-        <h2>事件原文</h2>
-        <p class="pre-wrap">{{ event.raw_content }}</p>
+      <div class="metric">
+        <span>分析时间</span>
+        <strong>{{ eventTime(event) }}</strong>
       </div>
-      <div class="panel stack">
-        <h2>评估说明</h2>
-        <p class="muted small">{{ riskRuleText() }}</p>
-        <p class="pre-wrap">{{ event.reasoning || '暂无说明' }}</p>
-        <DimensionScoreBars :scores="event.dimension_scores" />
+      <div class="metric compact-risk">
+        <span>风险等级</span>
+        <RiskBadge :level="effectiveRiskLevel(event)" />
       </div>
     </div>
 
-    <TrendReportPanel :report="event.trend_report" />
-    <ReviewActionPanel :event-id="event.event_id" :actions="event.review_actions" @saved="load" />
+    <div class="event-detail-prototype">
+      <div class="stack">
+        <div class="panel stack">
+          <h2>事件原文</h2>
+          <p class="pre-wrap">{{ event.raw_content }}</p>
+        </div>
+        <div class="panel stack">
+          <h2>评估说明</h2>
+          <p class="muted small">{{ riskRuleText() }}</p>
+          <p class="pre-wrap">{{ event.reasoning || '暂无说明' }}</p>
+        </div>
+        <div class="panel stack">
+          <h2>多维度评分</h2>
+          <DimensionScoreBars :scores="event.dimension_scores" />
+        </div>
+        <div class="panel stack">
+          <h2>事件关系图谱</h2>
+          <GraphViewer :nodes="graph.nodes" :edges="graph.edges" expandable @expand="expand" />
+        </div>
+      </div>
+
+      <div class="stack">
+        <BlacklistHitPanel
+          :blacklist="{
+            decision: event.blacklist_decision,
+            matched_persons: event.matched_persons,
+            matched_keywords: event.matched_keywords,
+            event_similarity: event.event_similarity,
+          }"
+        />
+        <TrendReportPanel :report="event.trend_report" />
+        <ReviewActionPanel :event-id="event.event_id" :actions="event.review_actions" @saved="load" />
+      </div>
+    </div>
+
+    <RiskEvidencePanel :event="event" :rules="riskRules" />
   </div>
 </template>

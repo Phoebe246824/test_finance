@@ -5,6 +5,24 @@ __pycache__/
 *.log
 .claude/
 .omo/
+.DS_Store
+
+# Frontend dependencies, build output, and package-manager caches
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.vite/
+frontend/.vite/
+.npm-cache/
+frontend/.npm-cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+frontend/coverage/
+*.tsbuildinfo
 
 # Node.js
 frontend/node_modules/
@@ -19,3 +37,7 @@ logs/
 # Ignore Docker-related files
 volumes/
 docker-compose.override.yml
+
+logs/
+docs/paper/
+docs/report/

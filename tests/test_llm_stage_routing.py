@@ -16,6 +16,8 @@ STAGE_ENV_KEYS = [
     'LLM_REASON_MODEL',
     'LLM_REASON_API_KEY',
     'LLM_REASON_BASE_URL',
+    'REASON_MAX_ATTEMPTS',
+    'REASON_MAX_STEPS',
 ]
 
 
@@ -104,26 +106,29 @@ def test_get_llm_for_rejects_unknown_stage(monkeypatch):
 
 
 def test_reasoning_kwargs_are_enabled_only_for_reason_tier(monkeypatch):
-    llm_provider = reload_provider(monkeypatch, {'REASON_MAX_ATTEMPTS': '4'})
+    llm_provider = reload_provider(
+        monkeypatch,
+        {'REASON_MAX_ATTEMPTS': '4', 'REASON_MAX_STEPS': '3'},
+    )
 
-    assert llm_provider.reasoning_kwargs_for('risk_first') == {
-        'reasoning': True,
-        'max_reasoning_attempts': 4,
-    }
-    assert llm_provider.reasoning_kwargs_for('risk_second') == {
-        'reasoning': True,
-        'max_reasoning_attempts': 4,
-    }
+    first_config = llm_provider.reasoning_kwargs_for('risk_first')['planning_config']
+    second_config = llm_provider.reasoning_kwargs_for('risk_second')['planning_config']
+    assert first_config.max_attempts == 4
+    assert first_config.max_steps == 3
+    assert second_config.max_attempts == 4
+    assert second_config.max_steps == 3
     assert llm_provider.reasoning_kwargs_for('dashboard') == {}
     assert llm_provider.reasoning_kwargs_for('normalize') == {}
     assert llm_provider.reasoning_kwargs_for('classify') == {}
     assert llm_provider.reasoning_kwargs_for('graphiti') == {}
 
 
-def test_reasoning_kwargs_default_to_two_attempts(monkeypatch):
-    llm_provider = reload_provider(monkeypatch, {'REASON_MAX_ATTEMPTS': ''})
+def test_reasoning_kwargs_default_to_two_attempts_and_four_steps(monkeypatch):
+    llm_provider = reload_provider(
+        monkeypatch,
+        {'REASON_MAX_ATTEMPTS': '', 'REASON_MAX_STEPS': ''},
+    )
 
-    assert llm_provider.reasoning_kwargs_for('risk_first') == {
-        'reasoning': True,
-        'max_reasoning_attempts': 2,
-    }
+    planning_config = llm_provider.reasoning_kwargs_for('risk_first')['planning_config']
+    assert planning_config.max_attempts == 2
+    assert planning_config.max_steps == 4

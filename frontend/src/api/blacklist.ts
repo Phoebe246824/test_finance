@@ -15,6 +15,15 @@ export async function createBlacklistItem(
   return data
 }
 
+export async function updateBlacklistItem(
+  type: BlacklistType,
+  value: string,
+  payload: { value: string; summary?: string; description?: string },
+) {
+  const { data } = await http.put(`/api/blacklist/${type}/${encodeURIComponent(value)}`, payload)
+  return data
+}
+
 export async function deleteBlacklistItem(type: BlacklistType, value: string) {
   const { data } = await http.delete(`/api/blacklist/${type}/${encodeURIComponent(value)}`)
   return data

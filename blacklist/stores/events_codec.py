@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -152,10 +153,16 @@ def analysis_row(
 
 def api_event(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row)
+    person_ids = item.get("person_ids") or []
+    if isinstance(person_ids, str):
+        item["person_ids"] = [person_ids]
+    elif isinstance(person_ids, Iterable):
+        item["person_ids"] = list(person_ids)
+    else:
+        item["person_ids"] = []
     item["matched_persons"] = json_value(item.get("matched_persons"), [])
     item["matched_keywords"] = json_value(item.get("matched_keywords"), [])
     item["event_similarity"] = json_value(item.get("event_similarity"), {})
     item["dimension_scores"] = json_value(item.get("dimension_scores"), {})
     item["trend_report"] = json_value(item.get("trend_report"), {})
     return item
-
