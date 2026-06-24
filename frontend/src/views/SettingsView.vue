@@ -342,10 +342,20 @@ const testingModel = ref('')
 async function testModel(name: string) {
   testingModel.value = name
   try {
-    await saveSettings()
-    showNotice(`${name} 连通性测试通过`)
-  } catch {
-    showNotice(`${name} 连通性测试失败`)
+    const svc = modelServices.value.find((s) => s.name === name)
+    if (!svc) {
+      showNotice(`${name} 未找到配置信息`)
+      return
+    }
+    const response = await fetch(svc.endpoint, { method: 'GET', signal: AbortSignal.timeout(5000) })
+    if (response.ok || response.status < 500) {
+      showNotice(`${name} 连通性测试通过`)
+    } else {
+      showNotice(`${name} 连通性测试失败 (HTTP ${response.status})`)
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '网络错误'
+    showNotice(`${name} 连通性测试失败: ${msg}`)
   } finally {
     testingModel.value = ''
   }
