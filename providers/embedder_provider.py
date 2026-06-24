@@ -6,16 +6,39 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _settings_embedder_endpoint() -> str | None:
+    try:
+        from backend.app.services.settings_service import load_app_settings
+        settings, _ = load_app_settings()
+        services = settings.get("model_services") or []
+        candidates = [
+            s for s in services
+            if s.get("type") == "向量模型" and s.get("status") not in ("停用", "未运行")
+        ]
+        if not candidates:
+            return None
+        default_svc = next((s for s in candidates if s.get("default")), candidates[0])
+        return default_svc.get("endpoint") or None
+    except Exception:
+        return None
+
+
 def get_embedder(model: str = "BAAI/bge-m3"):
     """根据提供商获取嵌入器实例"""
     provider = os.getenv("LLM_PROVIDER") or "openai"
     if provider in ("siliconflow", "openai"):
+        api_base = (
+            _settings_embedder_endpoint()
+            or os.getenv("EMBEDDER_API_BASE")
+            or os.getenv("LLM_BASE_URL")
+            or "https://api.openai.com/v1"
+        )
         embedder = {
             "provider": "openai",
             "config": {
                 "api_key": os.getenv("EMBEDDER_API_KEY") or os.getenv("LLM_API_KEY") or "",
                 "model_name": model,
-                "api_base": os.getenv("EMBEDDER_API_BASE") or os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1",
+                "api_base": api_base,
             }
         }
         return embedder
