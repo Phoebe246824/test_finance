@@ -181,6 +181,7 @@ async function runBatchAnalysis() {
   batchRunning.value = true
   loading.value = true
   error.value = ''
+  clearBatchProgress()
   batchRecords.value = []
   batchTotal.value = items.length
   clearSingleProgress()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from pipeline_progress import (
     PIPELINE_STAGE_TOTAL,
@@ -13,6 +13,11 @@ from pipeline_progress import (
 
 from backend.app.services.analysis_service import AnalysisService
 from backend.app.services.runtime_state import runtime_state
+
+
+class AnalysisResult(TypedDict, total=False):
+    event_id: str | None
+    status: str
 
 
 def _now() -> str:
@@ -76,20 +81,37 @@ class TaskService:
             },
         )
 
-    def _mark_success(self, task_id: str, event_id: str | None) -> None:
+    def _success_progress(self, task_id: str, result: AnalysisResult) -> PipelineProgress:
+        task = runtime_state.get_task(task_id) or {}
+        if result.get("status") == "stashed":
+            stage_key = str(task.get("stage_key") or "")
+            return PipelineProgress(
+                stage_key="stash",
+                stage_label="事件暂存",
+                stage_index=int(task.get("stage_index") if stage_key == "stash" else 3),
+                stage_total=PIPELINE_STAGE_TOTAL,
+                stage_detail=str(
+                    task.get("stage_detail")
+                    if stage_key == "stash"
+                    else "事件已暂存，等待后续高危事件回捞"
+                ),
+            )
+        return pipeline_progress(
+            "complete",
+            "完成",
+            PIPELINE_STAGE_TOTAL,
+            "事件处理流水线已完成",
+        )
+
+    def _mark_success(self, task_id: str, result: AnalysisResult) -> None:
         now = _now()
         runtime_state.update_task(
             task_id,
             {
                 "status": "success",
-                "event_id": event_id,
+                "event_id": result.get("event_id"),
                 "finished_at": now,
-                **pipeline_progress(
-                    "complete",
-                    "完成",
-                    PIPELINE_STAGE_TOTAL,
-                    "事件处理流水线已完成",
-                ).as_task_values(),
+                **self._success_progress(task_id, result).as_task_values(),
                 "stage_updated_at": now,
             },
         )
@@ -128,7 +150,7 @@ class TaskService:
                 text,
                 progress_callback=self._progress_callback(task_id),
             )
-            self._mark_success(task_id, result.get("event_id"))
+            self._mark_success(task_id, result)
         except Exception as exc:
             self._mark_failed(task_id, str(exc))
             raise

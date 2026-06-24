@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { PipelineProgress } from '../api/analysis'
+import { progressAriaLabel, progressCounterText, progressPercent } from '../utils/progressDisplay'
 
 const props = defineProps<{
   readonly title: string
@@ -10,10 +12,16 @@ const props = defineProps<{
   readonly batchTotal?: number
 }>()
 
-function percent(progress: PipelineProgress | null) {
-  if (!progress || progress.stage_total <= 0) return 0
-  return Math.min(100, Math.max(0, Math.round((progress.stage_index / progress.stage_total) * 100)))
-}
+const percent = () => progressPercent(props.progress)
+const displayContext = computed(() => {
+  if (!props.progress) return null
+  return {
+    title: props.title,
+    progress: props.progress,
+    batchIndex: props.batchIndex,
+    batchTotal: props.batchTotal,
+  }
+})
 </script>
 
 <template>
@@ -23,11 +31,17 @@ function percent(progress: PipelineProgress | null) {
         <span>{{ title }}</span>
         <strong>{{ progress.stage_label }}</strong>
       </div>
-      <em v-if="batchIndex && batchTotal">第 {{ batchIndex }} / {{ batchTotal }} 条</em>
-      <em v-else>{{ progress.stage_index }} / {{ progress.stage_total }}</em>
+      <em>{{ displayContext ? progressCounterText(displayContext) : '' }}</em>
     </div>
-    <div class="progress-track" aria-hidden="true">
-      <i :style="{ width: `${percent(progress)}%` }" />
+    <div
+      class="progress-track"
+      role="progressbar"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-valuenow="percent()"
+      :aria-label="displayContext ? progressAriaLabel(displayContext) : title"
+    >
+      <i :style="{ width: `${percent()}%` }" />
     </div>
     <p>{{ progress.stage_detail }}</p>
     <small v-if="taskId">任务 {{ taskId }} · {{ status || 'queued' }}</small>

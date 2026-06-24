@@ -103,6 +103,111 @@ async def test_task_progress_callback_updates_visible_task_stage(
 
 
 @pytest.mark.asyncio
+async def test_stashed_task_keeps_stash_stage_as_final_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+
+    class FakeAnalysisService:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+        ) -> dict[str, str]:
+            assert progress_callback is not None
+            progress_callback(
+                pipeline_progress(
+                    "stash",
+                    "事件暂存",
+                    3,
+                    "未命中高危规则，正在暂存事件等待后续回捞",
+                )
+            )
+            return {"event_id": "E-STASHED", "status": "stashed"}
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+
+    await service.run_analysis_task(task_id, "客户 P102 日常工资入账")
+
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "success"
+    assert task["event_id"] == "E-STASHED"
+    assert task["stage_key"] == "stash"
+    assert task["stage_label"] == "事件暂存"
+    assert task["stage_index"] == 3
+    assert "暂存" in task["stage_detail"]
+
+
+@pytest.mark.asyncio
+async def test_stashed_task_uses_stash_stage_even_without_progress_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+
+    class FakeAnalysisService:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+        ) -> dict[str, str]:
+            assert progress_callback is not None
+            return {"event_id": "E-STASHED-NO-CALLBACK", "status": "stashed"}
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+
+    await service.run_analysis_task(task_id, "客户 P102 日常工资入账")
+
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "success"
+    assert task["event_id"] == "E-STASHED-NO-CALLBACK"
+    assert task["stage_key"] == "stash"
+    assert task["stage_label"] == "事件暂存"
+    assert task["stage_index"] == 3
+
+
+@pytest.mark.asyncio
+async def test_failed_task_keeps_last_stage_index_and_failure_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+
+    class FakeAnalysisService:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+        ) -> dict[str, str]:
+            assert progress_callback is not None
+            progress_callback(
+                pipeline_progress(
+                    "single_graph",
+                    "单条构图",
+                    5,
+                    "正在把当前事件写入知识图谱",
+                )
+            )
+            raise RuntimeError("graph write failed")
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+
+    with pytest.raises(RuntimeError, match="graph write failed"):
+        await service.run_analysis_task(task_id, "客户 P102 疑似高危交易")
+
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "failed"
+    assert task["stage_key"] == "failed"
+    assert task["stage_label"] == "分析失败"
+    assert task["stage_index"] == 5
+    assert task["stage_detail"] == "graph write failed"
+
+
+@pytest.mark.asyncio
 async def test_analysis_service_passes_progress_callback_to_pipeline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
