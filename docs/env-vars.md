@@ -34,6 +34,21 @@
 | `RISK_SEARCH_NUM_RESULTS` | 风险评估搜索返回数 | 20 |
 | `SEARCH_MIN_SCORE` | 搜索相关性阈值（0.0 关闭） | 0.0 |
 | `RISK_THRESHOLD` | 风险评分阈值 | 0.7 |
+| `RAGFLOW_ENABLED` | 是否启用可选 RAGFlow 金融知识检索 | `false` |
+| `RAGFLOW_BASE_URL` | RAGFlow API 地址 | `http://127.0.0.1:9380` |
+| `RAGFLOW_API_KEY` | RAGFlow API Key | 空 |
+| `RAGFLOW_DATASET_ID` | 单个 RAGFlow dataset ID | 空 |
+| `RAGFLOW_DATASET_IDS` | 多个 RAGFlow dataset ID，逗号分隔；优先级高于 `RAGFLOW_DATASET_ID` | 空 |
+| `RAGFLOW_TOP_K` | RAGFlow 检索候选数 | `5` |
+| `RAGFLOW_SIMILARITY_THRESHOLD` | RAGFlow 相似度阈值 | `0.2` |
+| `RAGFLOW_VECTOR_SIMILARITY_WEIGHT` | RAGFlow 向量相似度权重 | `0.7` |
+| `RAGFLOW_TIMEOUT_SECONDS` | RAGFlow HTTP 请求超时秒数 | `15` |
+| `RAGFLOW_MAX_CONTEXT_CHARS` | 注入 Agent prompt 的 RAGFlow 知识上下文最大字符数 | `4000` |
+| `RAGFLOW_FAIL_OPEN` | RAGFlow HTTP/JSON envelope 失败时是否继续原流程；`false` 时抛出错误 | `true` |
+| `RAGFLOW_IMAGE` | Docker Compose RAGFlow 镜像 | `infiniflow/ragflow:v0.26.1` |
+| `RAGFLOW_WEB_PORT` / `RAGFLOW_API_PORT` | RAGFlow Web / API 宿主机端口，仅绑定 `127.0.0.1` | `8088` / `9380` |
+| `RAGFLOW_MYSQL_PASSWORD` / `RAGFLOW_REDIS_PASSWORD` / `RAGFLOW_MINIO_PASSWORD` / `RAGFLOW_ELASTIC_PASSWORD` | RAGFlow Docker profile 本地依赖服务密码；共享环境启动前必须替换示例值 | `change-me-*` |
+| `RAGFLOW_MINIO_USER` | RAGFlow Docker profile MinIO 用户名 | `ragflow-local` |
 | `MINIO_API_PORT` / `MINIO_CONSOLE_PORT` | MinIO API / Console 宿主机端口 | 9000 / 9001 |
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | MinIO 访问凭证 | minioadmin / minioadmin |
 | `MILVUS_GRPC_PORT` / `MILVUS_HTTP_PORT` | Milvus gRPC / HTTP WebUI 宿主机端口 | 19530 / 9091 |

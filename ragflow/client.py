@@ -11,6 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
+class RagflowApiError(Exception):
+    code: int | str
+    message: str
+
+    def __str__(self) -> str:
+        return f"RAGFlow API error {self.code}: {self.message}"
+
+
+@dataclass(frozen=True, slots=True)
 class RagflowConfig:
     enabled: bool
     base_url: str
@@ -57,7 +66,8 @@ class RagflowClient:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-        except (httpx.HTTPError, JSONDecodeError) as exc:
+                _raise_for_error_envelope(data)
+        except (httpx.HTTPError, JSONDecodeError, RagflowApiError) as exc:
             logger.warning("RAGFlow retrieval failed: %s", exc, exc_info=True)
             if self._config.fail_open:
                 return _failed_retrieval_result(question, exc)
@@ -81,6 +91,18 @@ def _failed_retrieval_result(question: str, exc: Exception) -> dict[str, Any]:
         "error": str(exc),
         "message": "RAGFlow retrieval failed; continuing without external knowledge.",
     }
+
+
+def _raise_for_error_envelope(data: Any) -> None:
+    if not isinstance(data, dict):
+        return
+
+    code = data.get("code")
+    if code in (None, 0, "0"):
+        return
+
+    message = str(data.get("message") or "RAGFlow request failed")
+    raise RagflowApiError(code=code, message=message)
 
 
 def _extract_chunks(data: Any) -> list[dict[str, Any]]:

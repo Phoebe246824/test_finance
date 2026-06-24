@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import httpx
+import pytest
 import yaml
 
 from ragflow.client import _extract_chunks
 from ragflow.context import append_knowledge_context, knowledge_section_for_prompt
-from ragflow.upload_docs import _env_dataset_ids, _pdf_paths
+from ragflow.upload_docs import (
+    RagflowUploadError,
+    _env_dataset_ids,
+    _pdf_paths,
+    parse_documents,
+    upload_document,
+)
 
 
 def test_extract_chunks_supports_ragflow_retrieval_payload() -> None:
@@ -94,6 +104,66 @@ def test_pdf_paths_rejects_non_pdf_files(tmp_path) -> None:
         assert "Only PDF files are supported" in str(exc)
     else:
         raise AssertionError("non-PDF upload should be rejected")
+
+
+@pytest.mark.asyncio
+async def test_upload_document_raises_error_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "risk.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
+        request = httpx.Request(
+            "POST",
+            "http://ragflow.example/api/v1/datasets/dataset/documents",
+        )
+        return httpx.Response(
+            200,
+            json={"code": 102, "message": "dataset not found", "data": False},
+            request=request,
+        )
+
+    async with httpx.AsyncClient() as client:
+        monkeypatch.setattr(client, "post", fake_post)
+
+        with pytest.raises(RagflowUploadError, match="dataset not found"):
+            await upload_document(
+                client=client,
+                base_url="http://ragflow.example",
+                api_key="secret",
+                dataset_id="dataset",
+                path=pdf_path,
+            )
+
+
+@pytest.mark.asyncio
+async def test_parse_documents_raises_error_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
+        request = httpx.Request(
+            "POST",
+            "http://ragflow.example/api/v1/datasets/dataset/chunks",
+        )
+        return httpx.Response(
+            200,
+            json={"code": 102, "message": "document parse failed", "data": False},
+            request=request,
+        )
+
+    async with httpx.AsyncClient() as client:
+        monkeypatch.setattr(client, "post", fake_post)
+
+        with pytest.raises(RagflowUploadError, match="document parse failed"):
+            await parse_documents(
+                client=client,
+                base_url="http://ragflow.example",
+                api_key="secret",
+                dataset_id="dataset",
+                document_ids=["doc-1"],
+            )
 
 
 def test_ragflow_compose_binds_public_services_to_loopback() -> None:

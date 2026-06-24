@@ -75,10 +75,10 @@ def format_knowledge_for_prompt(
         wrapper_length = len(opening) + len(closing) + len('""')
         if remaining < wrapper_length:
             break
-        encoded_text = json.dumps(escaped_text, ensure_ascii=False)
-        if len(encoded_text) > remaining - len(opening) - len(closing):
-            text_budget = remaining - len(opening) - len(closing) - len('""')
-            encoded_text = json.dumps(escaped_text[:text_budget], ensure_ascii=False)
+        encoded_text = _encode_text_with_budget(
+            escaped_text,
+            remaining - len(opening) - len(closing),
+        )
         block = f"{opening}{encoded_text}{closing}"
         parts.append(block)
         total += separator_length + len(block)
@@ -88,6 +88,21 @@ def format_knowledge_for_prompt(
     if len(parts) == 1:
         return ""
     return "\n\n".join(parts)
+
+
+def _encode_text_with_budget(text: str, budget: int) -> str:
+    encoded_text = json.dumps(text, ensure_ascii=False)
+    if len(encoded_text) <= budget:
+        return encoded_text
+
+    truncated = text
+    while truncated:
+        overflow = len(encoded_text) - budget
+        truncated = truncated[: max(0, len(truncated) - overflow)]
+        encoded_text = json.dumps(truncated, ensure_ascii=False)
+        if len(encoded_text) <= budget:
+            return encoded_text
+    return json.dumps("", ensure_ascii=False)
 
 
 def append_knowledge_context(

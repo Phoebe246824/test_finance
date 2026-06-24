@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,15 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+@dataclass(frozen=True, slots=True)
+class RagflowUploadError(Exception):
+    code: int | str
+    message: str
+
+    def __str__(self) -> str:
+        return f"RAGFlow upload API error {self.code}: {self.message}"
 
 
 def _env_dataset_ids() -> list[str]:
@@ -50,6 +60,7 @@ async def upload_document(
         )
     response.raise_for_status()
     data = response.json()
+    _raise_for_error_envelope(data)
     return _document_ids(data)
 
 
@@ -68,7 +79,21 @@ async def parse_documents(
     }
     response = await client.post(url, headers=headers, json={"document_ids": document_ids})
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+    _raise_for_error_envelope(data)
+    return data
+
+
+def _raise_for_error_envelope(data: Any) -> None:
+    if not isinstance(data, dict):
+        return
+
+    code = data.get("code")
+    if code in (None, 0, "0"):
+        return
+
+    message = str(data.get("message") or "RAGFlow upload request failed")
+    raise RagflowUploadError(code=code, message=message)
 
 
 def _document_ids(data: Any) -> list[str]:
