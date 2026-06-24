@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -12,9 +10,6 @@ from backend.app.services.settings_service import (
     delete_model_service,
     list_model_services,
     update_model_service,
-    list_notification_channels,
-    update_notification_channel,
-    test_notification_channel,
 )
 
 router = APIRouter(prefix="/api/model-services", tags=["model-services"])
