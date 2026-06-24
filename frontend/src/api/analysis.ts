@@ -54,12 +54,12 @@ export async function analyzeText(
   onTaskUpdate?: (task: AnalysisTask) => void,
   signal?: AbortSignal,
 ): Promise<AnalyzeResult> {
-  const task = await createAnalysisTask(text)
-  onTaskUpdate?.(task)
-
   if (signal?.aborted) {
     throw new DOMException('Aborted', 'AbortError')
   }
+
+  const task = await createAnalysisTask(text)
+  onTaskUpdate?.(task)
 
   return new Promise((resolve, reject) => {
     let token = ''
@@ -73,12 +73,16 @@ export async function analyzeText(
     const params = token ? `?token=${encodeURIComponent(token)}` : ''
     const es = new EventSource(`${baseUrl}/api/tasks/${task.task_id}/stream${params}`)
     let closed = false
+    let abortHandler: (() => void) | null = null
 
     const cleanup = () => {
       if (!closed) {
         closed = true
         clearTimeout(timeoutId)
         es.close()
+        if (abortHandler && signal) {
+          signal.removeEventListener('abort', abortHandler)
+        }
       }
     }
 
@@ -88,10 +92,11 @@ export async function analyzeText(
     }, SSE_TIMEOUT_MS)
 
     if (signal) {
-      signal.addEventListener('abort', () => {
+      abortHandler = () => {
         cleanup()
         reject(new DOMException('Aborted', 'AbortError'))
-      }, { once: true })
+      }
+      signal.addEventListener('abort', abortHandler, { once: true })
     }
 
     es.addEventListener('update', (e) => {
@@ -101,7 +106,7 @@ export async function analyzeText(
         current = JSON.parse(e.data)
       } catch {
         cleanup()
-        reject(new Error('SSE 数据解析失败'))
+        reject(new Error('进度流异常，请重试'))
         return
       }
       onTaskUpdate?.(current)
@@ -111,9 +116,20 @@ export async function analyzeText(
         reject(new Error(current.error_message || '分析任务失败'))
         return
       }
-      if (current.status === 'success' && current.event_id) {
+      if (current.status === 'success') {
         cleanup()
-        http.get(`/api/events/${current.event_id}`).then(({ data }) => {
+        if (!current.event_id) {
+          resolve({
+            event_id: '',
+            status: 'success',
+            blacklist: { decision: null, matched_persons: [], matched_keywords: [], event_similarity: {} },
+            graph_result: null,
+            second_risk_applied: false,
+          } as AnalyzeResult)
+          return
+        }
+        const req = http.get(`/api/events/${current.event_id}`, { signal })
+        req.then(({ data }) => {
           resolve({
             event_id: data.event_id,
             status: data.status,
@@ -133,7 +149,10 @@ export async function analyzeText(
             dimension_scores: data.dimension_scores || {},
             trend_report: data.trend_report || {},
           } as AnalyzeResult)
-        }).catch(reject)
+        }).catch((err) => {
+          if (err?.name === 'CanceledError' || err?.name === 'AbortError') return
+          reject(new Error('分析完成但事件详情未找到，请刷新事件库'))
+        })
       }
     })
 

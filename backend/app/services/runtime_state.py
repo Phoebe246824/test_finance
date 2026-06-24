@@ -17,6 +17,13 @@ _TASK_TTL_SECONDS = 3600
 
 @dataclass(slots=True)
 class RuntimeState:
+    """Global runtime state for tasks, audit logs, and settings.
+
+    Note: asyncio.Queue is used for SSE subscriber notification. This is safe
+    because all callers (FastAPI request handlers, BackgroundTasks) run on the
+    same event loop thread. Do not call update_task/subscribe_task from
+    different threads or event loops.
+    """
     audit_logs: list[dict[str, Any]] = field(default_factory=list)
     settings: dict[str, Any] | None = None
     settings_updated_at: str = ""
@@ -78,7 +85,8 @@ class RuntimeState:
     def create_task(self, task_id: str, row: dict[str, Any]) -> None:
         with self._lock:
             self.tasks[task_id] = deepcopy(row)
-            self._subscribers[task_id] = []
+            if task_id not in self._subscribers:
+                self._subscribers[task_id] = []
             self._task_finished_at.pop(task_id, None)
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
@@ -131,14 +139,21 @@ class RuntimeState:
     def cleanup_stale_tasks(self, ttl: float = _TASK_TTL_SECONDS) -> int:
         now = time.monotonic()
         removed: list[str] = []
+        notify: list[tuple[str, asyncio.Queue[dict[str, Any] | None]]] = []
         with self._lock:
             for tid, finished in list(self._task_finished_at.items()):
                 if now - finished > ttl:
                     removed.append(tid)
             for tid in removed:
+                for q in self._subscribers.pop(tid, ()):
+                    notify.append((tid, q))
                 self.tasks.pop(tid, None)
                 self._task_finished_at.pop(tid, None)
-                self._subscribers.pop(tid, None)
+        for _tid, q in notify:
+            try:
+                q.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
         if removed:
             logger.info("Cleaned up %d stale tasks: %s", len(removed), removed)
         return len(removed)

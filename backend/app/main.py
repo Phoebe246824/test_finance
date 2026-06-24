@@ -46,6 +46,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 def create_app() -> FastAPI:

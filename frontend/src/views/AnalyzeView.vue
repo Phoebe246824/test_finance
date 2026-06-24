@@ -40,6 +40,7 @@ const currentGraph = computed(() => {
   return eventId ? store.eventGraphs[eventId] || { nodes: [], edges: [] } : { nodes: [], edges: [] }
 })
 let abortController: AbortController | null = null
+let operationId = 0
 
 function taskProgress(task: AnalysisTask): PipelineProgress {
   return {
@@ -86,17 +87,21 @@ async function submit() {
   clearBatchProgress()
   abortController?.abort()
   abortController = new AbortController()
+  const opId = ++operationId
+  store.setAnalysisResult(null)
   try {
     const data = await analyzeText(text.value, updateSingleTask, abortController.signal)
+    if (opId !== operationId) return
     store.setAnalysisResult(data)
     if (data.event_id) {
       store.setEventGraph(data.event_id, await getEventGraph(data.event_id))
     }
   } catch (err: any) {
     if (err?.name === 'AbortError') return
+    if (opId !== operationId) return
     error.value = err?.response?.data?.detail || err?.message || '分析失败'
   } finally {
-    loading.value = false
+    if (opId === operationId) loading.value = false
   }
 }
 
@@ -121,11 +126,14 @@ async function playDemoCases() {
   clearBatchProgress()
   abortController?.abort()
   abortController = new AbortController()
+  const opId = ++operationId
   try {
     for (const demo of demoCases.value) {
+      if (opId !== operationId) break
       store.analysisText = demo.text
       selectedCaseId.value = demo.id
       const { data, graph, elapsedMs } = await runSingleAnalysis(demo.text, updateSingleTask, abortController.signal)
+      if (opId !== operationId) break
       store.setAnalysisResult(data)
       demoRunRecords.value.push({
         case_id: demo.id,
@@ -146,10 +154,13 @@ async function playDemoCases() {
     }
   } catch (err: any) {
     if (err?.name === 'AbortError') return
+    if (opId !== operationId) return
     error.value = err?.response?.data?.detail || err?.message || 'Demo 播放失败'
   } finally {
-    loading.value = false
-    demoRunning.value = false
+    if (opId === operationId) {
+      loading.value = false
+      demoRunning.value = false
+    }
   }
 }
 
@@ -194,11 +205,15 @@ async function runBatchAnalysis() {
   clearSingleProgress()
   abortController?.abort()
   abortController = new AbortController()
+  const opId = ++operationId
+  store.setAnalysisResult(null)
   try {
     for (const [index, content] of items.entries()) {
+      if (opId !== operationId) break
       batchCurrentIndex.value = index + 1
       store.analysisText = content
       const { data, graph, elapsedMs } = await runSingleAnalysis(content, updateBatchTask, abortController.signal)
+      if (opId !== operationId) break
       store.setAnalysisResult(data)
       batchRecords.value.push({
         index: index + 1,
@@ -220,19 +235,22 @@ async function runBatchAnalysis() {
     }
   } catch (err: any) {
     if (err?.name === 'AbortError') return
+    if (opId !== operationId) return
     error.value = err?.response?.data?.detail || err?.message || '批量分析失败'
   } finally {
-    loading.value = false
-    batchRunning.value = false
-    if (!error.value) {
-      batchProgress.value = {
-        stage_key: 'complete',
-        stage_label: '批量完成',
-        stage_index: batchTotal.value,
-        stage_total: batchTotal.value || 1,
-        stage_detail: `已完成 ${batchRecords.value.length} 条事件分析`,
+    if (opId === operationId) {
+      loading.value = false
+      batchRunning.value = false
+      if (!error.value) {
+        batchProgress.value = {
+          stage_key: 'complete',
+          stage_label: '批量完成',
+          stage_index: batchTotal.value,
+          stage_total: batchTotal.value || 1,
+          stage_detail: `已完成 ${batchRecords.value.length} 条事件分析`,
+        }
+        batchTaskStatus.value = 'success'
       }
-      batchTaskStatus.value = 'success'
     }
   }
 }
