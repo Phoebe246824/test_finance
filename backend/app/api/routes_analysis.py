@@ -14,8 +14,8 @@ from backend.app.core.security import (
     require_roles,
 )
 from backend.app.schemas.analysis import AnalyzeRequest, AnalyzeResponse
-from backend.app.services.audit_service import write_audit_log
 from backend.app.services.analysis_service import AnalysisService
+from backend.app.services.audit_service import write_audit_log
 from backend.app.services.runtime_state import runtime_state
 from backend.app.services.task_service import TaskService
 from scripts.finance_demo_cases import FINANCE_CASES
@@ -75,29 +75,43 @@ async def stream_task(
     request: Request,
     token: str | None = None,
 ) -> EventSourceResponse:
+    """SSE endpoint for task progress streaming.
+
+    Note: EventSource API does not support custom headers, so auth token
+    is passed as query parameter. This means the token may appear in
+    server logs, browser history, and proxy records. For production use,
+    consider short-lived stream tokens or cookie-based auth.
+    """
     if settings.auth_enabled:
         user = _user_from_token(token)
         if user is None:
             raise HTTPException(status_code=401, detail="missing or invalid token")
 
     async def generate():
+        q = runtime_state.subscribe_task(task_id)
         try:
             while True:
                 if await request.is_disconnected():
                     break
-                task = runtime_state.get_task(task_id)
-                if task is None:
+                try:
+                    snapshot = await asyncio.wait_for(q.get(), timeout=30)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    task = runtime_state.get_task(task_id)
+                    if task is None:
+                        break
+                    yield {"event": "update", "data": json.dumps(task)}
+                    continue
+                if snapshot is None:
                     break
-                yield {"event": "update", "data": json.dumps(task)}
-                if task.get("status") in ("success", "failed") or task.get(
-                    "finished_at"
-                ):
+                yield {"event": "update", "data": json.dumps(snapshot)}
+                if snapshot.get("status") in ("success", "failed"):
                     break
-                await runtime_state.wait_task_update(task_id)
         except asyncio.CancelledError:
             pass
         finally:
-            runtime_state.cleanup_task(task_id)
+            runtime_state.unsubscribe_task(task_id, q)
 
     return EventSourceResponse(generate(), ping=15, send_timeout=30)
 

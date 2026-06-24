@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from fastapi import BackgroundTasks
+from fastapi.testclient import TestClient
 
 from backend.app.api.routes_analysis import create_analysis_task
 from backend.app.core.security import CurrentUser
+from backend.app.main import app
 from backend.app.schemas.analysis import AnalyzeRequest
 from backend.app.services import analysis_service, task_service
 from backend.app.services.analysis_service import AnalysisService
 from backend.app.services.runtime_state import runtime_state
+from backend.app.services.task_service import TaskService
 from pipeline_progress import (
     PipelineProgress,
     ProgressCallback,
     pipeline_progress,
 )
-from backend.app.services.task_service import TaskService
 
 
 def test_created_analysis_task_exposes_initial_pipeline_stage() -> None:
@@ -251,45 +254,44 @@ async def test_update_task_signals_event_subscriber() -> None:
     task_id = service.create_analysis_task()
 
     async def wait_and_collect():
-        await runtime_state.wait_task_update(task_id)
-        return runtime_state.get_task(task_id)
-
-    # Start waiting, then update
-    wait_task = asyncio.create_task(wait_and_collect())
-    await asyncio.sleep(0.05)  # Let waiter register
+        q = runtime_state.subscribe_task(task_id)
+        try:
+            return await asyncio.wait_for(q.get(), timeout=1.0)
+        finally:
+            runtime_state.unsubscribe_task(task_id, q)
 
     service._mark_running(task_id)
-    result = await asyncio.wait_for(wait_task, timeout=1.0)
+    result = await wait_and_collect()
 
     assert result is not None
     assert result["status"] == "running"
-
-
-from fastapi.testclient import TestClient
-from backend.app.main import app
-from backend.app.services.runtime_state import runtime_state
 
 
 def test_sse_stream_yields_task_updates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_ENABLED", "false")
     client = TestClient(app)
 
-    # Create a task
+    class FakeAnalysisService:
+        async def analyze(self, text: str, progress_callback=None) -> dict:
+            if progress_callback:
+                progress_callback(
+                    pipeline_progress("single_graph", "单条构图", 4, "写入图谱")
+                )
+            return {"event_id": "E-SSE-TEST", "status": "analyzed", "raw_content": text}
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+    monkeypatch.setattr(analysis_service, "process_message_detailed", None)
+
     response = client.post("/api/tasks/analyze", json={"text": "test"})
     assert response.status_code == 200
     task_id = response.json()["task_id"]
 
-    # Mark it as running directly
-    runtime_state.update_task(task_id, {"status": "running"})
-
-    # Connect to SSE stream
     updates = []
     with client.stream("GET", f"/api/tasks/{task_id}/stream") as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
         for line in resp.iter_lines():
             if line.startswith("data:"):
-                import json
                 data = json.loads(line[5:].strip())
                 updates.append(data)
                 if data.get("status") in ("success", "failed"):

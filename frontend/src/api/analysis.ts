@@ -47,12 +47,23 @@ export async function createAnalysisTask(text: string): Promise<AnalysisTask> {
   return data
 }
 
+const SSE_TIMEOUT_MS = 5 * 60 * 1000
+
+export interface AnalysisController {
+  abort: () => void
+}
+
 export async function analyzeText(
   text: string,
   onTaskUpdate?: (task: AnalysisTask) => void,
+  signal?: AbortSignal,
 ): Promise<AnalyzeResult> {
   const task = await createAnalysisTask(text)
   onTaskUpdate?.(task)
+
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
 
   return new Promise((resolve, reject) => {
     let token = ''
@@ -65,24 +76,47 @@ export async function analyzeText(
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
     const params = token ? `?token=${encodeURIComponent(token)}` : ''
     const es = new EventSource(`${baseUrl}/api/tasks/${task.task_id}/stream${params}`)
+    let closed = false
+
+    const cleanup = () => {
+      if (!closed) {
+        closed = true
+        clearTimeout(timeoutId)
+        es.close()
+      }
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('分析超时，请重试'))
+    }, SSE_TIMEOUT_MS)
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        cleanup()
+        reject(new DOMException('Aborted', 'AbortError'))
+      }, { once: true })
+    }
 
     es.addEventListener('update', (e) => {
+      if (closed) return
       let current: AnalysisTask
       try {
         current = JSON.parse(e.data)
       } catch {
-        es.close()
+        cleanup()
         reject(new Error('SSE 数据解析失败'))
         return
       }
       onTaskUpdate?.(current)
 
       if (current.status === 'failed') {
-        es.close()
+        cleanup()
         reject(new Error(current.error_message || '分析任务失败'))
+        return
       }
       if (current.status === 'success' && current.event_id) {
-        es.close()
+        cleanup()
         http.get(`/api/events/${current.event_id}`).then(({ data }) => {
           resolve({
             event_id: data.event_id,
@@ -108,7 +142,8 @@ export async function analyzeText(
     })
 
     es.onerror = () => {
-      es.close()
+      if (closed) return
+      cleanup()
       reject(new Error('SSE 连接失败'))
     }
   })

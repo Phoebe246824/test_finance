@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import RLock
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_TERMINAL_STATUSES = frozenset({"success", "failed"})
+_TASK_TTL_SECONDS = 3600
 
 
 @dataclass(slots=True)
@@ -18,7 +25,10 @@ class RuntimeState:
     tasks: dict[str, dict[str, Any]] = field(default_factory=dict)
     _next_audit_id: int = 1
     _lock: RLock = field(default_factory=RLock)
-    _events: dict[str, asyncio.Event] = field(default_factory=dict)
+    _subscribers: dict[str, list[asyncio.Queue[dict[str, Any] | None]]] = field(
+        default_factory=dict
+    )
+    _task_finished_at: dict[str, float] = field(default_factory=dict)
 
     def now_text(self) -> str:
         return datetime.now().isoformat(timespec="seconds")
@@ -68,7 +78,8 @@ class RuntimeState:
     def create_task(self, task_id: str, row: dict[str, Any]) -> None:
         with self._lock:
             self.tasks[task_id] = deepcopy(row)
-            self._events[task_id] = asyncio.Event()
+            self._subscribers[task_id] = []
+            self._task_finished_at.pop(task_id, None)
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -81,20 +92,50 @@ class RuntimeState:
             if task is None:
                 return
             task.update(deepcopy(values))
-            event = self._events.get(task_id)
-            if event is not None:
-                event.set()
+            snapshot = deepcopy(task)
+            if task.get("status") in _TERMINAL_STATUSES:
+                self._task_finished_at[task_id] = time.monotonic()
+            for q in self._subscribers.get(task_id, ()):
+                try:
+                    q.put_nowait(snapshot)
+                except asyncio.QueueFull:
+                    pass
 
-    async def wait_task_update(self, task_id: str) -> None:
+    def subscribe_task(self, task_id: str) -> asyncio.Queue[dict[str, Any] | None]:
         with self._lock:
-            event = self._events.setdefault(task_id, asyncio.Event())
-        await event.wait()
-        event.clear()
+            q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=1)
+            self._subscribers.setdefault(task_id, []).append(q)
+            task = self.tasks.get(task_id)
+            if task is not None:
+                try:
+                    q.put_nowait(deepcopy(task))
+                except asyncio.QueueFull:
+                    pass
+            return q
 
-    def cleanup_task(self, task_id: str) -> None:
+    def unsubscribe_task(self, task_id: str, q: asyncio.Queue[dict[str, Any] | None]) -> None:
         with self._lock:
-            self.tasks.pop(task_id, None)
-            self._events.pop(task_id, None)
+            subs = self._subscribers.get(task_id)
+            if subs is not None:
+                try:
+                    subs.remove(q)
+                except ValueError:
+                    pass
+
+    def cleanup_stale_tasks(self, ttl: float = _TASK_TTL_SECONDS) -> int:
+        now = time.monotonic()
+        removed: list[str] = []
+        with self._lock:
+            for tid, finished in list(self._task_finished_at.items()):
+                if now - finished > ttl:
+                    removed.append(tid)
+            for tid in removed:
+                self.tasks.pop(tid, None)
+                self._task_finished_at.pop(tid, None)
+                self._subscribers.pop(tid, None)
+        if removed:
+            logger.info("Cleaned up %d stale tasks: %s", len(removed), removed)
+        return len(removed)
 
 
 runtime_state = RuntimeState()

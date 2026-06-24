@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { analyzeText, listDemoCases, type AnalysisTask, type PipelineProgress } from '../api/analysis'
 import { getEventGraph } from '../api/events'
 import RiskBadge from '../components/RiskBadge.vue'
@@ -39,6 +39,7 @@ const currentGraph = computed(() => {
   const eventId = store.analysisResult?.event_id
   return eventId ? store.eventGraphs[eventId] || { nodes: [], edges: [] } : { nodes: [], edges: [] }
 })
+let abortController: AbortController | null = null
 
 function taskProgress(task: AnalysisTask): PipelineProgress {
   return {
@@ -83,22 +84,25 @@ async function submit() {
   error.value = ''
   clearSingleProgress()
   clearBatchProgress()
+  abortController?.abort()
+  abortController = new AbortController()
   try {
-    const data = await analyzeText(text.value, updateSingleTask)
+    const data = await analyzeText(text.value, updateSingleTask, abortController.signal)
     store.setAnalysisResult(data)
     if (data.event_id) {
       store.setEventGraph(data.event_id, await getEventGraph(data.event_id))
     }
   } catch (err: any) {
+    if (err?.name === 'AbortError') return
     error.value = err?.response?.data?.detail || err?.message || '分析失败'
   } finally {
     loading.value = false
   }
 }
 
-async function runSingleAnalysis(inputText: string, onTaskUpdate: (task: AnalysisTask) => void = updateSingleTask) {
+async function runSingleAnalysis(inputText: string, onTaskUpdate: (task: AnalysisTask) => void = updateSingleTask, signal?: AbortSignal) {
   const started = performance.now()
-  const data = await analyzeText(inputText, onTaskUpdate)
+  const data = await analyzeText(inputText, onTaskUpdate, signal)
   let graph = { nodes: [], edges: [] }
   if (data.event_id) {
     graph = await getEventGraph(data.event_id)
@@ -340,6 +344,7 @@ function downloadBatchReport() {
 }
 
 onMounted(loadDemoCases)
+onUnmounted(() => abortController?.abort())
 </script>
 
 <template>
