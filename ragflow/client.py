@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from json import JSONDecodeError
 from typing import Any
 
 import httpx
@@ -56,16 +57,10 @@ class RagflowClient:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-        except Exception as exc:
+        except (httpx.HTTPError, JSONDecodeError) as exc:
             logger.warning("RAGFlow retrieval failed: %s", exc, exc_info=True)
             if self._config.fail_open:
-                return {
-                    "enabled": True,
-                    "ready": True,
-                    "question": question,
-                    "chunks": [],
-                    "error": str(exc),
-                }
+                return _failed_retrieval_result(question, exc)
             raise
 
         return {
@@ -75,6 +70,17 @@ class RagflowClient:
             "chunks": _extract_chunks(data),
             "raw": data,
         }
+
+
+def _failed_retrieval_result(question: str, exc: Exception) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "ready": False,
+        "question": question,
+        "chunks": [],
+        "error": str(exc),
+        "message": "RAGFlow retrieval failed; continuing without external knowledge.",
+    }
 
 
 def _extract_chunks(data: Any) -> list[dict[str, Any]]:

@@ -173,7 +173,11 @@ docker compose --profile vector up -d attu
 docker compose --profile ragflow up -d
 ```
 
-默认端口：
+默认只向本机发布 Web 和检索 API，MySQL、Redis、MinIO、Elasticsearch
+以及 Admin API 不发布到宿主机。共享环境或演示机器启动前请替换
+`.env` 中的 `RAGFLOW_*_PASSWORD` 示例值。
+
+默认地址：
 
 ```text
 RAGFlow Web: http://127.0.0.1:8088

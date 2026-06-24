@@ -16,8 +16,20 @@ if str(ROOT) not in sys.path:
 
 
 def _env_dataset_ids() -> list[str]:
-    raw = os.getenv("RAGFLOW_DATASET_ID") or os.getenv("RAGFLOW_DATASET_IDS") or ""
+    raw = os.getenv("RAGFLOW_DATASET_IDS") or os.getenv("RAGFLOW_DATASET_ID") or ""
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _pdf_paths(files: list[str]) -> list[Path]:
+    paths = [Path(file).expanduser().resolve() for file in files]
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
+        raise SystemExit(f"File not found: {', '.join(missing)}")
+
+    invalid = [str(path) for path in paths if path.suffix.lower() != ".pdf"]
+    if invalid:
+        raise SystemExit(f"Only PDF files are supported: {', '.join(invalid)}")
+    return paths
 
 
 async def upload_document(
@@ -99,10 +111,7 @@ async def main() -> None:
             "and RAGFLOW_DATASET_ID in .env or pass CLI flags."
         )
 
-    paths = [Path(file).expanduser().resolve() for file in args.files]
-    missing = [str(path) for path in paths if not path.exists()]
-    if missing:
-        raise SystemExit(f"File not found: {', '.join(missing)}")
+    paths = _pdf_paths(args.files)
 
     all_document_ids: list[str] = []
     async with httpx.AsyncClient(timeout=120.0) as client:
