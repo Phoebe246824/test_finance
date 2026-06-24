@@ -28,6 +28,9 @@ async function save(actionType: string) {
     </div>
     <div class="toolbar">
       <button class="button danger" :disabled="!!saving" @click="save('suggest_freeze')">建议冻结</button>
+      <button class="button secondary" :disabled="!!saving" @click="save('limit_transfer')">限额观察</button>
+      <button class="button secondary" :disabled="!!saving" @click="save('customer_callback')">客户回访</button>
+      <button class="button secondary" :disabled="!!saving" @click="save('monitor')">持续监控</button>
       <button class="button" :disabled="!!saving" @click="save('reviewed')">标记已复核</button>
       <button class="button secondary" :disabled="!!saving" @click="save('false_positive')">标记误报</button>
     </div>

@@ -30,6 +30,24 @@ class FakeEvents:
                 "trend_report": {},
                 "created_at": "2026-06-23T09:00:00",
                 "updated_at": "2026-06-23T09:00:00",
+            },
+            "E002": {
+                "event_id": "E002",
+                "title": "普通交易",
+                "raw_content": "客户正常查询余额",
+                "summary": "未触发黑名单的低风险事件",
+                "status": "analyzed",
+                "risk_level": "low",
+                "risk_score": 0.11,
+                "event_type": "账户服务",
+                "matched_persons": [],
+                "matched_keywords": [],
+                "blacklist_decision": "PASS",
+                "event_similarity": {},
+                "dimension_scores": {},
+                "trend_report": {},
+                "created_at": "2026-06-23T09:05:00",
+                "updated_at": "2026-06-23T09:05:00",
             }
         }
 
@@ -92,6 +110,7 @@ class FakeReviews:
 class FakeBlacklistItemsStore:
     def __init__(self) -> None:
         self.items: dict[str, dict[str, str]] = {}
+        self.operations: list[tuple[str, str]] = []
 
     def list_items(self) -> list[dict[str, str]]:
         return list(self.items.values())
@@ -102,6 +121,7 @@ class FakeBlacklistItemsStore:
         summary: str = "",
         description: str = "",
     ) -> int:
+        self.operations.append(("append", value))
         self.items[value] = {
             "value": value,
             "summary": summary,
@@ -115,6 +135,7 @@ class FakeBlacklistItemsStore:
         summary: str = "",
         description: str = "",
     ) -> int:
+        self.operations.append(("append", value))
         self.items[value] = {
             "value": value,
             "summary": summary,
@@ -128,6 +149,7 @@ class FakeBlacklistItemsStore:
         summary: str,
         description: str = "",
     ) -> int:
+        self.operations.append(("append", value))
         self.items[value] = {
             "value": value,
             "summary": summary,
@@ -136,12 +158,15 @@ class FakeBlacklistItemsStore:
         return 1
 
     async def remove_person(self, value: str) -> bool:
+        self.operations.append(("remove", value))
         return self.items.pop(value, None) is not None
 
     async def remove_keyword(self, value: str) -> bool:
+        self.operations.append(("remove", value))
         return self.items.pop(value, None) is not None
 
     async def remove_event(self, value: str) -> bool:
+        self.operations.append(("remove", value))
         return self.items.pop(value, None) is not None
 
 
@@ -162,6 +187,7 @@ def test_default_api_uses_milvus_store_provider(
     async def fake_neo4j_ready() -> bool:
         return True
 
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     bundle.persons.items["P102"] = {
         "value": "P102",
         "summary": "客户P102",
@@ -182,11 +208,48 @@ def test_default_api_uses_milvus_store_provider(
         dashboard = client.get("/api/dashboard/overview")
 
     assert health.status_code == 200
-    assert health.json()["api"] is True
+    assert health.json()["api"]["ok"] is True
     assert "milvus" in health.json()
     assert persons.status_code == 200
     assert persons.json()["items"][0]["value"] == "P102"
     assert events.json()["total"] == 1
     assert detail.json()["review_actions"] == []
     assert review.json()["created"] is True
-    assert dashboard.json()["metrics"]["total_events"] == 1
+    assert dashboard.json()["metrics"]["total_events"] == 2
+    assert dashboard.json()["metrics"]["blacklist_hit_events"] == 1
+
+
+def test_blacklist_update_keeps_old_item_until_new_item_is_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = FakeStoreBundle()
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setattr(store_provider, "get_store_bundle", lambda: bundle)
+    bundle.keywords.items["分拆交易"] = {
+        "value": "分拆交易",
+        "summary": "旧摘要",
+        "description": "旧描述",
+    }
+
+    with TestClient(create_app()) as client:
+        response = client.put(
+            "/api/blacklist/keywords/分拆交易",
+            json={
+                "value": "涉诈账户",
+                "summary": "新摘要",
+                "description": "新描述",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["updated"] is True
+    assert bundle.keywords.operations == [
+        ("append", "涉诈账户"),
+        ("remove", "分拆交易"),
+    ]
+    assert "分拆交易" not in bundle.keywords.items
+    assert bundle.keywords.items["涉诈账户"] == {
+        "value": "涉诈账户",
+        "summary": "新摘要",
+        "description": "新描述",
+    }

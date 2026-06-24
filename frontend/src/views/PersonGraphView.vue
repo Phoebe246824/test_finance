@@ -47,13 +47,18 @@ async function expand(node: any) {
   </section>
 
   <div class="panel stack">
-    <div class="toolbar">
-      <input
-        v-model="keyword"
-        class="input"
-        placeholder="例如 P101、客户A、客户B"
-        @keyup.enter="search"
-      />
+    <div class="graph-searchbar">
+      <label class="search-field graph-search-field">
+        <input
+          v-model="keyword"
+          class="input"
+          placeholder="例如 P101、客户A、客户B"
+          @keyup.enter="search"
+        />
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m21 21-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z" />
+        </svg>
+      </label>
       <button class="button" :disabled="loading" @click="search">
         {{ loading ? '搜索中...' : '搜索图谱' }}
       </button>

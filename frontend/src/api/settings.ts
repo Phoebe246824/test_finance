@@ -1,0 +1,69 @@
+import { http } from './http'
+
+export type SystemConfig = {
+  name: string
+  description: string
+  timezone: string
+  dateFormat: string
+  language: string
+}
+
+export type ModelParams = {
+  maxTokens: number
+  temperature: number
+  topP: number
+  repetitionPenalty: number
+  timeout: number
+  concurrency: number
+}
+
+export type ModelService = {
+  name: string
+  type: string
+  deployment: string
+  endpoint: string
+  status: string
+  default: boolean
+  updatedAt: string
+}
+
+export type ManagedUser = {
+  username: string
+  name: string
+  role: string
+  status: string
+  lastLogin: string
+}
+
+export type DataManagement = {
+  summary: Array<{ label: string; value: string }>
+  retentionDays: number
+  cleanupTime: string
+  cleanupEnabled: boolean
+}
+
+export type NotificationChannel = {
+  name: string
+  enabled: boolean
+  target: string
+}
+
+export type AppSettings = {
+  system_config: SystemConfig
+  model_params: ModelParams
+  model_services: ModelService[]
+  users: ManagedUser[]
+  data_management: DataManagement
+  notification_channels: NotificationChannel[]
+  notification_events: string[]
+}
+
+export async function getAppSettings() {
+  const { data } = await http.get('/api/settings')
+  return data as { settings: AppSettings; updated_at: string }
+}
+
+export async function updateAppSettings(settings: AppSettings) {
+  const { data } = await http.put('/api/settings', settings)
+  return data as { settings: AppSettings; updated_at: string }
+}

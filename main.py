@@ -251,10 +251,28 @@ def _coerce_dimension_score(value) -> float:
     return min(max(score, 0.0), 1.0)
 
 
-def _risk_level_from_score(score: float) -> str:
-    if score >= 0.7:
+def _risk_thresholds(config: dict | None = None) -> dict[str, float]:
+    raw_thresholds = (config or {}).get("risk_scoring", {}).get("thresholds", {})
+    try:
+        high = float(raw_thresholds.get("high", 0.70))
+    except (TypeError, ValueError):
+        high = 0.70
+    try:
+        medium = float(raw_thresholds.get("medium", 0.35))
+    except (TypeError, ValueError):
+        medium = 0.35
+    high = min(max(high, 0.0), 1.0)
+    medium = min(max(medium, 0.0), 1.0)
+    if medium > high:
+        medium = high
+    return {"high": high, "medium": medium}
+
+
+def _risk_level_from_score(score: float, config: dict | None = None) -> str:
+    thresholds = _risk_thresholds(config)
+    if score >= thresholds["high"]:
         return "high"
-    if score >= 0.35:
+    if score >= thresholds["medium"]:
         return "medium"
     return "low"
 
@@ -274,7 +292,7 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         weighted_score += score * weight
 
     calculated_score = round(min(max(weighted_score, 0.0), 1.0), 4)
-    calculated_level = _risk_level_from_score(calculated_score)
+    calculated_level = _risk_level_from_score(calculated_score, config)
     model_score = None
     model_score_raw = result_dict.get("risk_score")
     if model_score_raw is not None:
@@ -283,8 +301,9 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         except (TypeError, ValueError):
             model_score = None
 
-    final_score = model_score if model_score is not None else calculated_score
-    final_level = result_dict.get("risk_level") or _risk_level_from_score(final_score)
+    has_dimension_input = bool(dimension_scores)
+    final_score = calculated_score if has_dimension_input else (model_score or calculated_score)
+    final_level = _risk_level_from_score(final_score, config)
 
     return {
         "risk_level": final_level,
@@ -294,9 +313,10 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         "calculated_risk_level": calculated_level,
         "model_reported_risk_score": model_score_raw,
         "model_reported_risk_level": result_dict.get("risk_level"),
-        "risk_score_source": "model_reported"
-        if model_score is not None
-        else "calculated",
+        "risk_thresholds": _risk_thresholds(config),
+        "risk_score_source": "calculated"
+        if has_dimension_input
+        else "model_reported_no_dimensions",
         "reasoning": result_dict.get("reasoning", ""),
     }
 
@@ -448,8 +468,14 @@ async def evaluate_risk(
 
     related_events = _build_related_events_context(results)
     weights = _normalize_risk_weights(config)
+    thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
         f"{name}(权重{weight:.2f})" for name, weight in weights.items()
+    )
+    threshold_instruction = (
+        f">={thresholds['high']:.2f} 为 high，"
+        f">={thresholds['medium']:.2f} 且 <{thresholds['high']:.2f} 为 medium，"
+        f"<{thresholds['medium']:.2f} 为 low"
     )
     risk_task = Task(
         name="风险评估",
@@ -459,7 +485,7 @@ async def evaluate_risk(
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}。"
         "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
-        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。",
+        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：{threshold_instruction}。",
         agent=risk_evaluator,
         output_format="json",
         expected_output="JSON 格式：{dimension_scores:{customer_identity:number,transaction_behavior:number,counterparty:number,amount_velocity:number,device_geo:number,history_context:number,compliance_signal:number}, risk_score:number, risk_level:string, reasoning:string}",
@@ -481,6 +507,7 @@ async def evaluate_risk(
             "source": event.source,
             "related_events": related_events,
             "dimension_instruction": dimension_instruction,
+            "threshold_instruction": threshold_instruction,
         }
     )
 
@@ -533,8 +560,14 @@ async def second_evaluate_risk(
 
     related_events = "\n".join(related_events_parts)
     weights = _normalize_risk_weights(config)
+    thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
         f"{name}(权重{weight:.2f})" for name, weight in weights.items()
+    )
+    threshold_instruction = (
+        f">={thresholds['high']:.2f} 为 high，"
+        f">={thresholds['medium']:.2f} 且 <{thresholds['high']:.2f} 为 medium，"
+        f"<{thresholds['medium']:.2f} 为 low"
     )
     risk_task = Task(
         name="二次风险评估",
@@ -544,7 +577,7 @@ async def second_evaluate_risk(
         "事件类型: {event_type}, 事件摘要: {summary}, 关键实体: {entities}，事件发生时间: {event_date},数据来源: {source}。"
         "关联事件信息: {related_events}。"
         "dimension_scores 必须包含这些维度及 0.0-1.0 分数: {dimension_instruction}。"
-        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：>=0.70 为 high，>=0.35 为 medium，否则 low。"
+        "risk_score 必须等于 sum(dimension_scores[维度] * 对应权重)，risk_level 根据 risk_score 判定：{threshold_instruction}。"
         "不要输出 markdown。",
         agent=risk_evaluator,
         output_format="json",
@@ -568,6 +601,7 @@ async def second_evaluate_risk(
             "source": event.source,
             "related_events": related_events,
             "dimension_instruction": dimension_instruction,
+            "threshold_instruction": threshold_instruction,
         }
     )
 
