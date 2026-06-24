@@ -55,14 +55,26 @@ export async function analyzeText(
   onTaskUpdate?.(task)
 
   return new Promise((resolve, reject) => {
-    const saved = localStorage.getItem('sentinel:auth')
-    const token = saved ? JSON.parse(saved).token : ''
+    let token = ''
+    try {
+      const saved = localStorage.getItem('sentinel:auth')
+      token = saved ? JSON.parse(saved).token : ''
+    } catch {
+      // ignore corrupted localStorage
+    }
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
     const params = token ? `?token=${encodeURIComponent(token)}` : ''
     const es = new EventSource(`${baseUrl}/api/tasks/${task.task_id}/stream${params}`)
 
     es.addEventListener('update', (e) => {
-      const current: AnalysisTask = JSON.parse(e.data)
+      let current: AnalysisTask
+      try {
+        current = JSON.parse(e.data)
+      } catch {
+        es.close()
+        reject(new Error('SSE 数据解析失败'))
+        return
+      }
       onTaskUpdate?.(current)
 
       if (current.status === 'failed') {
@@ -91,7 +103,7 @@ export async function analyzeText(
             dimension_scores: data.dimension_scores || {},
             trend_report: data.trend_report || {},
           } as AnalyzeResult)
-        })
+        }).catch(reject)
       }
     })
 
