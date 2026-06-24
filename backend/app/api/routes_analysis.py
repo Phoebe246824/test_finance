@@ -44,7 +44,7 @@ async def create_analysis_task(
         resource_id=task_id,
         detail={"text_length": len(payload.text)},
     )
-    return {"task_id": task_id, "status": "queued"}
+    return service.get_task(task_id)
 
 
 @router.get("/tasks/{task_id}")

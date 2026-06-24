@@ -13,6 +13,15 @@ export interface AnalyzeResult {
   second_risk_applied: boolean
 }
 
+export interface PipelineProgress {
+  stage_key: string
+  stage_label: string
+  stage_index: number
+  stage_total: number
+  stage_detail: string
+  stage_updated_at?: string
+}
+
 export interface AnalysisTask {
   task_id: string
   event_id?: string
@@ -20,6 +29,12 @@ export interface AnalysisTask {
   error_message?: string
   started_at?: string
   finished_at?: string
+  stage_key?: string
+  stage_label?: string
+  stage_index?: number
+  stage_total?: number
+  stage_detail?: string
+  stage_updated_at?: string
 }
 
 export async function analyzeTextSync(text: string): Promise<AnalyzeResult> {

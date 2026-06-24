@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { analyzeText, listDemoCases } from '../api/analysis'
+import { analyzeText, listDemoCases, type AnalysisTask, type PipelineProgress } from '../api/analysis'
 import { getEventGraph } from '../api/events'
 import RiskBadge from '../components/RiskBadge.vue'
 import BlacklistHitPanel from '../components/BlacklistHitPanel.vue'
 import GraphViewer from '../components/GraphViewer.vue'
+import PipelineProgressCard from '../components/PipelineProgressCard.vue'
 import TrendReportPanel from '../components/TrendReportPanel.vue'
 import { useWorkbenchStore } from '../stores/workbench'
 import { effectiveRiskLevel, riskRuleText, riskScoreText } from '../utils/risk'
@@ -25,23 +26,65 @@ const selectedCaseId = ref('')
 const demoRunRecords = ref<any[]>([])
 const batchText = ref('')
 const batchRecords = ref<any[]>([])
-const taskStatus = ref('')
-const currentTaskId = ref('')
+const singleTaskStatus = ref('')
+const singleTaskId = ref('')
+const singleProgress = ref<PipelineProgress | null>(null)
+const batchTaskStatus = ref('')
+const batchTaskId = ref('')
+const batchProgress = ref<PipelineProgress | null>(null)
+const batchCurrentIndex = ref(0)
+const batchTotal = ref(0)
 const result = computed(() => store.analysisResult)
 const currentGraph = computed(() => {
   const eventId = store.analysisResult?.event_id
   return eventId ? store.eventGraphs[eventId] || { nodes: [], edges: [] } : { nodes: [], edges: [] }
 })
 
+function taskProgress(task: AnalysisTask): PipelineProgress {
+  return {
+    stage_key: task.stage_key || task.status,
+    stage_label: task.stage_label || task.status,
+    stage_index: task.stage_index ?? 0,
+    stage_total: task.stage_total || 12,
+    stage_detail: task.stage_detail || '正在等待后端返回流水线阶段',
+    stage_updated_at: task.stage_updated_at,
+  }
+}
+
+function updateSingleTask(task: AnalysisTask) {
+  singleTaskId.value = task.task_id
+  singleTaskStatus.value = task.status
+  singleProgress.value = taskProgress(task)
+}
+
+function updateBatchTask(task: AnalysisTask) {
+  batchTaskId.value = task.task_id
+  batchTaskStatus.value = task.status
+  batchProgress.value = taskProgress(task)
+}
+
+function clearSingleProgress() {
+  singleTaskStatus.value = ''
+  singleTaskId.value = ''
+  singleProgress.value = null
+}
+
+function clearBatchProgress() {
+  batchTaskStatus.value = ''
+  batchTaskId.value = ''
+  batchProgress.value = null
+  batchCurrentIndex.value = 0
+  batchTotal.value = 0
+}
+
 async function submit() {
   if (!text.value.trim()) return
   loading.value = true
   error.value = ''
+  clearSingleProgress()
+  clearBatchProgress()
   try {
-    const data = await analyzeText(text.value, (task) => {
-      currentTaskId.value = task.task_id
-      taskStatus.value = task.status
-    })
+    const data = await analyzeText(text.value, updateSingleTask)
     store.setAnalysisResult(data)
     if (data.event_id) {
       store.setEventGraph(data.event_id, await getEventGraph(data.event_id))
@@ -49,17 +92,13 @@ async function submit() {
   } catch (err: any) {
     error.value = err?.response?.data?.detail || err?.message || '分析失败'
   } finally {
-    taskStatus.value = ''
     loading.value = false
   }
 }
 
-async function runSingleAnalysis(inputText: string) {
+async function runSingleAnalysis(inputText: string, onTaskUpdate: (task: AnalysisTask) => void = updateSingleTask) {
   const started = performance.now()
-  const data = await analyzeText(inputText, (task) => {
-    currentTaskId.value = task.task_id
-    taskStatus.value = task.status
-  })
+  const data = await analyzeText(inputText, onTaskUpdate)
   let graph = { nodes: [], edges: [] }
   if (data.event_id) {
     graph = await getEventGraph(data.event_id)
@@ -75,6 +114,7 @@ async function playDemoCases() {
   loading.value = true
   error.value = ''
   demoRunRecords.value = []
+  clearBatchProgress()
   try {
     for (const demo of demoCases.value) {
       store.analysisText = demo.text
@@ -142,10 +182,13 @@ async function runBatchAnalysis() {
   loading.value = true
   error.value = ''
   batchRecords.value = []
+  batchTotal.value = items.length
+  clearSingleProgress()
   try {
     for (const [index, content] of items.entries()) {
+      batchCurrentIndex.value = index + 1
       store.analysisText = content
-      const { data, graph, elapsedMs } = await runSingleAnalysis(content)
+      const { data, graph, elapsedMs } = await runSingleAnalysis(content, updateBatchTask)
       store.setAnalysisResult(data)
       batchRecords.value.push({
         index: index + 1,
@@ -170,6 +213,16 @@ async function runBatchAnalysis() {
   } finally {
     loading.value = false
     batchRunning.value = false
+    if (!error.value) {
+      batchProgress.value = {
+        stage_key: 'complete',
+        stage_label: '批量完成',
+        stage_index: batchTotal.value,
+        stage_total: batchTotal.value || 1,
+        stage_detail: `已完成 ${batchRecords.value.length} 条事件分析`,
+      }
+      batchTaskStatus.value = 'success'
+    }
   }
 }
 
@@ -325,9 +378,12 @@ onMounted(loadDemoCases)
       <div class="toolbar">
         <button class="button secondary" :disabled="loading || !text" @click="copyInput">复制文本</button>
       </div>
-      <p v-if="loading && currentTaskId" class="muted small">
-        任务：{{ currentTaskId }} / {{ taskStatus || 'queued' }}
-      </p>
+      <PipelineProgressCard
+        title="单次分析进度"
+        :progress="singleProgress"
+        :task-id="singleTaskId"
+        :status="singleTaskStatus"
+      />
       <div v-if="error" class="error">{{ error }}</div>
     </div>
 
@@ -415,6 +471,14 @@ onMounted(loadDemoCases)
       </button>
       <span class="muted small">待分析 {{ splitBatchText().length }} 条，已完成 {{ batchRecords.length }} 条</span>
     </div>
+    <PipelineProgressCard
+      title="批量分析进度"
+      :progress="batchProgress"
+      :task-id="batchTaskId"
+      :status="batchTaskStatus"
+      :batch-index="batchCurrentIndex"
+      :batch-total="batchTotal"
+    />
     <div v-if="batchRecords.length" class="table-wrap">
       <table>
         <thead>

@@ -4,6 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pipeline_progress import (
+    PIPELINE_STAGE_TOTAL,
+    PipelineProgress,
+    ProgressCallback,
+    pipeline_progress,
+)
+
 from backend.app.services.analysis_service import AnalysisService
 from backend.app.services.runtime_state import runtime_state
 
@@ -25,6 +32,13 @@ class TaskService:
                 "error_message": "",
                 "started_at": now,
                 "finished_at": "",
+                **pipeline_progress(
+                    "queued",
+                    "等待分析",
+                    0,
+                    "任务已进入队列，等待后端执行流水线",
+                ).as_task_values(),
+                "stage_updated_at": now,
             },
         )
         return task_id
@@ -33,28 +47,87 @@ class TaskService:
         return runtime_state.get_task(task_id)
 
     def _mark_running(self, task_id: str) -> None:
-        runtime_state.update_task(task_id, {"status": "running", "started_at": _now()})
-
-    def _mark_success(self, task_id: str, event_id: str | None) -> None:
+        now = _now()
         runtime_state.update_task(
             task_id,
-            {"status": "success", "event_id": event_id, "finished_at": _now()},
+            {
+                "status": "running",
+                "started_at": now,
+                **pipeline_progress(
+                    "running",
+                    "准备分析",
+                    0,
+                    "后端任务已启动，正在准备流水线配置",
+                ).as_task_values(),
+                "stage_updated_at": now,
+            },
+        )
+
+    def _update_progress(
+        self,
+        task_id: str,
+        progress: PipelineProgress,
+    ) -> None:
+        runtime_state.update_task(
+            task_id,
+            {
+                **progress.as_task_values(),
+                "stage_updated_at": _now(),
+            },
+        )
+
+    def _mark_success(self, task_id: str, event_id: str | None) -> None:
+        now = _now()
+        runtime_state.update_task(
+            task_id,
+            {
+                "status": "success",
+                "event_id": event_id,
+                "finished_at": now,
+                **pipeline_progress(
+                    "complete",
+                    "完成",
+                    PIPELINE_STAGE_TOTAL,
+                    "事件处理流水线已完成",
+                ).as_task_values(),
+                "stage_updated_at": now,
+            },
         )
 
     def _mark_failed(self, task_id: str, error_message: str) -> None:
+        task = runtime_state.get_task(task_id) or {}
+        stage_index = int(task.get("stage_index") or 0)
+        now = _now()
         runtime_state.update_task(
             task_id,
             {
                 "status": "failed",
                 "error_message": error_message[:2000],
-                "finished_at": _now(),
+                "finished_at": now,
+                **PipelineProgress(
+                    stage_key="failed",
+                    stage_label="分析失败",
+                    stage_index=stage_index,
+                    stage_total=PIPELINE_STAGE_TOTAL,
+                    stage_detail=error_message[:200],
+                ).as_task_values(),
+                "stage_updated_at": now,
             },
         )
+
+    def _progress_callback(self, task_id: str) -> ProgressCallback:
+        def update(progress: PipelineProgress) -> None:
+            self._update_progress(task_id, progress)
+
+        return update
 
     async def run_analysis_task(self, task_id: str, text: str) -> None:
         self._mark_running(task_id)
         try:
-            result = await AnalysisService().analyze(text)
+            result = await AnalysisService().analyze(
+                text,
+                progress_callback=self._progress_callback(task_id),
+            )
             self._mark_success(task_id, result.get("event_id"))
         except Exception as exc:
             self._mark_failed(task_id, str(exc))

@@ -17,8 +17,12 @@
   --panel: #ffffff;
   --panel-soft: #f7fbff;
   --danger: #ed3434;
+  --danger-soft: #fff0f0;
+  --danger-line: #f2bdc0;
   --warning: #f3a917;
   --success: #1ca66a;
+  --info-text: #456176;
+  --progress-track: #dfeaff;
   --shadow: 0 10px 28px rgba(25, 65, 122, 0.08);
 }
 
@@ -917,6 +921,90 @@ h3 {
 
 .batch-analysis-panel {
   margin-top: 8px;
+}
+
+.progress-card {
+  background: var(--panel-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.progress-card-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.progress-card-head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.progress-card-head span,
+.progress-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.progress-card-head strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.progress-card-head em {
+  background: var(--control-soft);
+  border-radius: 999px;
+  color: var(--primary);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  padding: 5px 10px;
+}
+
+.progress-track {
+  background: var(--progress-track);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.progress-track i {
+  background: var(--primary);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  transition: width 200ms ease-in-out;
+}
+
+.progress-card p {
+  color: var(--info-text);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.progress-success .progress-track i,
+.progress-complete .progress-track i {
+  background: var(--success);
+}
+
+.progress-failed .progress-track i {
+  background: var(--danger);
+}
+
+.progress-failed {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
 }
 
 .blacklist-layout {

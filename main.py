@@ -71,8 +71,24 @@ from trend_prediction.task_templates import (
     get_trend_prediction_task,
 )
 from utils.text import extract_person_id_numbers, extract_subject_id_numbers
+from pipeline_progress import (
+    ProgressCallback,
+    pipeline_progress,
+)
 
 load_dotenv()
+
+
+def report_pipeline_progress(
+    callback: ProgressCallback | None,
+    stage_key: str,
+    stage_label: str,
+    stage_index: int,
+    stage_detail: str,
+) -> None:
+    if callback is None:
+        return
+    callback(pipeline_progress(stage_key, stage_label, stage_index, stage_detail))
 
 # ============================================================
 #  全局配置加载
@@ -1530,6 +1546,7 @@ class SentinelPipelineFlow(Flow):
         store=None,
         stash_store=None,
         id_numbers=None,
+        progress_callback: ProgressCallback | None = None,
     ):
         super().__init__()
         self.config = config
@@ -1538,11 +1555,27 @@ class SentinelPipelineFlow(Flow):
         self._store = store
         self._stash_store = stash_store
         self._id_numbers = id_numbers or []
+        self._progress_callback = progress_callback
         self._log = get_logger("main.flow")
+
+    def _progress(self, stage_key: str, stage_label: str, stage_index: int, detail: str):
+        report_pipeline_progress(
+            self._progress_callback,
+            stage_key,
+            stage_label,
+            stage_index,
+            detail,
+        )
 
     @start()
     async def classification(self):
         event = self.normalized_event
+        self._progress(
+            "classification",
+            "事件分类",
+            4,
+            "正在识别事件类型和关键实体",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 1: Classification — 事件分类")
         self._log.info("=" * 60)
@@ -1565,6 +1598,12 @@ class SentinelPipelineFlow(Flow):
     @listen(classification)
     async def single_graph_build(self):
         event = self.normalized_event
+        self._progress(
+            "single_graph",
+            "单条构图",
+            5,
+            "正在把当前事件写入知识图谱",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 2: Graph — 单条构图")
         self._log.info("=" * 60)
@@ -1599,6 +1638,12 @@ class SentinelPipelineFlow(Flow):
     @listen(single_graph_build)
     async def search_first_risk_context(self, result):
         event = self.normalized_event
+        self._progress(
+            "first_search",
+            "首次上下文检索",
+            6,
+            "正在检索历史关系和相似风险上下文",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 3: Search — 首次风险上下文检索")
         self._log.info("=" * 60)
@@ -1617,6 +1662,12 @@ class SentinelPipelineFlow(Flow):
     @listen(search_first_risk_context)
     async def first_risk_evaluation(self, result):
         classified_event = self.normalized_event
+        self._progress(
+            "first_risk",
+            "首次风险评估",
+            7,
+            "正在计算多维风险分数和风险等级",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 4: Risk — 首次风险评估")
         self._log.info("=" * 60)
@@ -1672,6 +1723,12 @@ class SentinelPipelineFlow(Flow):
     @listen("batch_graph")
     async def batch_graph_build_from_stash(self, result):
         event = self.normalized_event
+        self._progress(
+            "batch_graph",
+            "批量补图",
+            8,
+            "高危事件命中阈值，正在回捞相关暂存事件并补图",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 5: Graph — 批量补图")
         self._log.info("=" * 60)
@@ -1690,6 +1747,12 @@ class SentinelPipelineFlow(Flow):
     @listen(batch_graph_build_from_stash)
     async def search_second_risk_context(self, result):
         event = self.normalized_event
+        self._progress(
+            "second_search",
+            "二次上下文检索",
+            9,
+            "正在基于补图结果重新检索风险上下文",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 6: Search — 二次风险上下文检索")
         self._log.info("=" * 60)
@@ -1732,6 +1795,12 @@ class SentinelPipelineFlow(Flow):
     @listen(search_second_risk_context)
     async def second_risk_evaluation_stage(self, result):
         event = self.normalized_event
+        self._progress(
+            "second_risk",
+            "二次风险评估",
+            10,
+            "正在结合补图后的上下文修正风险评估",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 7: Risk — 二次风险评估")
         self._log.info("=" * 60)
@@ -1787,6 +1856,12 @@ class SentinelPipelineFlow(Flow):
     @listen("go_dashboard")
     async def dashboard(self, result):
         event = self.normalized_event
+        self._progress(
+            "trend",
+            "意图与趋势分析",
+            11,
+            "正在生成意图分析和趋势预测报告",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 8: Dashboard — 意图分析与趋势预测")
         self._log.info("=" * 60)
@@ -1825,7 +1900,9 @@ async def process_message(message: str, config: dict | None = None) -> str:
 
 
 async def process_message_detailed(
-    message: str, config: dict | None = None
+    message: str,
+    config: dict | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """Process one user message and return a structured summary for API callers."""
     if config is None:
@@ -1834,6 +1911,13 @@ async def process_message_detailed(
     logger = get_logger("main.flow")
     logger.info("user input: %s", message)
 
+    report_pipeline_progress(
+        progress_callback,
+        "normalize",
+        "事件标准化",
+        1,
+        "正在解析原始事件文本并生成事件对象",
+    )
     payload = {"data": message}
     normalized_event = await normalize_payload_to_event(payload, config)
     logger.info(
@@ -1850,6 +1934,13 @@ async def process_message_detailed(
         samples_store=stores.event_samples,
     )
 
+    report_pipeline_progress(
+        progress_callback,
+        "blacklist",
+        "黑名单过滤",
+        2,
+        "正在匹配人员、关键词和相似历史事件",
+    )
     blacklist_result = await bl_filter.check_with_details(normalized_event)
     print_blacklist_check_result(blacklist_result)
     storage_summary = {
@@ -1858,6 +1949,13 @@ async def process_message_detailed(
     }
 
     if not blacklist_result.should_proceed:
+        report_pipeline_progress(
+            progress_callback,
+            "stash",
+            "事件暂存",
+            3,
+            "未命中高危规则，正在暂存事件等待后续回捞",
+        )
         stashed_count = await stores.events.upsert_event(
             normalized_event,
             person_ids=id_numbers or [],
@@ -1922,6 +2020,13 @@ async def process_message_detailed(
         )
 
     print_info("消息处理开始")
+    report_pipeline_progress(
+        progress_callback,
+        "prepare_flow",
+        "准备流水线",
+        3,
+        "黑名单命中，正在启动分类、构图和风险评估流水线",
+    )
     flow = SentinelPipelineFlow(
         config,
         normalized_event,
@@ -1929,10 +2034,18 @@ async def process_message_detailed(
         stores,
         stores.events,
         id_numbers,
+        progress_callback,
     )
     await flow.kickoff_async()
     dimension_scores = flow.state.get("risk_result", {}).get("dimension_scores", {})
     trend_report = flow.state.get("trend_report", {})
+    report_pipeline_progress(
+        progress_callback,
+        "persist",
+        "写入分析结果",
+        12,
+        "正在保存风险评估、图谱和趋势分析结果",
+    )
     await stores.events.upsert_analysis_result(
         {
             "event_id": normalized_event.event_id,
