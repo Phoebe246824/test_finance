@@ -87,6 +87,10 @@ async def stream_task(
         if user is None:
             raise HTTPException(status_code=401, detail="missing or invalid token")
 
+    task = runtime_state.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+
     async def generate():
         q = runtime_state.subscribe_task(task_id)
         try:

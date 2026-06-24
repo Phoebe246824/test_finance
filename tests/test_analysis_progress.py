@@ -252,19 +252,20 @@ async def test_analysis_service_passes_progress_callback_to_pipeline(
 async def test_update_task_signals_event_subscriber() -> None:
     service = TaskService()
     task_id = service.create_analysis_task()
+    q = runtime_state.subscribe_task(task_id)
 
-    async def wait_and_collect():
-        q = runtime_state.subscribe_task(task_id)
-        try:
-            return await asyncio.wait_for(q.get(), timeout=1.0)
-        finally:
-            runtime_state.unsubscribe_task(task_id, q)
+    try:
+        initial = await asyncio.wait_for(q.get(), timeout=1.0)
+        assert initial is not None
+        assert initial["status"] == "queued"
 
-    service._mark_running(task_id)
-    result = await wait_and_collect()
+        service._mark_running(task_id)
+        updated = await asyncio.wait_for(q.get(), timeout=1.0)
 
-    assert result is not None
-    assert result["status"] == "running"
+        assert updated is not None
+        assert updated["status"] == "running"
+    finally:
+        runtime_state.unsubscribe_task(task_id, q)
 
 
 def test_sse_stream_yields_task_updates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -299,3 +300,4 @@ def test_sse_stream_yields_task_updates(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert len(updates) >= 1
     assert updates[-1]["task_id"] == task_id
+    assert updates[-1]["status"] == "success"

@@ -99,7 +99,11 @@ class RuntimeState:
                 try:
                     q.put_nowait(snapshot)
                 except asyncio.QueueFull:
-                    pass
+                    try:
+                        q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    q.put_nowait(snapshot)
 
     def subscribe_task(self, task_id: str) -> asyncio.Queue[dict[str, Any] | None]:
         with self._lock:
@@ -121,6 +125,8 @@ class RuntimeState:
                     subs.remove(q)
                 except ValueError:
                     pass
+                if not subs:
+                    self._subscribers.pop(task_id, None)
 
     def cleanup_stale_tasks(self, ttl: float = _TASK_TTL_SECONDS) -> int:
         now = time.monotonic()

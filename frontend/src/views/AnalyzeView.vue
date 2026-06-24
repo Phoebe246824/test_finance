@@ -119,11 +119,13 @@ async function playDemoCases() {
   error.value = ''
   demoRunRecords.value = []
   clearBatchProgress()
+  abortController?.abort()
+  abortController = new AbortController()
   try {
     for (const demo of demoCases.value) {
       store.analysisText = demo.text
       selectedCaseId.value = demo.id
-      const { data, graph, elapsedMs } = await runSingleAnalysis(demo.text)
+      const { data, graph, elapsedMs } = await runSingleAnalysis(demo.text, updateSingleTask, abortController.signal)
       store.setAnalysisResult(data)
       demoRunRecords.value.push({
         case_id: demo.id,
@@ -143,6 +145,7 @@ async function playDemoCases() {
       await new Promise((resolve) => window.setTimeout(resolve, 250))
     }
   } catch (err: any) {
+    if (err?.name === 'AbortError') return
     error.value = err?.response?.data?.detail || err?.message || 'Demo 播放失败'
   } finally {
     loading.value = false
@@ -189,11 +192,13 @@ async function runBatchAnalysis() {
   batchRecords.value = []
   batchTotal.value = items.length
   clearSingleProgress()
+  abortController?.abort()
+  abortController = new AbortController()
   try {
     for (const [index, content] of items.entries()) {
       batchCurrentIndex.value = index + 1
       store.analysisText = content
-      const { data, graph, elapsedMs } = await runSingleAnalysis(content, updateBatchTask)
+      const { data, graph, elapsedMs } = await runSingleAnalysis(content, updateBatchTask, abortController.signal)
       store.setAnalysisResult(data)
       batchRecords.value.push({
         index: index + 1,
@@ -214,6 +219,7 @@ async function runBatchAnalysis() {
       await new Promise((resolve) => window.setTimeout(resolve, 120))
     }
   } catch (err: any) {
+    if (err?.name === 'AbortError') return
     error.value = err?.response?.data?.detail || err?.message || '批量分析失败'
   } finally {
     loading.value = false

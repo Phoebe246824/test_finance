@@ -49,10 +49,6 @@ export async function createAnalysisTask(text: string): Promise<AnalysisTask> {
 
 const SSE_TIMEOUT_MS = 5 * 60 * 1000
 
-export interface AnalysisController {
-  abort: () => void
-}
-
 export async function analyzeText(
   text: string,
   onTaskUpdate?: (task: AnalysisTask) => void,
@@ -143,8 +139,10 @@ export async function analyzeText(
 
     es.onerror = () => {
       if (closed) return
-      cleanup()
-      reject(new Error('SSE 连接失败'))
+      if (es.readyState === EventSource.CLOSED) {
+        cleanup()
+        reject(new Error('SSE 连接失败'))
+      }
     }
   })
 }
