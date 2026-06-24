@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -55,6 +56,18 @@ def _delta(current: int | float, previous: int | float) -> dict[str, Any]:
     elif current < previous:
         direction = "down"
     return {"value": round(current - previous, 4), "direction": direction}
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, Iterable):
+        return [_json_safe(item) for item in value]
+    return str(value)
 
 
 @router.get("/overview")
@@ -197,6 +210,6 @@ async def overview() -> dict:
                 reverse=True,
             )[:8]
         ],
-        "recent_events": event_rows[:50],
-        "recent_reviews": review_rows[:8],
+        "recent_events": [_json_safe(row) for row in event_rows[:50]],
+        "recent_reviews": [_json_safe(row) for row in review_rows[:8]],
     }

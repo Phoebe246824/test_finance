@@ -10,6 +10,14 @@ from backend.app.main import create_app
 from backend.app.services import store_provider
 
 
+class RepeatedScalarLike:
+    def __init__(self, values: list[str]) -> None:
+        self._values = values
+
+    def __iter__(self):
+        return iter(self._values)
+
+
 class FakeEvents:
     def __init__(self) -> None:
         self.deleted: list[str] = []
@@ -26,6 +34,7 @@ class FakeEvents:
                 "matched_persons": ["P102"],
                 "matched_keywords": ["分拆交易"],
                 "event_similarity": {},
+                "person_ids": ["P102"],
                 "dimension_scores": {},
                 "trend_report": {},
                 "created_at": "2026-06-23T09:00:00",
@@ -44,6 +53,7 @@ class FakeEvents:
                 "matched_keywords": [],
                 "blacklist_decision": "PASS",
                 "event_similarity": {},
+                "person_ids": [],
                 "dimension_scores": {},
                 "trend_report": {},
                 "created_at": "2026-06-23T09:05:00",
@@ -253,3 +263,18 @@ def test_blacklist_update_keeps_old_item_until_new_item_is_written(
         "summary": "新摘要",
         "description": "新描述",
     }
+
+
+def test_dashboard_overview_serializes_milvus_array_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = FakeStoreBundle()
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setattr(store_provider, "get_store_bundle", lambda: bundle)
+    bundle.events.rows["E001"]["person_ids"] = RepeatedScalarLike(["P102"])
+
+    with TestClient(create_app(), raise_server_exceptions=False) as client:
+        response = client.get("/api/dashboard/overview")
+
+    assert response.status_code == 200
+    assert response.json()["recent_events"][0]["person_ids"] == ["P102"]
