@@ -1,6 +1,7 @@
 include:
   - compose/milvus.yaml
   - compose/neo4j.yaml
+  - compose/ragflow.yaml
 
 networks:
   devopsnetwork:
