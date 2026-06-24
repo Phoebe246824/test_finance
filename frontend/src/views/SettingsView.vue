@@ -72,6 +72,7 @@ const users = ref<ManagedUser[]>([])
 const userSearch = ref('')
 
 const notificationEvents = ref(['高风险事件', '黑名单命中', '系统异常', '复核任务提醒', '趋势报告生成', '模型服务异常'])
+const enabledNotificationEvents = ref(new Set<string>(notificationEvents.value))
 const notificationChannels = ref<NotificationChannel[]>([])
 const dataManagement = reactive<DataManagement>({
   summary: [
@@ -177,6 +178,7 @@ function applySettings(data: AppSettings) {
   users.value = data.users || []
   notificationChannels.value = data.notification_channels || []
   notificationEvents.value = data.notification_events || notificationEvents.value
+  enabledNotificationEvents.value = new Set(notificationEvents.value)
   Object.assign(dataManagement, data.data_management || {})
 }
 
@@ -193,7 +195,7 @@ function currentSettings(): AppSettings {
       cleanupEnabled: dataManagement.cleanupEnabled,
     },
     notification_channels: notificationChannels.value,
-    notification_events: notificationEvents.value,
+    notification_events: Array.from(enabledNotificationEvents.value),
   }
 }
 
@@ -202,6 +204,20 @@ function showNotice(message: string) {
   window.setTimeout(() => {
     if (notice.value === message) notice.value = ''
   }, 2400)
+}
+
+function isEventEnabled(event: string): boolean {
+  return enabledNotificationEvents.value.has(event)
+}
+
+function toggleEvent(event: string) {
+  const newSet = new Set(enabledNotificationEvents.value)
+  if (newSet.has(event)) {
+    newSet.delete(event)
+  } else {
+    newSet.add(event)
+  }
+  enabledNotificationEvents.value = newSet
 }
 
 async function loadSettings() {
@@ -933,7 +949,9 @@ watch(activeTab, (tab) => {
       </div>
       <h2>通知事件配置</h2>
       <div class="notify-check-grid">
-        <label v-for="item in notificationEvents" :key="item"><input type="checkbox" checked /> {{ item }}</label>
+        <label v-for="item in notificationEvents" :key="item">
+          <input type="checkbox" :checked="isEventEnabled(item)" @change="toggleEvent(item)" /> {{ item }}
+        </label>
       </div>
       <div class="toolbar" style="justify-content: flex-end">
         <button class="button" :disabled="saving" @click="saveSettings('通知配置已保存')">保存配置</button>
