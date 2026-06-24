@@ -259,6 +259,8 @@ def update_model_service(
     default: bool,
 ) -> dict[str, Any] | None:
     services = _get_services_list()
+    if name != original_name and any(s.get("name") == name for s in services):
+        raise ValueError(f"模型服务 '{name}' 已存在")
     for svc in services:
         if svc.get("name") == original_name:
             svc["name"] = name
