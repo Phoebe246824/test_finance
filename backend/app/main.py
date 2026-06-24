@@ -11,9 +11,12 @@ from backend.app.api import (
     routes_dashboard,
     routes_events,
     routes_graph,
+    routes_model_services,
+    routes_notifications,
     routes_risk_rules,
     routes_settings,
     routes_system,
+    routes_users,
 )
 from backend.app.core.config import settings
 
@@ -38,6 +41,9 @@ def create_app() -> FastAPI:
     app.include_router(routes_risk_rules.router)
     app.include_router(routes_settings.router)
     app.include_router(routes_system.router)
+    app.include_router(routes_users.router)
+    app.include_router(routes_model_services.router)
+    app.include_router(routes_notifications.router)
     return app
 
 

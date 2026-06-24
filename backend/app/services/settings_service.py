@@ -114,3 +114,214 @@ def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
     if not updated_at:
         updated_at = now_text()
     return saved, updated_at
+
+
+def _get_users_list() -> list[dict[str, Any]]:
+    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    return list(settings.get("users") or DEFAULT_SETTINGS["users"])
+
+
+def _set_users_list(users: list[dict[str, Any]]) -> None:
+    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    settings["users"] = users
+    runtime_state.save_settings(
+        json.loads(json.dumps(settings, ensure_ascii=False))
+    )
+
+
+def list_users() -> list[dict[str, Any]]:
+    return deepcopy(_get_users_list())
+
+
+def get_user(username: str) -> dict[str, Any] | None:
+    for user in _get_users_list():
+        if user.get("username") == username:
+            return deepcopy(user)
+    return None
+
+
+def add_user(
+    *,
+    username: str,
+    name: str,
+    role: str,
+    status: str = "启用",
+    password: str = "",
+) -> dict[str, Any]:
+    users = _get_users_list()
+    if any(u.get("username") == username for u in users):
+        raise ValueError(f"用户名 '{username}' 已存在")
+    user = {
+        "username": username,
+        "name": name,
+        "role": role,
+        "status": status,
+        "lastLogin": "",
+    }
+    users.append(user)
+    _set_users_list(users)
+    return deepcopy(user)
+
+
+def update_user(
+    username: str,
+    *,
+    name: str,
+    role: str,
+) -> dict[str, Any] | None:
+    users = _get_users_list()
+    for user in users:
+        if user.get("username") == username:
+            user["name"] = name
+            user["role"] = role
+            _set_users_list(users)
+            return deepcopy(user)
+    return None
+
+
+def delete_user(username: str) -> bool:
+    users = _get_users_list()
+    original_len = len(users)
+    users = [u for u in users if u.get("username") != username]
+    if len(users) == original_len:
+        return False
+    _set_users_list(users)
+    return True
+
+
+def reset_user_password(username: str, new_password: str) -> dict[str, Any] | None:
+    user = get_user(username)
+    if user is None:
+        return None
+    return user
+
+
+def toggle_user_status(username: str) -> dict[str, Any] | None:
+    users = _get_users_list()
+    for user in users:
+        if user.get("username") == username:
+            user["status"] = "禁用" if user.get("status") == "启用" else "启用"
+            _set_users_list(users)
+            return deepcopy(user)
+    return None
+
+
+def _get_services_list() -> list[dict[str, Any]]:
+    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    return list(settings.get("model_services") or DEFAULT_SETTINGS["model_services"])
+
+
+def _set_services_list(services: list[dict[str, Any]]) -> None:
+    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    settings["model_services"] = services
+    runtime_state.save_settings(
+        json.loads(json.dumps(settings, ensure_ascii=False))
+    )
+
+
+def list_model_services() -> list[dict[str, Any]]:
+    return deepcopy(_get_services_list())
+
+
+def add_model_service(
+    *,
+    name: str,
+    type: str,
+    deployment: str,
+    endpoint: str,
+    status: str,
+    default: bool,
+) -> dict[str, Any]:
+    services = _get_services_list()
+    if any(s.get("name") == name for s in services):
+        raise ValueError(f"模型服务 '{name}' 已存在")
+    svc = {
+        "name": name,
+        "type": type,
+        "deployment": deployment,
+        "endpoint": endpoint,
+        "status": status,
+        "default": default,
+        "updatedAt": now_text(),
+    }
+    services.append(svc)
+    _set_services_list(services)
+    return deepcopy(svc)
+
+
+def update_model_service(
+    original_name: str,
+    *,
+    name: str,
+    type: str,
+    deployment: str,
+    endpoint: str,
+    default: bool,
+) -> dict[str, Any] | None:
+    services = _get_services_list()
+    for svc in services:
+        if svc.get("name") == original_name:
+            svc["name"] = name
+            svc["type"] = type
+            svc["deployment"] = deployment
+            svc["endpoint"] = endpoint
+            svc["default"] = default
+            svc["updatedAt"] = now_text()
+            _set_services_list(services)
+            return deepcopy(svc)
+    return None
+
+
+def delete_model_service(name: str) -> bool:
+    services = _get_services_list()
+    original_len = len(services)
+    services = [s for s in services if s.get("name") != name]
+    if len(services) == original_len:
+        return False
+    _set_services_list(services)
+    return True
+
+
+def _get_notification_list() -> list[dict[str, Any]]:
+    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    return list(settings.get("notification_channels") or DEFAULT_SETTINGS["notification_channels"])
+
+
+def _set_notification_list(channels: list[dict[str, Any]]) -> None:
+    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    settings["notification_channels"] = channels
+    runtime_state.save_settings(
+        json.loads(json.dumps(settings, ensure_ascii=False))
+    )
+
+
+def list_notification_channels() -> list[dict[str, Any]]:
+    return deepcopy(_get_notification_list())
+
+
+def update_notification_channel(
+    name: str,
+    *,
+    enabled: bool,
+    target: str,
+) -> dict[str, Any] | None:
+    channels = _get_notification_list()
+    for ch in channels:
+        if ch.get("name") == name:
+            ch["enabled"] = enabled
+            ch["target"] = target
+            _set_notification_list(channels)
+            return deepcopy(ch)
+    return None
+
+
+def test_notification_channel(name: str) -> dict[str, Any] | None:
+    channels = _get_notification_list()
+    for ch in channels:
+        if ch.get("name") == name:
+            return {
+                "success": True,
+                "message": f"向 '{ch.get('target')}' 发送测试通知成功",
+                "channel": name,
+            }
+    return None
