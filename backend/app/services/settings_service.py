@@ -321,9 +321,16 @@ def test_notification_channel(name: str) -> dict[str, Any] | None:
     channels = _get_notification_list()
     for ch in channels:
         if ch.get("name") == name:
+            target = ch.get("target", "")
+            if not target or target == "未配置":
+                return {
+                    "success": False,
+                    "message": f"通知渠道 '{name}' 的目标地址未配置",
+                    "channel": name,
+                }
             return {
                 "success": True,
-                "message": f"向 '{ch.get('target')}' 发送测试通知成功",
+                "message": f"向 '{target}' 发送测试通知成功",
                 "channel": name,
             }
     return None
