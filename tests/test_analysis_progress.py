@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi import BackgroundTasks
 
@@ -8,6 +10,7 @@ from backend.app.core.security import CurrentUser
 from backend.app.schemas.analysis import AnalyzeRequest
 from backend.app.services import analysis_service, task_service
 from backend.app.services.analysis_service import AnalysisService
+from backend.app.services.runtime_state import runtime_state
 from pipeline_progress import (
     PipelineProgress,
     ProgressCallback,
@@ -240,3 +243,23 @@ async def test_analysis_service_passes_progress_callback_to_pipeline(
 
     assert result["event_id"] == "E001"
     assert received_callbacks == [progress_callback]
+
+
+@pytest.mark.asyncio
+async def test_update_task_signals_event_subscriber() -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+
+    async def wait_and_collect():
+        await runtime_state.wait_task_update(task_id)
+        return runtime_state.get_task(task_id)
+
+    # Start waiting, then update
+    wait_task = asyncio.create_task(wait_and_collect())
+    await asyncio.sleep(0.05)  # Let waiter register
+
+    service._mark_running(task_id)
+    result = await asyncio.wait_for(wait_task, timeout=1.0)
+
+    assert result is not None
+    assert result["status"] == "running"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -17,6 +18,7 @@ class RuntimeState:
     tasks: dict[str, dict[str, Any]] = field(default_factory=dict)
     _next_audit_id: int = 1
     _lock: RLock = field(default_factory=RLock)
+    _events: dict[str, asyncio.Event] = field(default_factory=dict)
 
     def now_text(self) -> str:
         return datetime.now().isoformat(timespec="seconds")
@@ -66,6 +68,7 @@ class RuntimeState:
     def create_task(self, task_id: str, row: dict[str, Any]) -> None:
         with self._lock:
             self.tasks[task_id] = deepcopy(row)
+            self._events[task_id] = asyncio.Event()
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -78,6 +81,20 @@ class RuntimeState:
             if task is None:
                 return
             task.update(deepcopy(values))
+            event = self._events.get(task_id)
+            if event is not None:
+                event.set()
+
+    async def wait_task_update(self, task_id: str) -> None:
+        with self._lock:
+            event = self._events.setdefault(task_id, asyncio.Event())
+        await event.wait()
+        event.clear()
+
+    def cleanup_task(self, task_id: str) -> None:
+        with self._lock:
+            self.tasks.pop(task_id, None)
+            self._events.pop(task_id, None)
 
 
 runtime_state = RuntimeState()
