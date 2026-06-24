@@ -263,3 +263,37 @@ async def test_update_task_signals_event_subscriber() -> None:
 
     assert result is not None
     assert result["status"] == "running"
+
+
+from fastapi.testclient import TestClient
+from backend.app.main import app
+from backend.app.services.runtime_state import runtime_state
+
+
+def test_sse_stream_yields_task_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    client = TestClient(app)
+
+    # Create a task
+    response = client.post("/api/tasks/analyze", json={"text": "test"})
+    assert response.status_code == 200
+    task_id = response.json()["task_id"]
+
+    # Mark it as running directly
+    runtime_state.update_task(task_id, {"status": "running"})
+
+    # Connect to SSE stream
+    updates = []
+    with client.stream("GET", f"/api/tasks/{task_id}/stream") as resp:
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+        for line in resp.iter_lines():
+            if line.startswith("data:"):
+                import json
+                data = json.loads(line[5:].strip())
+                updates.append(data)
+                if data.get("status") in ("success", "failed"):
+                    break
+
+    assert len(updates) >= 1
+    assert updates[-1]["task_id"] == task_id
