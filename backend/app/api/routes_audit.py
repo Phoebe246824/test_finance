@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from copy import deepcopy
 
 from fastapi import APIRouter, Depends, Query
 
@@ -21,8 +21,8 @@ async def list_audit_logs(
     date_from: str | None = Query(None, max_length=32),
     date_to: str | None = Query(None, max_length=32),
 ) -> dict:
-    result = runtime_state.list_audit_logs(page=1, page_size=10000)
-    items = result["items"]
+    with runtime_state._lock:
+        items = deepcopy(runtime_state.audit_logs)
 
     if actor:
         items = [r for r in items if actor.lower() in str(r.get("actor", "")).lower()]
@@ -33,7 +33,9 @@ async def list_audit_logs(
     if date_from:
         items = [r for r in items if str(r.get("created_at", "")) >= date_from]
     if date_to:
-        items = [r for r in items if str(r.get("created_at", "")) <= date_to]
+        items = [r for r in items if str(r.get("created_at", "")) <= date_to + "T23:59:59"]
+
+    items.sort(key=lambda r: (str(r.get("created_at", "")), int(r.get("id") or 0)), reverse=True)
 
     total = len(items)
     offset = (page - 1) * page_size
@@ -41,5 +43,5 @@ async def list_audit_logs(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": items[offset: offset + page_size],
+        "items": items[offset : offset + page_size],
     }
