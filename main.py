@@ -65,6 +65,13 @@ from providers.llm_provider import (
     get_llm_for,
     reasoning_kwargs_for,
 )
+from ragflow import (
+    append_knowledge_context,
+    format_knowledge_for_prompt,
+    knowledge_section_for_prompt,
+    retrieve_financial_knowledge,
+)
+from ragflow.client import RagflowConfig
 from trend_prediction.classifier import EventClassifier
 from trend_prediction.task_templates import (
     get_intent_analysis_task,
@@ -187,6 +194,34 @@ def load_config() -> dict:
             not in ("0", "false", "no"),
             "max_per_person": int(os.getenv("BATCH_MAX_PER_PERSON") or "20"),
             "embedding_dim": int(os.getenv("EMBEDDING_DIM") or "1024"),
+        },
+        "ragflow": {
+            "client": RagflowConfig(
+                enabled=os.getenv("RAGFLOW_ENABLED", "").lower()
+                in ("1", "true", "yes"),
+                base_url=os.getenv("RAGFLOW_BASE_URL") or "",
+                api_key=os.getenv("RAGFLOW_API_KEY") or "",
+                dataset_ids=[
+                    item.strip()
+                    for item in (
+                        os.getenv("RAGFLOW_DATASET_IDS")
+                        or os.getenv("RAGFLOW_DATASET_ID")
+                        or ""
+                    ).split(",")
+                    if item.strip()
+                ],
+                top_k=int(os.getenv("RAGFLOW_TOP_K") or "5"),
+                similarity_threshold=float(
+                    os.getenv("RAGFLOW_SIMILARITY_THRESHOLD") or "0.2"
+                ),
+                vector_similarity_weight=float(
+                    os.getenv("RAGFLOW_VECTOR_SIMILARITY_WEIGHT") or "0.7"
+                ),
+                timeout_seconds=float(os.getenv("RAGFLOW_TIMEOUT_SECONDS") or "15"),
+                max_context_chars=int(os.getenv("RAGFLOW_MAX_CONTEXT_CHARS") or "4000"),
+                fail_open=os.getenv("RAGFLOW_FAIL_OPEN", "true").lower()
+                not in ("0", "false", "no"),
+            )
         },
     }
     logger = get_logger("main.config")
@@ -483,6 +518,15 @@ async def evaluate_risk(
     )
 
     related_events = _build_related_events_context(results)
+    ragflow_config = config.get("ragflow", {}).get("client")
+    ragflow_result = await retrieve_financial_knowledge(
+        config, event, stage="risk_first"
+    )
+    financial_knowledge = format_knowledge_for_prompt(
+        ragflow_result,
+        max_chars=getattr(ragflow_config, "max_context_chars", 4000),
+    )
+    related_events = append_knowledge_context(related_events, financial_knowledge)
     weights = _normalize_risk_weights(config)
     thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
@@ -575,6 +619,15 @@ async def second_evaluate_risk(
             related_events_parts.append(f"[episode] {text}")
 
     related_events = "\n".join(related_events_parts)
+    ragflow_config = config.get("ragflow", {}).get("client")
+    ragflow_result = await retrieve_financial_knowledge(
+        config, event, stage="risk_second"
+    )
+    financial_knowledge = format_knowledge_for_prompt(
+        ragflow_result,
+        max_chars=getattr(ragflow_config, "max_context_chars", 4000),
+    )
+    related_events = append_knowledge_context(related_events, financial_knowledge)
     weights = _normalize_risk_weights(config)
     thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
@@ -1066,10 +1119,23 @@ async def simulate_dashboard(
         if text:
             context_parts.append(f"[episode] {text}")
     episode_context = "\n".join(context_parts)
+    ragflow_config = config.get("ragflow", {}).get("client")
+    ragflow_result = await retrieve_financial_knowledge(
+        config, event, stage="dashboard"
+    )
+    financial_knowledge = format_knowledge_for_prompt(
+        ragflow_result,
+        max_chars=getattr(ragflow_config, "max_context_chars", 4000),
+    )
+    knowledge_section = knowledge_section_for_prompt(
+        financial_knowledge,
+        header="RAGFlow金融知识库参考:",
+    )
     event_description = f"""
 事件类型: {event.event_type}
 风险等级: {event.risk_level} (分数: {format_risk_score(event.risk_score)})
 上下文信息: {episode_context}
+{knowledge_section}
 事件描述: {event.raw_content}
 """
 

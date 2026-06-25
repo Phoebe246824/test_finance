@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { analyzeText, listDemoCases, type AnalysisTask, type PipelineProgress } from '../api/analysis'
 import { getEventGraph } from '../api/events'
 import RiskBadge from '../components/RiskBadge.vue'
@@ -39,6 +39,8 @@ const currentGraph = computed(() => {
   const eventId = store.analysisResult?.event_id
   return eventId ? store.eventGraphs[eventId] || { nodes: [], edges: [] } : { nodes: [], edges: [] }
 })
+let abortController: AbortController | null = null
+let operationId = 0
 
 function taskProgress(task: AnalysisTask): PipelineProgress {
   return {
@@ -83,25 +85,32 @@ async function submit() {
   error.value = ''
   clearSingleProgress()
   clearBatchProgress()
+  abortController?.abort()
+  abortController = new AbortController()
+  const opId = ++operationId
+  store.setAnalysisResult(null)
   try {
-    const data = await analyzeText(text.value, updateSingleTask)
+    const data = await analyzeText(text.value, updateSingleTask, abortController.signal)
+    if (opId !== operationId) return
     store.setAnalysisResult(data)
     if (data.event_id) {
-      store.setEventGraph(data.event_id, await getEventGraph(data.event_id))
+      store.setEventGraph(data.event_id, await getEventGraph(data.event_id, abortController.signal))
     }
   } catch (err: any) {
+    if (err?.name === 'AbortError') return
+    if (opId !== operationId) return
     error.value = err?.response?.data?.detail || err?.message || '分析失败'
   } finally {
-    loading.value = false
+    if (opId === operationId) loading.value = false
   }
 }
 
-async function runSingleAnalysis(inputText: string, onTaskUpdate: (task: AnalysisTask) => void = updateSingleTask) {
+async function runSingleAnalysis(inputText: string, onTaskUpdate: (task: AnalysisTask) => void = updateSingleTask, signal?: AbortSignal) {
   const started = performance.now()
-  const data = await analyzeText(inputText, onTaskUpdate)
+  const data = await analyzeText(inputText, onTaskUpdate, signal)
   let graph = { nodes: [], edges: [] }
   if (data.event_id) {
-    graph = await getEventGraph(data.event_id)
+    graph = await getEventGraph(data.event_id, signal)
     store.setEventGraph(data.event_id, graph)
   }
   const elapsedMs = Math.round(performance.now() - started)
@@ -115,11 +124,16 @@ async function playDemoCases() {
   error.value = ''
   demoRunRecords.value = []
   clearBatchProgress()
+  abortController?.abort()
+  abortController = new AbortController()
+  const opId = ++operationId
   try {
     for (const demo of demoCases.value) {
+      if (opId !== operationId) break
       store.analysisText = demo.text
       selectedCaseId.value = demo.id
-      const { data, graph, elapsedMs } = await runSingleAnalysis(demo.text)
+      const { data, graph, elapsedMs } = await runSingleAnalysis(demo.text, updateSingleTask, abortController.signal)
+      if (opId !== operationId) break
       store.setAnalysisResult(data)
       demoRunRecords.value.push({
         case_id: demo.id,
@@ -139,10 +153,14 @@ async function playDemoCases() {
       await new Promise((resolve) => window.setTimeout(resolve, 250))
     }
   } catch (err: any) {
+    if (err?.name === 'AbortError') return
+    if (opId !== operationId) return
     error.value = err?.response?.data?.detail || err?.message || 'Demo 播放失败'
   } finally {
-    loading.value = false
-    demoRunning.value = false
+    if (opId === operationId) {
+      loading.value = false
+      demoRunning.value = false
+    }
   }
 }
 
@@ -185,11 +203,17 @@ async function runBatchAnalysis() {
   batchRecords.value = []
   batchTotal.value = items.length
   clearSingleProgress()
+  abortController?.abort()
+  abortController = new AbortController()
+  const opId = ++operationId
+  store.setAnalysisResult(null)
   try {
     for (const [index, content] of items.entries()) {
+      if (opId !== operationId) break
       batchCurrentIndex.value = index + 1
       store.analysisText = content
-      const { data, graph, elapsedMs } = await runSingleAnalysis(content, updateBatchTask)
+      const { data, graph, elapsedMs } = await runSingleAnalysis(content, updateBatchTask, abortController.signal)
+      if (opId !== operationId) break
       store.setAnalysisResult(data)
       batchRecords.value.push({
         index: index + 1,
@@ -210,19 +234,23 @@ async function runBatchAnalysis() {
       await new Promise((resolve) => window.setTimeout(resolve, 120))
     }
   } catch (err: any) {
+    if (err?.name === 'AbortError') return
+    if (opId !== operationId) return
     error.value = err?.response?.data?.detail || err?.message || '批量分析失败'
   } finally {
-    loading.value = false
-    batchRunning.value = false
-    if (!error.value) {
-      batchProgress.value = {
-        stage_key: 'complete',
-        stage_label: '批量完成',
-        stage_index: batchTotal.value,
-        stage_total: batchTotal.value || 1,
-        stage_detail: `已完成 ${batchRecords.value.length} 条事件分析`,
+    if (opId === operationId) {
+      loading.value = false
+      batchRunning.value = false
+      if (!error.value) {
+        batchProgress.value = {
+          stage_key: 'complete',
+          stage_label: '批量完成',
+          stage_index: batchTotal.value,
+          stage_total: batchTotal.value || 1,
+          stage_detail: `已完成 ${batchRecords.value.length} 条事件分析`,
+        }
+        batchTaskStatus.value = 'success'
       }
-      batchTaskStatus.value = 'success'
     }
   }
 }
@@ -340,6 +368,7 @@ function downloadBatchReport() {
 }
 
 onMounted(loadDemoCases)
+onUnmounted(() => abortController?.abort())
 </script>
 
 <template>

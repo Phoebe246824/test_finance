@@ -167,6 +167,42 @@ Milvus WebUI: http://localhost:9091/webui/
 docker compose --profile vector up -d attu
 ```
 
+可选：启动 RAGFlow 金融知识库（不会改变原有 Milvus / Neo4j 端口）：
+
+```bash
+docker compose --profile ragflow up -d
+```
+
+默认只向本机发布 Web 和检索 API，MySQL、Redis、MinIO、Elasticsearch
+以及 Admin API 不发布到宿主机。共享环境或演示机器启动前请替换
+`.env` 中的 `RAGFLOW_*_PASSWORD` 示例值。
+
+默认地址：
+
+```text
+RAGFlow Web: http://127.0.0.1:8088
+RAGFlow API: http://127.0.0.1:9380
+```
+
+首次使用时，在 RAGFlow Web 中创建账号，配置在线 embedding 模型
+`BAAI/bge-m3`，创建金融知识库 dataset，并生成 API Key。然后在 `.env`
+中填写：
+
+```text
+RAGFLOW_ENABLED=true
+RAGFLOW_BASE_URL=http://127.0.0.1:9380
+RAGFLOW_API_KEY=<your-ragflow-api-key>
+RAGFLOW_DATASET_ID=<your-finance-dataset-id>
+```
+
+上传 PDF 到 RAGFlow dataset：
+
+```bash
+uv run python ragflow/upload_docs.py /path/to/finance-book.pdf
+```
+
+Sentinel 只使用 RAGFlow 的文档切分与检索结果，最终风险评估、意图分析和趋势预测仍由系统内 CrewAI Agent 完成。
+
 ## 8. 初始化黑名单种子数据
 
 打开前端黑名单页面或调用 `/api/blacklist/*` 时，后端通过 Milvus stores 写入默认金融 Demo 黑名单种子。
