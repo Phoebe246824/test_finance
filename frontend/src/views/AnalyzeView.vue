@@ -94,7 +94,7 @@ async function submit() {
     if (opId !== operationId) return
     store.setAnalysisResult(data)
     if (data.event_id) {
-      store.setEventGraph(data.event_id, await getEventGraph(data.event_id))
+      store.setEventGraph(data.event_id, await getEventGraph(data.event_id, abortController.signal))
     }
   } catch (err: any) {
     if (err?.name === 'AbortError') return
@@ -110,7 +110,7 @@ async function runSingleAnalysis(inputText: string, onTaskUpdate: (task: Analysi
   const data = await analyzeText(inputText, onTaskUpdate, signal)
   let graph = { nodes: [], edges: [] }
   if (data.event_id) {
-    graph = await getEventGraph(data.event_id)
+    graph = await getEventGraph(data.event_id, signal)
     store.setEventGraph(data.event_id, graph)
   }
   const elapsedMs = Math.round(performance.now() - started)

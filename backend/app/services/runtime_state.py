@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL_STATUSES = frozenset({"success", "failed"})
 _TASK_TTL_SECONDS = 3600
-_STUCK_TASK_TIMEOUT = 600
+_STUCK_TASK_TIMEOUT = 1800
 
 
 @dataclass(slots=True)
@@ -164,6 +164,10 @@ class RuntimeState:
                 self._task_finished_at.pop(tid, None)
         for _tid, q in notify:
             try:
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
                 q.put_nowait(None)
             except asyncio.QueueFull:
                 pass
