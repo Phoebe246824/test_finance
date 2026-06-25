@@ -148,7 +148,7 @@ class RuntimeState:
                     removed.append(tid)
             for tid, task in list(self.tasks.items()):
                 if task.get("status") not in _TERMINAL_STATUSES:
-                    created_at = task.get("created_at", "")
+                    created_at = task.get("started_at", "")
                     if created_at:
                         try:
                             created_ts = datetime.fromisoformat(created_at).timestamp()
