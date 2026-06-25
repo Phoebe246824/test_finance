@@ -32,5 +32,9 @@ class Settings:
     def reviewer_token(self) -> str:
         return os.getenv("SENTINEL_REVIEWER_TOKEN", "sentinel-reviewer-token")
 
+    @property
+    def webhook_token(self) -> str:
+        return os.getenv("SENTINEL_WEBHOOK_TOKEN", "sentinel-webhook-token")
+
 
 settings = Settings()

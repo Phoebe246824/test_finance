@@ -8,8 +8,11 @@ from backend.app.services.audit_service import write_audit_log
 from backend.app.services.settings_service import (
     add_model_service,
     delete_model_service,
+    get_model_service,
     list_model_services,
+    test_model_endpoint,
     update_model_service,
+    update_model_service_status,
 )
 
 router = APIRouter(prefix="/api/model-services", tags=["model-services"])
@@ -20,7 +23,7 @@ class ModelServiceCreatePayload(BaseModel):
     type: str = Field(..., min_length=1, max_length=64)
     deployment: str = Field(default="本地部署", max_length=64)
     endpoint: str = Field(..., min_length=1, max_length=512)
-    status: str = Field(default="未运行", max_length=32)
+    status: str = Field(default="未验证", max_length=32)
     default: bool = Field(default=False)
 
 
@@ -30,6 +33,11 @@ class ModelServiceUpdatePayload(BaseModel):
     deployment: str = Field(default="本地部署", max_length=64)
     endpoint: str = Field(..., min_length=1, max_length=512)
     default: bool = Field(default=False)
+
+
+class ModelServiceTestPayload(BaseModel):
+    endpoint: str = Field(..., min_length=1, max_length=512)
+    type: str = Field(default="大语言模型", min_length=1, max_length=64)
 
 
 @router.get("")
@@ -45,14 +53,18 @@ async def api_create_model_service(
     payload: ModelServiceCreatePayload,
     user: CurrentUser = Depends(require_roles("admin")),
 ) -> dict:
-    created = add_model_service(
-        name=payload.name,
-        type=payload.type,
-        deployment=payload.deployment,
-        endpoint=payload.endpoint,
-        status=payload.status,
-        default=payload.default,
-    )
+    try:
+        created = add_model_service(
+            name=payload.name,
+            type=payload.type,
+            deployment=payload.deployment,
+            endpoint=payload.endpoint,
+            status=payload.status,
+            default=payload.default,
+        )
+    except ValueError as exc:
+        status_code = 409 if "已存在" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     write_audit_log(
         actor=user,
         action="model_service.create",
@@ -62,20 +74,51 @@ async def api_create_model_service(
     return {"service": created}
 
 
+@router.post("/test")
+async def api_test_model_service(
+    payload: ModelServiceTestPayload,
+    _: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
+    return await test_model_endpoint(payload.endpoint, payload.type)
+
+
+@router.post("/{service_name:path}/test")
+async def api_test_saved_model_service(
+    service_name: str,
+    _: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
+    service = get_model_service(service_name)
+    if service is None:
+        raise HTTPException(status_code=404, detail="模型服务不存在")
+    result = await test_model_endpoint(
+        str(service.get("endpoint") or ""),
+        str(service.get("type") or "大语言模型"),
+    )
+    updated = update_model_service_status(
+        service_name,
+        status="运行中" if result.get("success") else "异常",
+    )
+    return {"result": result, "service": updated or service}
+
+
 @router.put("/{service_name:path}")
 async def api_update_model_service(
     service_name: str,
     payload: ModelServiceUpdatePayload,
     user: CurrentUser = Depends(require_roles("admin")),
 ) -> dict:
-    updated = update_model_service(
-        service_name,
-        name=payload.name,
-        type=payload.type,
-        deployment=payload.deployment,
-        endpoint=payload.endpoint,
-        default=payload.default,
-    )
+    try:
+        updated = update_model_service(
+            service_name,
+            name=payload.name,
+            type=payload.type,
+            deployment=payload.deployment,
+            endpoint=payload.endpoint,
+            default=payload.default,
+        )
+    except ValueError as exc:
+        status_code = 409 if "已存在" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="模型服务不存在")
     write_audit_log(

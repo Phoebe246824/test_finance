@@ -33,6 +33,7 @@ frontend/dist/
 
 # Run artifacts
 logs/
+data/
 
 # Ignore Docker-related files
 volumes/

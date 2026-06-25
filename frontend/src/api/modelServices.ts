@@ -57,3 +57,26 @@ export async function deleteModelService(
   )
   return data as { deleted: boolean; name: string }
 }
+
+export async function testModelService(
+  endpoint: string,
+  type: string,
+): Promise<{ success: boolean; message: string; endpoint: string }> {
+  const { data } = await http.post('/api/model-services/test', { endpoint, type })
+  return data as { success: boolean; message: string; endpoint: string }
+}
+
+export async function testSavedModelService(
+  serviceName: string,
+): Promise<{
+  result: { success: boolean; message: string; endpoint: string }
+  service: ModelService
+}> {
+  const { data } = await http.post(
+    `/api/model-services/${encodeURIComponent(serviceName)}/test`,
+  )
+  return data as {
+    result: { success: boolean; message: string; endpoint: string }
+    service: ModelService
+  }
+}

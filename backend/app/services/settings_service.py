@@ -3,90 +3,14 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from backend.app.services import model_service_settings, notification_settings
 from backend.app.services.risk_rule_service import now_text
 from backend.app.services.runtime_state import runtime_state
-
-DEFAULT_SETTINGS: dict[str, Any] = {
-    "system_config": {
-        "name": "Sentinel Edge 金融风控智能体系统",
-        "description": "端侧部署的金融风控智能体系统，支持反欺诈、反洗钱、贷前风控等场景。",
-        "timezone": "Asia/Shanghai (UTC+08:00)",
-        "dateFormat": "YYYY-MM-DD HH:mm:ss",
-        "language": "简体中文",
-    },
-    "model_params": {
-        "maxTokens": 2048,
-        "temperature": 0.2,
-        "topP": 0.9,
-        "repetitionPenalty": 1.1,
-        "timeout": 60,
-        "concurrency": 2,
-    },
-    "model_services": [
-        {
-            "name": "本地大模型（Qwen3-8B）",
-            "type": "大语言模型",
-            "deployment": "本地部署",
-            "endpoint": "http://localhost:8001/v1",
-            "status": "运行中",
-            "default": True,
-            "updatedAt": "2026-06-14 14:22:31",
-        },
-        {
-            "name": "向量模型（text-embedding-v3）",
-            "type": "向量模型",
-            "deployment": "本地部署",
-            "endpoint": "http://localhost:8001/embeddings",
-            "status": "运行中",
-            "default": True,
-            "updatedAt": "2026-06-14 14:21:10",
-        },
-        {
-            "name": "重排序模型（bge-reranker）",
-            "type": "重排序模型",
-            "deployment": "本地部署",
-            "endpoint": "http://localhost:8001/reranker",
-            "status": "运行中",
-            "default": False,
-            "updatedAt": "2026-06-14 14:20:05",
-        },
-        {
-            "name": "图谱抽取模型（graph-extract）",
-            "type": "信息抽取模型",
-            "deployment": "本地部署",
-            "endpoint": "http://localhost:8001/graph",
-            "status": "运行中",
-            "default": False,
-            "updatedAt": "2026-06-14 14:19:42",
-        },
-    ],
-    "users": [
-        {"username": "admin", "name": "系统管理员", "role": "超级管理员", "status": "启用", "lastLogin": "2026-06-14 15:21:10"},
-        {"username": "risk_manager", "name": "风控管理员", "role": "风控管理员", "status": "启用", "lastLogin": "2026-06-14 14:55:32"},
-        {"username": "review_001", "name": "张三", "role": "审核人员", "status": "启用", "lastLogin": "2026-06-14 14:11:24"},
-        {"username": "review_002", "name": "李四", "role": "审核人员", "status": "启用", "lastLogin": "2026-06-14 13:44:18"},
-        {"username": "user_001", "name": "王五", "role": "普通用户", "status": "启用", "lastLogin": "2026-06-13 18:22:09"},
-    ],
-    "data_management": {
-        "summary": [
-            {"label": "总记录数", "value": "1,248"},
-            {"label": "数据大小", "value": "128.6 MB"},
-            {"label": "最早记录", "value": "2026-05-01"},
-            {"label": "最新记录", "value": "2026-06-14"},
-        ],
-        "retentionDays": 180,
-        "cleanupTime": "每日 02:00",
-        "cleanupEnabled": True,
-    },
-    "notification_channels": [
-        {"name": "邮件通知", "enabled": True, "target": "smtp@sentinel.com"},
-        {"name": "短信通知", "enabled": False, "target": "未配置"},
-        {"name": "企业微信", "enabled": True, "target": "Sentinel Edge 风控"},
-        {"name": "钉钉通知", "enabled": True, "target": "Sentinel Edge 预警"},
-        {"name": "Webhook", "enabled": True, "target": "http://localhost:8000/webhook/alert"},
-    ],
-    "notification_events": ["高风险事件", "黑名单命中", "系统异常", "复核任务提醒", "趋势报告生成", "模型服务异常"],
-}
+from backend.app.services.settings_defaults import (
+    DEFAULT_SETTINGS,
+    IMPLEMENTED_NOTIFICATION_CHANNELS,
+    IMPLEMENTED_NOTIFICATION_EVENTS,
+)
 
 
 def _merge(default_value: Any, stored_value: Any) -> Any:
@@ -100,13 +24,35 @@ def _merge(default_value: Any, stored_value: Any) -> Any:
     return stored_value
 
 
+def _filter_supported_channels(settings: dict[str, Any]) -> dict[str, Any]:
+    filtered = deepcopy(settings)
+    data_management = filtered.get("data_management") or {}
+    filtered["data_management"] = {
+        "summary": data_management.get("summary") or [],
+        "retentionDays": data_management.get("retentionDays") or 180,
+    }
+    filtered["notification_channels"] = [
+        channel
+        for channel in filtered.get("notification_channels", [])
+        if channel.get("name") in IMPLEMENTED_NOTIFICATION_CHANNELS
+    ]
+    filtered["notification_events"] = [
+        event
+        for event in filtered.get("notification_events", [])
+        if event in IMPLEMENTED_NOTIFICATION_EVENTS
+    ]
+    return filtered
+
+
 def load_app_settings() -> tuple[dict[str, Any], str]:
     settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
-    return _merge(DEFAULT_SETTINGS, settings), updated_at
+    return _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings)), updated_at
 
 
 def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    settings = _merge(DEFAULT_SETTINGS, value)
+    settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, value))
+    model_service_settings.validate_model_services(settings.get("model_services") or [])
+    notification_settings.validate_notification_channels(settings.get("notification_channels") or [])
     saved, updated_at = runtime_state.save_settings(settings)
     if not updated_at:
         updated_at = now_text()
@@ -115,11 +61,13 @@ def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
 
 def _get_section(key: str) -> list[dict[str, Any]]:
     settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
-    return list(settings.get(key) or DEFAULT_SETTINGS[key])
+    merged = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
+    return list(merged.get(key) or [])
 
 
 def _set_section(key: str, items: list[dict[str, Any]]) -> None:
     settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
     settings[key] = items
     runtime_state.save_settings(settings)
 
@@ -144,7 +92,7 @@ def add_user(
     password: str = "",
 ) -> dict[str, Any]:
     users = _get_section("users")
-    if any(u.get("username") == username for u in users):
+    if any(user.get("username") == username for user in users):
         raise ValueError(f"用户名 '{username}' 已存在")
     user = {
         "username": username,
@@ -176,19 +124,15 @@ def update_user(
 
 def delete_user(username: str) -> bool:
     users = _get_section("users")
-    original_len = len(users)
-    users = [u for u in users if u.get("username") != username]
-    if len(users) == original_len:
+    kept = [user for user in users if user.get("username") != username]
+    if len(kept) == len(users):
         return False
-    _set_section("users", users)
+    _set_section("users", kept)
     return True
 
 
 def reset_user_password(username: str, new_password: str) -> dict[str, Any] | None:
-    user = get_user(username)
-    if user is None:
-        return None
-    return user
+    return get_user(username)
 
 
 def toggle_user_status(username: str) -> dict[str, Any] | None:
@@ -202,7 +146,11 @@ def toggle_user_status(username: str) -> dict[str, Any] | None:
 
 
 def list_model_services() -> list[dict[str, Any]]:
-    return deepcopy(_get_section("model_services"))
+    return model_service_settings.list_model_services(_get_section)
+
+
+def get_model_service(name: str) -> dict[str, Any] | None:
+    return model_service_settings.get_model_service(_get_section, name)
 
 
 def add_model_service(
@@ -214,21 +162,16 @@ def add_model_service(
     status: str,
     default: bool,
 ) -> dict[str, Any]:
-    services = _get_section("model_services")
-    if any(s.get("name") == name for s in services):
-        raise ValueError(f"模型服务 '{name}' 已存在")
-    svc = {
-        "name": name,
-        "type": type,
-        "deployment": deployment,
-        "endpoint": endpoint,
-        "status": status,
-        "default": default,
-        "updatedAt": now_text(),
-    }
-    services.append(svc)
-    _set_section("model_services", services)
-    return deepcopy(svc)
+    return model_service_settings.add_model_service(
+        _get_section,
+        _set_section,
+        name=name,
+        type=type,
+        deployment=deployment,
+        endpoint=endpoint,
+        status=status,
+        default=default,
+    )
 
 
 def update_model_service(
@@ -240,34 +183,44 @@ def update_model_service(
     endpoint: str,
     default: bool,
 ) -> dict[str, Any] | None:
-    services = _get_section("model_services")
-    if name != original_name and any(s.get("name") == name for s in services):
-        raise ValueError(f"模型服务 '{name}' 已存在")
-    for svc in services:
-        if svc.get("name") == original_name:
-            svc["name"] = name
-            svc["type"] = type
-            svc["deployment"] = deployment
-            svc["endpoint"] = endpoint
-            svc["default"] = default
-            svc["updatedAt"] = now_text()
-            _set_section("model_services", services)
-            return deepcopy(svc)
-    return None
+    return model_service_settings.update_model_service(
+        _get_section,
+        _set_section,
+        original_name,
+        name=name,
+        type=type,
+        deployment=deployment,
+        endpoint=endpoint,
+        default=default,
+    )
+
+
+def update_model_service_status(
+    name: str,
+    *,
+    status: str,
+) -> dict[str, Any] | None:
+    return model_service_settings.update_model_service_status(
+        _get_section,
+        _set_section,
+        name,
+        status=status,
+    )
 
 
 def delete_model_service(name: str) -> bool:
-    services = _get_section("model_services")
-    original_len = len(services)
-    services = [s for s in services if s.get("name") != name]
-    if len(services) == original_len:
-        return False
-    _set_section("model_services", services)
-    return True
+    return model_service_settings.delete_model_service(_get_section, _set_section, name)
+
+
+async def test_model_endpoint(
+    endpoint: str,
+    service_type: str = "大语言模型",
+) -> dict[str, Any]:
+    return await model_service_settings.test_model_endpoint(endpoint, service_type)
 
 
 def list_notification_channels() -> list[dict[str, Any]]:
-    return deepcopy(_get_section("notification_channels"))
+    return notification_settings.list_notification_channels(_get_section)
 
 
 def update_notification_channel(
@@ -276,30 +229,14 @@ def update_notification_channel(
     enabled: bool,
     target: str,
 ) -> dict[str, Any] | None:
-    channels = _get_section("notification_channels")
-    for ch in channels:
-        if ch.get("name") == name:
-            ch["enabled"] = enabled
-            ch["target"] = target
-            _set_section("notification_channels", channels)
-            return deepcopy(ch)
-    return None
+    return notification_settings.update_notification_channel(
+        _get_section,
+        _set_section,
+        name,
+        enabled=enabled,
+        target=target,
+    )
 
 
-def test_notification_channel(name: str) -> dict[str, Any] | None:
-    channels = _get_section("notification_channels")
-    for ch in channels:
-        if ch.get("name") == name:
-            target = ch.get("target", "")
-            if not target or target == "未配置":
-                return {
-                    "success": False,
-                    "message": f"通知渠道 '{name}' 的目标地址未配置",
-                    "channel": name,
-                }
-            return {
-                "success": True,
-                "message": f"向 '{target}' 发送测试通知成功",
-                "channel": name,
-            }
-    return None
+async def test_notification_channel(name: str) -> dict[str, Any] | None:
+    return await notification_settings.test_notification_channel(_get_section, name)

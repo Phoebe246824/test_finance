@@ -56,6 +56,7 @@ RERANKER_MODEL = os.environ.get("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3"
 
 def _resolve_graphiti_llm_config(
     llm_config: dict[str, Any] | None = None,
+    graphiti_config: dict[str, Any] | None = None,
 ) -> dict[str, str | None]:
     """解析 Graphiti 内部抽取 LLM 配置。
 
@@ -63,11 +64,13 @@ def _resolve_graphiti_llm_config(
     `LLM_EXTRACT_*` 优先于传入 config，确保 Graphiti 抽取走 extract 档。
     """
     llm_config = llm_config or {}
+    graphiti_config = graphiti_config or {}
     return {
         "api_key": os.environ.get("LLM_EXTRACT_API_KEY")
         or llm_config.get("api_key")
         or LLM_API_KEY,
         "base_url": os.environ.get("LLM_EXTRACT_BASE_URL")
+        or graphiti_config.get("extract_base_url")
         or llm_config.get("base_url")
         or LLM_BASE_URL,
         "model": os.environ.get("LLM_EXTRACT_MODEL")
@@ -192,7 +195,7 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     neo4j_user = neo4j_config.get("user", NEO4J_USER)
     neo4j_password = neo4j_config.get("password", NEO4J_PASSWORD)
 
-    graphiti_llm_config = _resolve_graphiti_llm_config(llm_config)
+    graphiti_llm_config = _resolve_graphiti_llm_config(llm_config, config.get("graphiti", {}))
     llm_api_key = graphiti_llm_config["api_key"]
     llm_base_url = graphiti_llm_config["base_url"]
     llm_model = graphiti_llm_config["model"]

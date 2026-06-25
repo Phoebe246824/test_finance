@@ -33,11 +33,14 @@ async def api_update_notification_channel(
     payload: NotificationChannelUpdatePayload,
     user: CurrentUser = Depends(require_roles("admin")),
 ) -> dict:
-    updated = update_notification_channel(
-        channel_name,
-        enabled=payload.enabled,
-        target=payload.target,
-    )
+    try:
+        updated = update_notification_channel(
+            channel_name,
+            enabled=payload.enabled,
+            target=payload.target,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="通知渠道不存在")
     write_audit_log(
@@ -55,7 +58,7 @@ async def api_test_notification_channel(
     channel_name: str,
     user: CurrentUser = Depends(require_roles("admin")),
 ) -> dict:
-    result = test_notification_channel(channel_name)
+    result = await test_notification_channel(channel_name)
     if result is None:
         raise HTTPException(status_code=404, detail="通知渠道不存在")
     write_audit_log(
