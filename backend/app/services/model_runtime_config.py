@@ -6,6 +6,7 @@ SERVICE_TYPE_LLM = "大语言模型"
 SERVICE_TYPE_EMBEDDER = "向量模型"
 SERVICE_TYPE_RERANKER = "重排序模型"
 SERVICE_TYPE_EXTRACT = "信息抽取模型"
+RUNNABLE_MODEL_STATUS = "运行中"
 
 
 def active_model_service(
@@ -17,7 +18,7 @@ def active_model_service(
         service
         for service in services
         if service.get("type") == service_type
-        and service.get("status") not in ("停用", "未运行")
+        and service.get("status") == RUNNABLE_MODEL_STATUS
     ]
     if not candidates:
         return None

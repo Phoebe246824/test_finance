@@ -6,7 +6,7 @@ import {
   updateNotificationChannel,
   type NotificationChannel,
 } from '../../api/notifications'
-import { getAppSettings, updateAppSettings, type AppSettings } from '../../api/settings'
+import { getAppSettings, updateNotificationEvents } from '../../api/settings'
 import { defaultNotificationEvents, errorMessage, notificationTestFeedback } from './helpers'
 
 const emit = defineEmits<{
@@ -16,7 +16,7 @@ const emit = defineEmits<{
 
 const saving = ref(false)
 const channels = ref<NotificationChannel[]>([])
-const settings = ref<AppSettings | null>(null)
+const loaded = ref(false)
 const notificationEvents = ref([...defaultNotificationEvents])
 const enabledEvents = ref(new Set<string>(defaultNotificationEvents))
 const editingNotification = ref<NotificationChannel | null>(null)
@@ -29,7 +29,7 @@ async function load(): Promise<void> {
       getAppSettings(),
     ])
     channels.value = [...channelData.channels]
-    settings.value = settingsData.settings
+    loaded.value = true
     notificationEvents.value = [...defaultNotificationEvents]
     enabledEvents.value = new Set(settingsData.settings.notification_events || defaultNotificationEvents)
   } catch (err: unknown) {
@@ -95,17 +95,12 @@ async function handleTestNotification(channel: NotificationChannel): Promise<voi
 async function saveEvents(): Promise<void> {
   saving.value = true
   try {
-    const current = settings.value
-    if (!current) {
+    if (!loaded.value) {
       emit('error', '配置尚未加载完成')
       return
     }
-    const saved = await updateAppSettings({
-      ...current,
-      notification_channels: channels.value,
-      notification_events: Array.from(enabledEvents.value),
-    })
-    settings.value = saved.settings
+    const saved = await updateNotificationEvents(Array.from(enabledEvents.value))
+    enabledEvents.value = new Set(saved.settings.notification_events || defaultNotificationEvents)
     emit('notice', '通知配置已保存')
   } catch (err: unknown) {
     emit('error', errorMessage(err, '保存通知配置失败'))
@@ -150,7 +145,7 @@ onMounted(load)
       </label>
     </div>
     <div class="toolbar justify-end">
-      <button class="button" :disabled="saving || !settings" @click="saveEvents">保存配置</button>
+      <button class="button" :disabled="saving || !loaded" @click="saveEvents">保存配置</button>
     </div>
   </section>
 </template>

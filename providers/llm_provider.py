@@ -37,6 +37,7 @@ _TIER_SERVICE_TYPES: dict[str, list[str]] = {
     "extract": ["大语言模型"],
     "reason": ["大语言模型"],
 }
+RUNNABLE_MODEL_STATUS = "运行中"
 
 
 def _settings_model_params() -> dict[str, float | int]:
@@ -71,7 +72,7 @@ def _settings_service_endpoint(service_type: str) -> str | None:
         services = settings.get("model_services") or []
         candidates = [
             s for s in services
-            if s.get("type") == service_type and s.get("status") not in ("停用", "未运行")
+            if s.get("type") == service_type and s.get("status") == RUNNABLE_MODEL_STATUS
         ]
         if not candidates:
             return None

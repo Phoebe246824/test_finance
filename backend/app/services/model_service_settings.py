@@ -11,6 +11,7 @@ from backend.app.services.risk_rule_service import now_text
 from backend.app.services.url_safety import validate_outbound_http_url
 
 RUNTIME_MODEL_SERVICE_TYPES = frozenset({"大语言模型", "向量模型", "重排序模型", "信息抽取模型"})
+RUNNABLE_MODEL_STATUS = "运行中"
 
 
 def list_model_services(get_section) -> list[dict[str, Any]]:
@@ -48,8 +49,12 @@ def add_model_service(
         "default": default,
         "updatedAt": now_text(),
     }
-    if default:
+    service_default = default and status == RUNNABLE_MODEL_STATUS
+    if service_default:
         _clear_default_for_type(services, type)
+    elif default:
+        service["pendingDefault"] = True
+    service["default"] = service_default
     services.append(service)
     set_section("model_services", services)
     return deepcopy(service)
@@ -68,6 +73,10 @@ def update_model_service_status(
             continue
         service["status"] = status
         service["updatedAt"] = now_text()
+        if status == RUNNABLE_MODEL_STATUS and service.get("pendingDefault"):
+            _clear_default_for_type(services, str(service.get("type") or ""))
+            service["default"] = True
+            service.pop("pendingDefault", None)
         set_section("model_services", services)
         return deepcopy(service)
     return None
@@ -91,7 +100,8 @@ def update_model_service(
     for service in services:
         if service.get("name") != original_name:
             continue
-        if default:
+        service_default = default and service.get("status") == RUNNABLE_MODEL_STATUS
+        if service_default:
             for existing in services:
                 if existing is not service and existing.get("type") == type:
                     existing["default"] = False
@@ -99,7 +109,11 @@ def update_model_service(
         service["type"] = type
         service["deployment"] = deployment
         service["endpoint"] = endpoint
-        service["default"] = default
+        service["default"] = service_default
+        if default and not service_default:
+            service["pendingDefault"] = True
+        else:
+            service.pop("pendingDefault", None)
         service["status"] = service.get("status") or "运行中"
         service["updatedAt"] = now_text()
         set_section("model_services", services)
@@ -113,6 +127,22 @@ def validate_model_services(services: list[dict[str, Any]]) -> None:
             str(service.get("endpoint") or ""),
             str(service.get("type") or ""),
         )
+
+
+def normalize_model_services(services: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized = deepcopy(services)
+    seen_default_types: set[str] = set()
+    for service in normalized:
+        service_type = str(service.get("type") or "")
+        wants_default = bool(service.get("default"))
+        is_runnable = service.get("status") == RUNNABLE_MODEL_STATUS
+        if wants_default and is_runnable and service_type not in seen_default_types:
+            seen_default_types.add(service_type)
+            continue
+        if wants_default and not is_runnable:
+            service["pendingDefault"] = True
+        service["default"] = False
+    return normalized
 
 
 def delete_model_service(get_section, set_section, name: str) -> bool:

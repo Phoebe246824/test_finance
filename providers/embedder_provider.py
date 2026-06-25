@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
+RUNNABLE_MODEL_STATUS = "运行中"
+
 
 def _settings_embedder_endpoint() -> str | None:
     try:
@@ -13,7 +15,7 @@ def _settings_embedder_endpoint() -> str | None:
         services = settings.get("model_services") or []
         candidates = [
             s for s in services
-            if s.get("type") == "向量模型" and s.get("status") not in ("停用", "未运行")
+            if s.get("type") == "向量模型" and s.get("status") == RUNNABLE_MODEL_STATUS
         ]
         if not candidates:
             return None

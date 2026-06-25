@@ -3,8 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import {
   getAppSettings,
   runDataManagementCleanup,
-  updateAppSettings,
-  type AppSettings,
+  updateDataManagement,
   type DataManagement,
 } from '../../api/settings'
 import { errorMessage } from './helpers'
@@ -15,7 +14,7 @@ const emit = defineEmits<{
 }>()
 
 const saving = ref(false)
-const settings = ref<AppSettings | null>(null)
+const loaded = ref(false)
 const dataManagement = reactive<DataManagement>({
   summary: [
     { label: '总记录数', value: '1,248' },
@@ -29,7 +28,7 @@ const dataManagement = reactive<DataManagement>({
 async function load(): Promise<void> {
   try {
     const data = await getAppSettings()
-    settings.value = data.settings
+    loaded.value = true
     Object.assign(dataManagement, data.settings.data_management || {})
   } catch (err: unknown) {
     emit('error', errorMessage(err, '加载数据管理配置失败'))
@@ -39,19 +38,15 @@ async function load(): Promise<void> {
 async function save(): Promise<void> {
   saving.value = true
   try {
-    const current = settings.value
-    if (!current) {
+    if (!loaded.value) {
       emit('error', '配置尚未加载完成')
       return
     }
-    const saved = await updateAppSettings({
-      ...current,
-      data_management: {
-        summary: dataManagement.summary,
-        retentionDays: dataManagement.retentionDays,
-      },
+    const saved = await updateDataManagement({
+      summary: dataManagement.summary,
+      retentionDays: dataManagement.retentionDays,
     })
-    settings.value = saved.settings
+    Object.assign(dataManagement, saved.settings.data_management || {})
     emit('notice', '数据管理配置已保存')
   } catch (err: unknown) {
     emit('error', errorMessage(err, '保存数据管理配置失败'))
@@ -97,7 +92,7 @@ onMounted(load)
       <h2>清理策略</h2>
       <div class="settings-row"><label>保留最近</label><select v-model.number="dataManagement.retentionDays" class="select"><option :value="90">90 天</option><option :value="180">180 天</option><option :value="365">365 天</option></select></div>
       <div class="toolbar justify-end">
-        <button class="button" :disabled="saving || !settings" @click="save">保存配置</button>
+        <button class="button" :disabled="saving || !loaded" @click="save">保存配置</button>
       </div>
     </div>
   </section>

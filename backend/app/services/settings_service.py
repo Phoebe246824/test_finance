@@ -52,11 +52,20 @@ def load_app_settings() -> tuple[dict[str, Any], str]:
 def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
     settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, value))
     model_service_settings.validate_model_services(settings.get("model_services") or [])
+    settings["model_services"] = model_service_settings.normalize_model_services(
+        settings.get("model_services") or []
+    )
     notification_settings.validate_notification_channels(settings.get("notification_channels") or [])
     saved, updated_at = runtime_state.save_settings(settings)
     if not updated_at:
         updated_at = now_text()
     return saved, updated_at
+
+
+def update_settings_section(key: str, value: dict[str, Any] | list[str]) -> tuple[dict[str, Any], str]:
+    settings, _ = load_app_settings()
+    settings[key] = deepcopy(value)
+    return save_app_settings(settings)
 
 
 def _get_section(key: str) -> list[dict[str, Any]]:

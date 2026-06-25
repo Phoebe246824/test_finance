@@ -6,7 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.core.security import CurrentUser, require_roles
 from backend.app.services.audit_service import write_audit_log
 from backend.app.services.data_management_service import apply_data_management_settings
-from backend.app.services.settings_service import load_app_settings, save_app_settings
+from backend.app.services.settings_service import (
+    load_app_settings,
+    save_app_settings,
+    update_settings_section,
+)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -42,6 +46,7 @@ class ModelServicePayload(BaseModel):
     status: str = Field(default="未验证", max_length=32)
     default: bool = Field(default=False)
     updatedAt: str = Field(default="", max_length=64)
+    pendingDefault: bool = Field(default=False)
 
 
 class UserPayload(BaseModel):
@@ -117,6 +122,70 @@ async def update_settings(
             "data_management_changed": payload_dict["data_management"]
             != previous.get("data_management"),
         },
+    )
+    return {"settings": settings, "updated_at": updated_at}
+
+
+@router.put("/system-config")
+async def update_system_config(
+    payload: SystemConfigPayload,
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
+    settings, updated_at = update_settings_section("system_config", payload.model_dump())
+    write_audit_log(
+        actor=user,
+        action="settings.update.system_config",
+        resource_type="app_settings",
+        resource_id="system_config",
+        detail={"updated_at": updated_at},
+    )
+    return {"settings": settings, "updated_at": updated_at}
+
+
+@router.put("/model-params")
+async def update_model_params(
+    payload: ModelParamsPayload,
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
+    settings, updated_at = update_settings_section("model_params", payload.model_dump())
+    write_audit_log(
+        actor=user,
+        action="settings.update.model_params",
+        resource_type="app_settings",
+        resource_id="model_params",
+        detail={"updated_at": updated_at},
+    )
+    return {"settings": settings, "updated_at": updated_at}
+
+
+@router.put("/data-management")
+async def update_data_management(
+    payload: DataManagementPayload,
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
+    settings, updated_at = update_settings_section("data_management", payload.model_dump())
+    write_audit_log(
+        actor=user,
+        action="settings.update.data_management",
+        resource_type="app_settings",
+        resource_id="data_management",
+        detail={"updated_at": updated_at},
+    )
+    return {"settings": settings, "updated_at": updated_at}
+
+
+@router.put("/notification-events")
+async def update_notification_events(
+    notification_events: list[str],
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> dict:
+    settings, updated_at = update_settings_section("notification_events", notification_events)
+    write_audit_log(
+        actor=user,
+        action="settings.update.notification_events",
+        resource_type="app_settings",
+        resource_id="notification_events",
+        detail={"updated_at": updated_at},
     )
     return {"settings": settings, "updated_at": updated_at}
 

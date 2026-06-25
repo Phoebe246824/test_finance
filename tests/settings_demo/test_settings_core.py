@@ -108,6 +108,36 @@ def test_saved_concurrency_is_available_to_analysis_runtime(monkeypatch):
     assert model_concurrency_limit() == 7
 
 
+def test_section_settings_update_does_not_overwrite_newer_model_params():
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    original = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
+    stale_system_config = original["system_config"]
+
+    model_response = client.put(
+        "/api/settings/model-params",
+        headers=ADMIN_HEADERS,
+        json={
+            **original["model_params"],
+            "temperature": 0.55,
+        },
+    )
+    assert model_response.status_code == 200
+
+    system_response = client.put(
+        "/api/settings/system-config",
+        headers=ADMIN_HEADERS,
+        json={
+            **stale_system_config,
+            "name": "Sentinel Edge 演示系统",
+        },
+    )
+
+    assert system_response.status_code == 200
+    settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
+    assert settings["system_config"]["name"] == "Sentinel Edge 演示系统"
+    assert settings["model_params"]["temperature"] == 0.55
+
+
 def test_settings_rejects_unimplemented_notification_and_cleanup_fields():
     client = TestClient(create_app(), raise_server_exceptions=False)
     settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { getAppSettings, updateAppSettings, type AppSettings, type ModelService, type SystemConfig } from '../../api/settings'
+import { getAppSettings, updateSystemConfig, type ModelService, type SystemConfig } from '../../api/settings'
 import { useAppSettingsStore } from '../../stores/appSettings'
 import { defaultSystemConfig, errorMessage } from './helpers'
 
@@ -14,7 +14,7 @@ const saving = ref(false)
 const appSettings = useAppSettingsStore()
 const updatedAt = ref('')
 const systemConfig = reactive<SystemConfig>({ ...defaultSystemConfig })
-const settings = ref<AppSettings | null>(null)
+const loaded = ref(false)
 const modelServices = ref<ModelService[]>([])
 
 const serviceFallbacks: ModelService[] = [
@@ -38,7 +38,7 @@ function serviceIconName(name: string): string {
 async function load(): Promise<void> {
   try {
     const data = await getAppSettings()
-    settings.value = data.settings
+    loaded.value = true
     Object.assign(systemConfig, data.settings.system_config || defaultSystemConfig)
     modelServices.value = data.settings.model_services || []
     updatedAt.value = data.updated_at
@@ -50,15 +50,13 @@ async function load(): Promise<void> {
 async function save(): Promise<void> {
   saving.value = true
   try {
-    const current = settings.value
-    if (!current) {
+    if (!loaded.value) {
       emit('error', '配置尚未加载完成')
       return
     }
-    const next: AppSettings = { ...current, system_config: { ...systemConfig } }
-    const saved = await updateAppSettings(next)
-    settings.value = saved.settings
+    const saved = await updateSystemConfig({ ...systemConfig })
     appSettings.applySystemConfig(saved.settings.system_config)
+    Object.assign(systemConfig, saved.settings.system_config || defaultSystemConfig)
     updatedAt.value = saved.updated_at
     emit('notice', '基础配置已保存')
   } catch (err: unknown) {
@@ -78,7 +76,7 @@ onMounted(load)
         <h2>基础配置</h2>
         <p class="muted small">上次保存：{{ updatedAt || '尚未保存' }}</p>
       </div>
-      <button class="button" :disabled="saving || !settings" @click="save">
+      <button class="button" :disabled="saving || !loaded" @click="save">
         {{ saving ? '保存中...' : '保存设置' }}
       </button>
     </div>

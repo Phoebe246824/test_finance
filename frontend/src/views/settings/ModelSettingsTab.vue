@@ -9,7 +9,7 @@ import {
   updateModelService,
   type ModelService,
 } from '../../api/modelServices'
-import { getAppSettings, updateAppSettings, type AppSettings, type ModelParams } from '../../api/settings'
+import { getAppSettings, updateModelParams, type ModelParams } from '../../api/settings'
 import { defaultModelParams, errorMessage, modelTestFeedback } from './helpers'
 import ModelServiceDialog from './ModelServiceDialog.vue'
 
@@ -29,7 +29,7 @@ const emit = defineEmits<{
 const saving = ref(false)
 const testingModel = ref('')
 const services = ref<ModelService[]>([])
-const settings = ref<AppSettings | null>(null)
+const loaded = ref(false)
 const modelParams = reactive<ModelParams>({ ...defaultModelParams })
 const showDialog = ref(false)
 const editingModel = ref<ModelService | null>(null)
@@ -41,7 +41,7 @@ async function load(): Promise<void> {
       getAppSettings(),
     ])
     services.value = [...serviceData.services]
-    settings.value = settingsData.settings
+    loaded.value = true
     Object.assign(modelParams, settingsData.settings.model_params || defaultModelParams)
   } catch (err: unknown) {
     emit('error', errorMessage(err, '加载模型设置失败'))
@@ -89,17 +89,12 @@ async function testModel(name: string): Promise<void> {
 async function saveParams(): Promise<void> {
   saving.value = true
   try {
-    const current = settings.value
-    if (!current) {
+    if (!loaded.value) {
       emit('error', '配置尚未加载完成')
       return
     }
-    const saved = await updateAppSettings({
-      ...current,
-      model_params: { ...modelParams },
-      model_services: services.value,
-    })
-    settings.value = saved.settings
+    const saved = await updateModelParams({ ...modelParams })
+    Object.assign(modelParams, saved.settings.model_params || defaultModelParams)
     emit('notice', '模型参数已保存')
   } catch (err: unknown) {
     emit('error', errorMessage(err, '保存模型参数失败'))
@@ -234,7 +229,7 @@ onMounted(load)
         <label>并发数（队列预留） <input v-model.number="modelParams.concurrency" class="input" /></label>
       </div>
       <div class="toolbar justify-end">
-        <button class="button" :disabled="saving || !settings" @click="saveParams">
+        <button class="button" :disabled="saving || !loaded" @click="saveParams">
           {{ saving ? '保存中...' : '保存参数' }}
         </button>
       </div>

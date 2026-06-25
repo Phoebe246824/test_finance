@@ -20,14 +20,14 @@ class AnalysisService:
         progress_callback: ProgressCallback | None = None,
         actor: CurrentUser | None = None,
     ) -> dict:
-        config = load_config()
-        rules, _ = load_risk_rules()
-        apply_rules_to_config(config, rules)
         notification_actor = actor or SYSTEM_ACTOR
         try:
             if progress_callback is None:
-                result = await process_message_detailed(text, config)
+                result = await process_message_detailed(text)
             else:
+                config = load_config()
+                rules, _ = load_risk_rules()
+                apply_rules_to_config(config, rules)
                 result = await process_message_detailed(text, config, progress_callback)
         except Exception as exc:
             await dispatch_system_notification(

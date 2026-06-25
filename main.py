@@ -360,8 +360,14 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
             model_score = None
 
     has_dimension_input = bool(dimension_scores)
-    final_score = calculated_score if has_dimension_input else (model_score or calculated_score)
+    has_model_score = model_score is not None
+    final_score = model_score if has_model_score else calculated_score
     final_level = _risk_level_from_score(final_score, config)
+    score_source = (
+        "model_reported"
+        if has_model_score
+        else ("calculated" if has_dimension_input else "calculated_no_model_score")
+    )
 
     return {
         "risk_level": final_level,
@@ -372,9 +378,7 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         "model_reported_risk_score": model_score_raw,
         "model_reported_risk_level": result_dict.get("risk_level"),
         "risk_thresholds": _risk_thresholds(config),
-        "risk_score_source": "calculated"
-        if has_dimension_input
-        else "model_reported_no_dimensions",
+        "risk_score_source": score_source,
         "reasoning": result_dict.get("reasoning", ""),
     }
 

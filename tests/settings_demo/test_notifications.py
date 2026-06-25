@@ -49,8 +49,7 @@ async def test_analysis_dispatches_enabled_risk_notifications(monkeypatch):
 
     async def fake_process(
         text: str,
-        config: dict,
-        progress_callback=None,
+        *args: object,
     ) -> dict:
         return {
             "event_id": "E-HIGH",

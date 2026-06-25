@@ -53,7 +53,7 @@ def test_duplicate_model_service_create_returns_conflict():
     assert response.status_code == 409
     assert "已存在" in response.json()["detail"]
 
-def test_created_default_model_service_is_unverified_and_selected_by_provider(
+def test_created_default_model_service_is_unverified_and_not_selected_by_provider(
     monkeypatch,
 ):
     reset_runtime_state()
@@ -82,7 +82,27 @@ def test_created_default_model_service_is_unverified_and_selected_by_provider(
     llm = reloaded.get_llm_for("risk_first")
 
     assert response.json()["service"]["status"] == "未验证"
-    assert llm.base_url == "http://demo-reason.test/v1"
+    assert llm.base_url == DEFAULT_SETTINGS["model_services"][0]["endpoint"]
+
+
+def test_abnormal_default_model_service_is_not_applied_to_runtime_config(monkeypatch):
+    import main
+
+    reset_runtime_state()
+    monkeypatch.setenv("LLM_BASE_URL", "http://base-llm.test/v1")
+    monkeypatch.setattr("backend.app.services.url_safety.socket.getaddrinfo", public_dns_result)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
+    settings["model_services"][0]["endpoint"] = "http://demo-reason.test/v1"
+    settings["model_services"][0]["default"] = True
+    settings["model_services"][0]["status"] = "异常"
+
+    response = client.put("/api/settings", headers=ADMIN_HEADERS, json=settings)
+    assert response.status_code == 200
+
+    config = main.load_config()
+
+    assert config["llm"]["base_url"] != "http://demo-reason.test/v1"
 
 
 def test_named_model_service_test_updates_persisted_status(monkeypatch):
