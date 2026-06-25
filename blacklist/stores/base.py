@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Final
 
 from pymilvus import DataType, MilvusClient
+from pymilvus.exceptions import ErrorCode, MilvusException
 
 EmbeddingFn = Callable[[str], list[float] | Awaitable[list[float]]]
 INTERNAL_VECTOR_FIELD: Final = "_storage_vector"
@@ -90,10 +91,20 @@ class MilvusBaseStore:
         if not rows:
             return 0
         self.ensure_collection()
-        result = self._client.upsert(
-            collection_name=self.collection_name,
-            data=self._storage_rows(rows),
-        )
+        storage_rows = self._storage_rows(rows)
+        try:
+            result = self._client.upsert(
+                collection_name=self.collection_name,
+                data=storage_rows,
+            )
+        except MilvusException as error:
+            if not self._is_collection_not_found(error):
+                raise
+            self._recreate_collection()
+            result = self._client.upsert(
+                collection_name=self.collection_name,
+                data=storage_rows,
+            )
         self.flush()
         return int(result.get("upsert_count", len(rows)))
 
@@ -107,21 +118,41 @@ class MilvusBaseStore:
         if not filter_expr.strip():
             raise ValueError("Milvus query filter must be non-empty")
         self.ensure_collection()
-        return self._client.query(
-            collection_name=self.collection_name,
-            filter=filter_expr,
-            output_fields=output_fields,
-            limit=limit,
-        )
+        try:
+            return self._client.query(
+                collection_name=self.collection_name,
+                filter=filter_expr,
+                output_fields=output_fields,
+                limit=limit,
+            )
+        except MilvusException as error:
+            if not self._is_collection_not_found(error):
+                raise
+            self._recreate_collection()
+            return self._client.query(
+                collection_name=self.collection_name,
+                filter=filter_expr,
+                output_fields=output_fields,
+                limit=limit,
+            )
 
     def delete_rows(self, filter_expr: str) -> int:
         if not filter_expr.strip():
             raise ValueError("Milvus delete filter must be non-empty")
         self.ensure_collection()
-        result = self._client.delete(
-            collection_name=self.collection_name,
-            filter=filter_expr,
-        )
+        try:
+            result = self._client.delete(
+                collection_name=self.collection_name,
+                filter=filter_expr,
+            )
+        except MilvusException as error:
+            if not self._is_collection_not_found(error):
+                raise
+            self._recreate_collection()
+            result = self._client.delete(
+                collection_name=self.collection_name,
+                filter=filter_expr,
+            )
         self.flush()
         return int(result.get("delete_count", 0))
 
@@ -129,6 +160,14 @@ class MilvusBaseStore:
         flush = getattr(self._client, "flush", None)
         if flush is not None:
             flush(collection_name=self.collection_name)
+
+    def _recreate_collection(self) -> None:
+        self._collection_ready = False
+        self.ensure_collection()
+
+    @staticmethod
+    def _is_collection_not_found(error: MilvusException) -> bool:
+        return error.code == ErrorCode.COLLECTION_NOT_FOUND
 
     def _schema_fields(self) -> list[FieldSpec]:
         fields = self.fields()

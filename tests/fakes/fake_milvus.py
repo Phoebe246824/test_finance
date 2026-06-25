@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from pymilvus.exceptions import ErrorCode, MilvusException
+
 
 class FakeMilvusClient:
     def __init__(self) -> None:
@@ -183,3 +185,57 @@ class FakeMilvusClient:
             for item in inside.split(",")
             if item.strip()
         ]
+
+
+class CollectionNotFoundFakeMilvusClient(FakeMilvusClient):
+    def upsert(
+        self,
+        collection_name: str,
+        data: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        if collection_name not in self.collections:
+            raise self._collection_not_found(collection_name)
+        return super().upsert(collection_name, data)
+
+    def query(
+        self,
+        collection_name: str,
+        filter: str,
+        output_fields: list[str],
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        if collection_name not in self.collections:
+            raise self._collection_not_found(collection_name)
+        return super().query(collection_name, filter, output_fields, limit)
+
+    def delete(self, collection_name: str, filter: str) -> dict[str, int]:
+        if collection_name not in self.collections:
+            raise self._collection_not_found(collection_name)
+        return super().delete(collection_name, filter)
+
+    def search(
+        self,
+        collection_name: str,
+        data: list[list[float]],
+        anns_field: str,
+        filter: str,
+        limit: int,
+        output_fields: list[str],
+    ) -> list[list[dict[str, Any]]]:
+        if collection_name not in self.collections:
+            raise self._collection_not_found(collection_name)
+        return super().search(
+            collection_name,
+            data,
+            anns_field,
+            filter,
+            limit,
+            output_fields,
+        )
+
+    @staticmethod
+    def _collection_not_found(collection_name: str) -> MilvusException:
+        return MilvusException(
+            ErrorCode.COLLECTION_NOT_FOUND,
+            f"collection not found[collection={collection_name}]",
+        )

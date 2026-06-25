@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
 from pymilvus import DataType
+from pymilvus.exceptions import ErrorCode, MilvusException
 
 from blacklist.milvus_client import (
     MilvusConfig,
@@ -12,7 +16,10 @@ from blacklist.stores.factory import (
     events_collection_from_config,
     milvus_collection_names,
 )
-from tests.fakes.fake_milvus import FakeMilvusClient
+from tests.fakes.fake_milvus import (
+    CollectionNotFoundFakeMilvusClient,
+    FakeMilvusClient,
+)
 
 
 class DummyStore(MilvusBaseStore):
@@ -26,6 +33,25 @@ class DummyStore(MilvusBaseStore):
             FieldSpec("name", DataType.VARCHAR, max_length=256),
             FieldSpec("enabled", DataType.BOOL),
         ]
+
+
+class UnexpectedMilvusErrorFakeClient(FakeMilvusClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.query_attempts = 0
+
+    def query(
+        self,
+        collection_name: str,
+        filter: str,
+        output_fields: list[str],
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        self.query_attempts += 1
+        raise MilvusException(
+            ErrorCode.UNEXPECTED_ERROR,
+            "unexpected failure while handling collection not found retry",
+        )
 
 
 def test_milvus_config_from_app_uses_config_values() -> None:
@@ -122,3 +148,57 @@ def test_base_store_adds_internal_vector_for_scalar_only_rows() -> None:
     assert client.rows["dummy_collection"]["D001"]["_storage_vector"] == [0.0, 0.0]
     index_params = client.index_params["dummy_collection"]
     assert index_params is not None
+
+
+def test_base_store_recreates_collection_when_cached_collection_was_dropped_before_query() -> None:
+    client = CollectionNotFoundFakeMilvusClient()
+    store = DummyStore(client=client)
+    store.ensure_collection()
+    client.drop_collection("dummy_collection")
+
+    rows = store.query_rows('dummy_id != ""', ["dummy_id"])
+
+    assert rows == []
+    assert client.has_collection("dummy_collection")
+    assert len(client.create_calls) == 2
+
+
+def test_base_store_recreates_collection_when_cached_collection_was_dropped_before_upsert() -> None:
+    client = CollectionNotFoundFakeMilvusClient()
+    store = DummyStore(client=client)
+    store.ensure_collection()
+    client.drop_collection("dummy_collection")
+
+    count = store.upsert_rows(
+        [{"dummy_id": "D001", "name": "demo", "enabled": True}]
+    )
+
+    assert count == 1
+    assert client.rows["dummy_collection"]["D001"]["name"] == "demo"
+    assert len(client.create_calls) == 2
+
+
+def test_base_store_recreates_collection_when_cached_collection_was_dropped_before_delete() -> None:
+    client = CollectionNotFoundFakeMilvusClient()
+    store = DummyStore(client=client)
+    store.ensure_collection()
+    client.drop_collection("dummy_collection")
+
+    deleted_count = store.delete_rows('dummy_id == "D001"')
+
+    assert deleted_count == 0
+    assert client.has_collection("dummy_collection")
+    assert len(client.create_calls) == 2
+
+
+def test_base_store_reraises_non_collection_not_found_milvus_errors() -> None:
+    client = UnexpectedMilvusErrorFakeClient()
+    store = DummyStore(client=client)
+    store.ensure_collection()
+
+    with pytest.raises(MilvusException) as exc_info:
+        store.query_rows('dummy_id != ""', ["dummy_id"])
+
+    assert exc_info.value.code == ErrorCode.UNEXPECTED_ERROR
+    assert client.query_attempts == 1
+    assert len(client.create_calls) == 1
