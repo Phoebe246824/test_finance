@@ -26,6 +26,16 @@
 
 `output/competition/sentinel_edge_demo_report.json` 只能证明报告结构和金融用例链路格式已经跑通。该报告显示 `gpu_backend=not-detected` 且 endpoint 为外部 API，因此不能作为正式答辩中的 AMD 本机性能或硬件利用证据。正式提交前必须在 AMD Ryzen AI MAX+ 环境重跑并替换相关图表与数值。
 
+## 当前预期数据图说明
+
+当前 `index.html` 中 P8-P12 已先用预期/目标数据绘制了图表与演示缩略画面，用于汇报时说明预期证据形态和最终版画面布局：
+
+- P8：llama.cpp 启动示例已换成实际 `llama-server` ROCm 日志；GPU 资源曲线后续仍需用 AMD 本机 `rocm-smi` 截图覆盖。
+- P9：阶段耗时拆解与原始模型 vs INT4/Q4_K_M 对比图，后续用 evidence collector 或 Plotly 的实测 CSV/JSON 覆盖。
+- P10：四段演示缩略画面，后续用真实 Dashboard / Analyze / Graph / System Status 截图覆盖。
+- P11：脱敏字段对比图，后续用真实日志或接口字段截图覆盖，但必须继续保持 P101/P102 等脱敏编号。
+- P12：业务价值预期指标图，后续只有拿到真实测量、用户验证或合作意向材料后，才能改为实测值或正式价值结论。
+
 ## Slide 内容边界
 
 - Slide 给评委和观众看，只呈现已经可以公开讲述的结论、方法、指标框架和系统价值。

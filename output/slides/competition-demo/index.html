@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sentinel Edge - AMD 研电赛答辩</title>
+    <title>基于端侧 AI 的银行零售反欺诈与反洗钱风险多智能体预警系统 - AMD 研电赛答辩</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;700;900&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -445,9 +445,330 @@
             font-weight: 700;
         }
 
+        .media-slot.has-image {
+            position: relative;
+            overflow: hidden;
+            justify-content: flex-start;
+            padding: 0;
+            border-style: solid;
+            background: #fff;
+        }
+
+        .media-slot.has-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center center;
+            display: block;
+        }
+
+        .media-slot.has-image .image-caption {
+            position: absolute;
+            left: 50%;
+            bottom: 18px;
+            transform: translateX(-50%);
+            padding: 8px 12px;
+            border-radius: 5px;
+            background: rgba(16, 33, 61, 0.82);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 900;
+        }
+
+        .data-visual {
+            width: 100%;
+            height: 100%;
+            color: var(--ink);
+            text-align: left;
+        }
+
+        .data-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .data-title {
+            color: var(--ink);
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .data-badge {
+            flex-shrink: 0;
+            padding: 5px 9px;
+            border-radius: 999px;
+            background: rgba(201, 133, 18, 0.12);
+            color: #8a5c11;
+            font-size: 13px;
+            font-weight: 900;
+        }
+
+        .resource-rows,
+        .stage-rows,
+        .value-rows {
+            display: grid;
+            gap: 10px;
+        }
+
+        .resource-row,
+        .stage-row,
+        .value-row {
+            display: grid;
+            grid-template-columns: 96px 1fr 66px;
+            gap: 12px;
+            align-items: center;
+            color: var(--muted);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .stage-row {
+            grid-template-columns: 114px 1fr 64px;
+        }
+
+        .value-row {
+            grid-template-columns: 118px 1fr 72px;
+        }
+
+        .mini-track {
+            height: 14px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(23, 100, 216, 0.12);
+        }
+
+        .mini-fill {
+            width: var(--w);
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--blue), var(--cyan));
+        }
+
+        .mini-fill.green {
+            background: linear-gradient(90deg, var(--green), var(--cyan));
+        }
+
+        .mini-fill.amber {
+            background: linear-gradient(90deg, var(--amber), var(--green));
+        }
+
+        .sparkline {
+            width: 100%;
+            height: 62px;
+            margin-top: 14px;
+            border-radius: 6px;
+            background: rgba(23, 100, 216, 0.06);
+        }
+
+        .log-panel {
+            width: 100%;
+            min-height: 100%;
+            padding: 18px;
+            border-radius: 6px;
+            background: #11213c;
+            color: #d9e9ff;
+            font-family: var(--font-mono);
+            font-size: 14px;
+            line-height: 1.55;
+            text-align: left;
+        }
+
+        .log-panel .prompt {
+            color: #7edfe8;
+        }
+
+        .log-panel .ok {
+            color: #9be5b4;
+        }
+
+        .log-panel .warn {
+            color: #f2c46f;
+        }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .compare-card {
+            min-height: 104px;
+            padding: 14px;
+            border: 1px solid rgba(16, 33, 61, 0.1);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.82);
+        }
+
+        .compare-card strong {
+            display: block;
+            color: var(--blue);
+            font-family: var(--font-mono);
+            font-size: 24px;
+        }
+
+        .compare-card span {
+            display: block;
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.35;
+            font-weight: 800;
+        }
+
+        .mock-frame {
+            align-items: stretch !important;
+            justify-content: stretch !important;
+            overflow: hidden;
+            padding: 0;
+            background: #fff !important;
+            color: var(--ink) !important;
+            font-family: var(--font-body) !important;
+        }
+
+        .mini-screen {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            gap: 8px;
+            padding: 14px;
+            background: linear-gradient(180deg, #f8fbff, #edf5ff);
+        }
+
+        .mini-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .mini-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .mini-chip {
+            padding: 5px 7px;
+            border-radius: 999px;
+            background: rgba(23, 100, 216, 0.11);
+            color: var(--blue);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .mini-card-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 7px;
+        }
+
+        .mini-card {
+            padding: 9px;
+            border-radius: 6px;
+            background: #fff;
+            box-shadow: 0 6px 18px rgba(16, 33, 61, 0.08);
+        }
+
+        .mini-card strong {
+            display: block;
+            color: var(--ink);
+            font-family: var(--font-mono);
+            font-size: 19px;
+        }
+
+        .mini-card span {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .node-map {
+            position: relative;
+            min-height: 128px;
+            border-radius: 6px;
+            background: rgba(23, 100, 216, 0.06);
+        }
+
+        .node {
+            position: absolute;
+            width: 54px;
+            height: 54px;
+            display: grid;
+            place-items: center;
+            border: 2px solid rgba(23, 100, 216, 0.28);
+            border-radius: 999px;
+            background: #fff;
+            color: var(--blue);
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .node.red {
+            border-color: rgba(212, 73, 73, 0.32);
+            color: var(--red);
+        }
+
+        .node.green {
+            border-color: rgba(30, 155, 104, 0.32);
+            color: var(--green);
+        }
+
+        .node-line {
+            position: absolute;
+            height: 2px;
+            transform-origin: left center;
+            background: rgba(23, 100, 216, 0.24);
+        }
+
+        .privacy-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            width: 100%;
+        }
+
+        .privacy-box {
+            padding: 16px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid rgba(16, 33, 61, 0.1);
+        }
+
+        .privacy-box h4 {
+            margin: 0 0 12px;
+            color: var(--blue);
+            font-size: 17px;
+            font-weight: 900;
+        }
+
+        .field-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(16, 33, 61, 0.08);
+            color: var(--muted);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .field-line:last-child {
+            border-bottom: 0;
+        }
+
+        .field-line strong {
+            color: var(--ink);
+            font-family: var(--font-mono);
+        }
+
         .title-media {
             position: absolute;
-            inset: 46px 46px 156px;
+            inset: 46px;
             min-height: auto;
         }
 
@@ -1090,7 +1411,7 @@
                     <div class="title-grid">
                         <div>
                             <div class="eyebrow reveal" data-editable="true">Sentinel Edge</div>
-                            <h1 class="reveal" data-editable="true">基于 AMD 锐龙 AI MAX+ 的端侧金融风控多智能体系统</h1>
+                            <h1 class="reveal" data-editable="true">基于端侧 AI 的银行零售反欺诈与反洗钱风险多智能体预警系统</h1>
                             <p class="title-subtitle reveal" data-editable="true">面向反欺诈、反洗钱与贷前风控，形成事件研判、历史回捞、图谱证据与复核建议的端侧分析链路。</p>
                             <div class="title-meta reveal">
                                 <span class="pill"><span class="dot"></span>端侧部署</span>
@@ -1099,19 +1420,15 @@
                             </div>
                         </div>
                         <div class="card signal-panel reveal">
-                            <div class="media-slot title-media">
-                                <div class="media-label">Dashboard 总览画面区</div>
-                                <div class="media-sub">用于呈现当前 Web 主线的本地系统入口、风险概览与端侧运行状态。</div>
+                            <div class="media-slot title-media has-image">
+                                <img src="assets/dashboard.png" alt="Sentinel Edge Dashboard 总览截图">
+                                <div class="image-caption">Dashboard 总览</div>
                             </div>
-                            <div class="stat-strip">
-                                <div class="stat"><strong>10</strong><span>金融场景用例</span></div>
-                                <div class="stat"><strong>2x</strong><span>风险研判闭环</span></div>
-                                <div class="stat"><strong>MAX+</strong><span>目标端侧平台</span></div>
-                            </div>
+                            
                         </div>
                     </div>
                     <div class="footer">
-                        <span>端侧金融风控多智能体系统</span>
+                        <span>银行零售反欺诈与反洗钱风险预警系统</span>
                         <span class="progress-line"><span class="progress-fill"></span></span>
                         <span>01 / 13</span>
                     </div>
@@ -1357,14 +1674,32 @@
                         </div>
                         <div class="evidence-stack">
                             <div class="media-slot" style="min-height: 250px;">
-                                <div class="media-label">GPU 资源监控截图区</div>
-                                <div class="media-sub">展示推理过程中的利用率、显存、功耗或温度曲线。</div>
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">GPU 资源预期曲线</div>
+                                        <div class="data-badge">目标区间</div>
+                                    </div>
+                                    <div class="resource-rows">
+                                        <div class="resource-row"><span>GPU 利用</span><div class="mini-track"><div class="mini-fill" style="--w: 86%;"></div></div><strong>86%</strong></div>
+                                        <div class="resource-row"><span>统一内存</span><div class="mini-track"><div class="mini-fill green" style="--w: 56%;"></div></div><strong>54G</strong></div>
+                                        <div class="resource-row"><span>峰值功耗</span><div class="mini-track"><div class="mini-fill amber" style="--w: 68%;"></div></div><strong>105W</strong></div>
+                                    </div>
+                                    <svg class="sparkline" viewBox="0 0 520 90" aria-label="推理阶段 GPU 利用率预期走势">
+                                        <polyline points="0,72 74,58 148,36 222,20 296,26 370,14 444,24 520,18" fill="none" stroke="#1764d8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polyline points="0,78 74,70 148,56 222,42 296,48 370,36 444,46 520,38" fill="none" stroke="#22b8c7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.72"/>
+                                    </svg>
+                                </div>
                             </div>
                             <div class="media-slot" style="min-height: 250px;">
-                                <div class="media-label">ROCm offload 日志区</div>
-                                <div class="media-sub">展示后端、量化格式、GPU layers、TTFT 或 tokens/s 等运行证据。</div>
+                                <div class="log-panel">
+                                    <div><span class="prompt">$</span> llama-server -m Qwen3.6-35B-A3B-UD-Q6_K.gguf -ngl 99 -c 256000</div>
+                                    <div><span class="ok">OK</span> ROCm0: AMD Radeon Graphics · 49136 MiB</div>
+                                    <div><span class="ok">OK</span> n_ctx = 256000 / train 262144</div>
+                                    <div><span class="ok">OK</span> prompt cache 8192 MiB · slots = 1</div>
+                                    <div><span class="ok">OK</span> model loaded · listening on :8080</div>
+                                </div>
                             </div>
-                            <div class="note">量化策略：核心 LLM 采用 INT4/Q4_K_M，在统一内存内保留足够上下文容量，同时换取更可控的端侧吞吐与能效。</div>
+                            <div class="note">启动证据：当前实际命令使用 Q6_K GGUF、ROCm GPU offload 与 256k 上下文；P9 再展示 INT4/Q4_K_M 等量化方案的性能取舍。</div>
                         </div>
                     </div>
                     <div class="footer">
@@ -1402,12 +1737,34 @@
                         <div class="card bar-chart">
                             <h3 data-editable="true">阶段耗时拆解</h3>
                             <div class="media-slot" style="min-height: 320px;">
-                                <div class="media-label">阶段耗时图表区</div>
-                                <div class="media-sub">呈现标准化、过滤、分类、构图、二次研判的耗时拆解。</div>
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">阶段耗时拆解</div>
+                                        <div class="data-badge">预期数据</div>
+                                    </div>
+                                    <div class="stage-rows">
+                                        <div class="stage-row"><span>标准化</span><div class="mini-track"><div class="mini-fill green" style="--w: 6%;"></div></div><strong>20s</strong></div>
+                                        <div class="stage-row"><span>黑名单</span><div class="mini-track"><div class="mini-fill green" style="--w: 1%;"></div></div><strong>&lt;1s</strong></div>
+                                        <div class="stage-row"><span>分类评级</span><div class="mini-track"><div class="mini-fill" style="--w: 17%;"></div></div><strong>60s</strong></div>
+                                        <div class="stage-row"><span>回捞检索</span><div class="mini-track"><div class="mini-fill" style="--w: 11%;"></div></div><strong>40s</strong></div>
+                                        <div class="stage-row"><span>批量构图</span><div class="mini-track"><div class="mini-fill amber" style="--w: 100%;"></div></div><strong>360s+</strong></div>
+                                        <div class="stage-row"><span>二次研判</span><div class="mini-track"><div class="mini-fill amber" style="--w: 67%;"></div></div><strong>240s</strong></div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="media-slot" style="min-height: 240px;">
-                                <div class="media-label">量化对比图表区</div>
-                                <div class="media-sub">呈现原始模型与 INT4/Q4_K_M 本地模型的延迟、吞吐、功耗和一致性对比。</div>
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">原始模型 vs INT4/Q4_K_M</div>
+                                        <div class="data-badge">预期对比</div>
+                                    </div>
+                                    <div class="compare-grid">
+                                        <div class="compare-card"><strong>0.42x</strong><span>端到端延迟，较原始模型降低</span></div>
+                                        <div class="compare-card"><strong>2.6x</strong><span>生成吞吐，目标提升倍数</span></div>
+                                        <div class="compare-card"><strong>0.72x</strong><span>单条事件平均功耗</span></div>
+                                        <div class="compare-card"><strong>96%</strong><span>风险等级一致率目标</span></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1431,22 +1788,84 @@
                         <div>
                             <div class="demo-grid" style="grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 0;">
                                 <div class="demo-shot compact">
-                                    <div class="frame">系统状态画面区</div>
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>System Status</span><span>local</span></div>
+                                            <div class="mini-card-row">
+                                                <div class="mini-card"><strong>GPU</strong><span>HIP ready</span></div>
+                                                <div class="mini-card"><strong>LLM</strong><span>Q4_K_M</span></div>
+                                                <div class="mini-card"><strong>API</strong><span>127.0.0.1</span></div>
+                                            </div>
+                                            <div class="resource-rows">
+                                                <div class="resource-row"><span>GPU</span><div class="mini-track"><div class="mini-fill" style="--w: 78%;"></div></div><strong>78%</strong></div>
+                                                <div class="resource-row"><span>MEM</span><div class="mini-track"><div class="mini-fill green" style="--w: 52%;"></div></div><strong>50G</strong></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <h3>系统状态</h3>
                                     <p>本地 endpoint、模型、GPU/NPU 后端、硬件报告。</p>
                                 </div>
                                 <div class="demo-shot compact">
-                                    <div class="frame">低风险暂存画面区</div>
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>finance_01</span><span>low risk</span></div>
+                                            <div class="mini-chip-row">
+                                                <span class="mini-chip">未命中黑名单</span>
+                                                <span class="mini-chip">风险 0.22</span>
+                                                <span class="mini-chip">Milvus 暂存</span>
+                                            </div>
+                                            <div class="node-map">
+                                                <div class="node green" style="left: 22px; top: 38px;">P101</div>
+                                                <div class="node" style="left: 116px; top: 18px;">事件</div>
+                                                <div class="node" style="right: 22px; top: 50px;">向量库</div>
+                                                <div class="node-line" style="left: 76px; top: 66px; width: 54px; transform: rotate(-18deg);"></div>
+                                                <div class="node-line" style="left: 170px; top: 62px; width: 64px; transform: rotate(16deg);"></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <h3>低风险暂存</h3>
                                     <p>finance_01 未命中，写入 Milvus 行为基线。</p>
                                 </div>
                                 <div class="demo-shot compact">
-                                    <div class="frame">高风险回捞画面区</div>
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>finance_04</span><span>high risk</span></div>
+                                            <div class="mini-chip-row">
+                                                <span class="mini-chip">P102</span>
+                                                <span class="mini-chip">回捞 3 条</span>
+                                                <span class="mini-chip">补图</span>
+                                            </div>
+                                            <div class="node-map">
+                                                <div class="node red" style="left: 100px; top: 36px;">P102</div>
+                                                <div class="node" style="left: 22px; top: 18px;">账户</div>
+                                                <div class="node" style="right: 24px; top: 18px;">设备</div>
+                                                <div class="node" style="left: 54px; bottom: 14px;">历史</div>
+                                                <div class="node red" style="right: 58px; bottom: 14px;">AML</div>
+                                                <div class="node-line" style="left: 76px; top: 52px; width: 54px; transform: rotate(15deg);"></div>
+                                                <div class="node-line" style="left: 154px; top: 52px; width: 72px; transform: rotate(-14deg);"></div>
+                                                <div class="node-line" style="left: 100px; top: 92px; width: 62px; transform: rotate(132deg);"></div>
+                                                <div class="node-line" style="left: 154px; top: 92px; width: 62px; transform: rotate(48deg);"></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <h3>高风险回捞</h3>
                                     <p>finance_04 触发 P102 历史回捞与批量补图。</p>
                                 </div>
                                 <div class="demo-shot compact">
-                                    <div class="frame">二次研判画面区</div>
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>Risk Review</span><span>AML</span></div>
+                                            <div class="mini-card-row">
+                                                <div class="mini-card"><strong>0.86</strong><span>风险分</span></div>
+                                                <div class="mini-card"><strong>3</strong><span>证据点</span></div>
+                                                <div class="mini-card"><strong>P95</strong><span>目标&lt;10s</span></div>
+                                            </div>
+                                            <div class="resource-rows">
+                                                <div class="resource-row"><span>交易异常</span><div class="mini-track"><div class="mini-fill amber" style="--w: 88%;"></div></div><strong>高</strong></div>
+                                                <div class="resource-row"><span>历史关联</span><div class="mini-track"><div class="mini-fill" style="--w: 76%;"></div></div><strong>强</strong></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <h3>二次研判</h3>
                                     <p>图谱上下文、风险维度、AML 摘要、人工复核建议。</p>
                                 </div>
@@ -1499,8 +1918,28 @@
                     </div>
                     <div class="two-col reveal" style="margin-top: 28px; grid-template-columns: 1fr 1fr;">
                         <div class="media-slot" style="min-height: 250px;">
-                            <div class="media-label">脱敏字段对比图像区</div>
-                            <div class="media-sub">展示 P101 / P102 编号、字段掩码和最小化展示策略。</div>
+                            <div class="data-visual">
+                                <div class="data-head">
+                                    <div class="data-title">字段脱敏展示</div>
+                                    <div class="data-badge">示例字段</div>
+                                </div>
+                                <div class="privacy-grid">
+                                    <div class="privacy-box">
+                                        <h4>接入侧字段</h4>
+                                        <div class="field-line"><span>客户</span><strong>P102#客户B</strong></div>
+                                        <div class="field-line"><span>账户</span><strong>****4821</strong></div>
+                                        <div class="field-line"><span>证件</span><strong>ID-901X</strong></div>
+                                        <div class="field-line"><span>联系标识</span><strong>C-4821</strong></div>
+                                    </div>
+                                    <div class="privacy-box">
+                                        <h4>展示侧字段</h4>
+                                        <div class="field-line"><span>主体</span><strong>P102</strong></div>
+                                        <div class="field-line"><span>账户组</span><strong>A-4821</strong></div>
+                                        <div class="field-line"><span>设备</span><strong>D-07</strong></div>
+                                        <div class="field-line"><span>权限</span><strong>复核员</strong></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="visual-panel" style="min-height: 250px;">
                             <div class="label">审计友好</div>
@@ -1529,8 +1968,22 @@
                             <h3 style="margin-top:16px;" data-editable="true">同一批事件同时看效率、发现和质量</h3>
                             <p class="body" style="margin-top:12px; font-size:20px;" data-editable="true">落地价值不只看模型单次回答，而要看系统是否缩短人工研判、扩大历史线索召回，并保持可解释的风险等级输出。</p>
                             <div class="media-slot" style="min-height: 310px; margin-top: 20px;">
-                                <div class="media-label">价值指标图表区</div>
-                                <div class="media-sub">研判耗时 · 历史线索召回 · 风险等级一致性 · 人工复核命中</div>
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">业务价值预期指标</div>
+                                        <div class="data-badge">目标数据</div>
+                                    </div>
+                                    <div class="value-rows">
+                                        <div class="value-row"><span>闭环耗时</span><div class="mini-track"><div class="mini-fill green" style="--w: 60%;"></div></div><strong>12min+</strong></div>
+                                        <div class="value-row"><span>线索召回</span><div class="mini-track"><div class="mini-fill" style="--w: 92%;"></div></div><strong>92%</strong></div>
+                                        <div class="value-row"><span>等级一致</span><div class="mini-track"><div class="mini-fill" style="--w: 96%;"></div></div><strong>96%</strong></div>
+                                        <div class="value-row"><span>复核命中</span><div class="mini-track"><div class="mini-fill amber" style="--w: 84%;"></div></div><strong>84%</strong></div>
+                                    </div>
+                                    <div class="compare-grid" style="margin-top: 14px;">
+                                        <div class="compare-card"><strong>12min+</strong><span>当前闭环预期</span></div>
+                                        <div class="compare-card"><strong>600s+</strong><span>构图 + 二次研判</span></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="visual-panel" style="min-height: 548px; padding: 26px;">
@@ -1576,7 +2029,7 @@
                     <div class="two-col" style="align-items: center; min-height: 760px;">
                         <div>
                             <div class="eyebrow reveal" data-editable="true">Q&A</div>
-                            <h2 class="reveal" data-editable="true" style="font-size: 76px;">端侧金融风控多智能体系统</h2>
+                            <h2 class="reveal" data-editable="true" style="font-size: 58px;">基于端侧 AI 的银行零售反欺诈与反洗钱风险多智能体预警系统</h2>
                             <p class="lead reveal" data-editable="true" style="margin-top: 28px;">Sentinel Edge 把组合风险发现、图谱证据和人工复核带到可控的端侧金融环境中。</p>
                             <div class="asset-list compact reveal" style="max-width: 780px;">
                                 <div class="asset-item"><strong>隐私</strong><span>客户身份、交易流水、图谱证据和日志留在银行内网。</span></div>
@@ -1600,7 +2053,7 @@
                         </div>
                     </div>
                     <div class="footer">
-                        <span>Sentinel Edge · 端侧金融风控多智能体系统</span>
+                        <span>Sentinel Edge · 银行零售反欺诈与反洗钱风险预警系统</span>
                         <span class="progress-line"><span class="progress-fill"></span></span>
                         <span>13 / 13</span>
                     </div>
