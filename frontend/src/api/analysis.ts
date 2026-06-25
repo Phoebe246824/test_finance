@@ -61,6 +61,11 @@ export async function analyzeText(
   const task = await createAnalysisTask(text)
   onTaskUpdate?.(task)
 
+  // Re-check after await in case abort happened during POST
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+
   return new Promise((resolve, reject) => {
     let token = ''
     try {
@@ -145,12 +150,15 @@ export async function analyzeText(
               event_similarity: data.event_similarity || {},
             },
             graph_result: null,
-            second_risk_applied: false,
+            second_risk_applied: data.second_risk_applied ?? false,
             dimension_scores: data.dimension_scores || {},
             trend_report: data.trend_report || {},
           } as AnalyzeResult)
-        }).catch((err) => {
-          if (err?.name === 'CanceledError' || err?.name === 'AbortError') return
+        })        .catch((err) => {
+          if (err?.name === 'CanceledError' || err?.name === 'AbortError') {
+            reject(new DOMException('Aborted', 'AbortError'))
+            return
+          }
           reject(new Error('分析完成但事件详情未找到，请刷新事件库'))
         })
       }

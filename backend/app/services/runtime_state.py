@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL_STATUSES = frozenset({"success", "failed"})
 _TASK_TTL_SECONDS = 3600
+_STUCK_TASK_TIMEOUT = 600
 
 
 @dataclass(slots=True)
@@ -144,6 +145,18 @@ class RuntimeState:
             for tid, finished in list(self._task_finished_at.items()):
                 if now - finished > ttl:
                     removed.append(tid)
+            for tid, task in list(self.tasks.items()):
+                if task.get("status") not in _TERMINAL_STATUSES:
+                    created_at = task.get("created_at", "")
+                    if created_at:
+                        try:
+                            from datetime import datetime as _dt
+                            created_ts = _dt.fromisoformat(created_at).timestamp()
+                            if now - created_ts > _STUCK_TASK_TIMEOUT:
+                                removed.append(tid)
+                        except (ValueError, TypeError):
+                            pass
+            removed = list(dict.fromkeys(removed))
             for tid in removed:
                 for q in self._subscribers.pop(tid, ()):
                     notify.append((tid, q))

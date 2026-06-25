@@ -20,6 +20,7 @@ export const useWorkbenchStore = defineStore('workbench', {
   actions: {
     setAnalysisResult(result: any) {
       this.analysisResult = result
+      if (result == null) return
       this.analysisHistory = [
         {
           event_id: result.event_id,

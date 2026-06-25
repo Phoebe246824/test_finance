@@ -94,6 +94,9 @@ async def stream_task(
     async def generate():
         q = runtime_state.subscribe_task(task_id)
         try:
+            if runtime_state.get_task(task_id) is None:
+                q.put_nowait(None)
+                return
             while True:
                 if await request.is_disconnected():
                     break
