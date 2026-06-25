@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,10 +21,39 @@ from backend.app.api import (
     routes_system,
 )
 from backend.app.core.config import settings
+from backend.app.services.runtime_state import runtime_state
+
+logger = logging.getLogger(__name__)
+
+_CLEANUP_INTERVAL = 300
+
+
+async def _periodic_task_cleanup() -> None:
+    while True:
+        await asyncio.sleep(_CLEANUP_INTERVAL)
+        try:
+            removed = runtime_state.cleanup_stale_tasks()
+            if removed:
+                logger.info("Periodic cleanup: removed %d stale tasks", removed)
+        except Exception:
+            logger.exception("Error in periodic task cleanup")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    task = asyncio.create_task(_periodic_task_cleanup())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name)
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),

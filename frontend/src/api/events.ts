@@ -10,8 +10,8 @@ export async function getEvent(eventId: string) {
   return data
 }
 
-export async function getEventGraph(eventId: string) {
-  const { data } = await http.get(`/api/graph/events/${eventId}`)
+export async function getEventGraph(eventId: string, signal?: AbortSignal) {
+  const { data } = await http.get(`/api/graph/events/${eventId}`, { signal })
   return data
 }
 
