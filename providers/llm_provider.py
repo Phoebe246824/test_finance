@@ -33,6 +33,62 @@ _TIER_ENV_PREFIXES: dict[str, str] = {
 REASON_MAX_ATTEMPTS = int(os.getenv("REASON_MAX_ATTEMPTS") or "2")
 REASON_MAX_STEPS = int(os.getenv("REASON_MAX_STEPS") or "4")
 
+_TIER_SERVICE_TYPES: dict[str, list[str]] = {
+    "extract": ["大语言模型"],
+    "reason": ["大语言模型"],
+}
+RUNNABLE_MODEL_STATUS = "运行中"
+
+
+def _settings_model_params() -> dict[str, float | int]:
+    try:
+        from backend.app.services.settings_service import load_app_settings
+        settings, _ = load_app_settings()
+        raw = settings.get("model_params") or {}
+        return _coerce_model_params(raw)
+    except Exception:
+        return {}
+
+
+def _coerce_model_params(raw: object) -> dict[str, float | int]:
+    if not isinstance(raw, dict):
+        return {}
+    coerced: dict[str, float | int] = {}
+    for key in ("maxTokens", "timeout", "concurrency"):
+        value = raw.get(key)
+        if isinstance(value, int) and value > 0:
+            coerced[key] = value
+    for key in ("temperature", "topP", "repetitionPenalty"):
+        value = raw.get(key)
+        if isinstance(value, int | float):
+            coerced[key] = float(value)
+    return coerced
+
+
+def _settings_service_endpoint(service_type: str) -> str | None:
+    try:
+        from backend.app.services.settings_service import load_app_settings
+        settings, _ = load_app_settings()
+        services = settings.get("model_services") or []
+        candidates = [
+            s for s in services
+            if s.get("type") == service_type and s.get("status") == RUNNABLE_MODEL_STATUS
+        ]
+        if not candidates:
+            return None
+        default_svc = next((s for s in candidates if s.get("default")), candidates[0])
+        return default_svc.get("endpoint") or None
+    except Exception:
+        return None
+
+
+def _tier_service_endpoint(tier: str) -> str | None:
+    for service_type in _TIER_SERVICE_TYPES.get(tier, []):
+        endpoint = _settings_service_endpoint(service_type)
+        if endpoint:
+            return endpoint
+    return None
+
 
 def _tier_for_stage(stage: str) -> str:
     """返回 stage 对应的模型档位，未知 stage 直接失败。"""
@@ -54,7 +110,8 @@ def _tier_env(tier: str, name: str) -> str | None:
 def _stage_llm_config(stage: str) -> dict[str, str]:
     """解析 stage 对应的 OpenAI-compatible LLM 连接配置。"""
     tier = _tier_for_stage(stage)
-    base_url = _tier_env(tier, "BASE_URL")
+    settings_endpoint = _tier_service_endpoint(tier)
+    base_url = settings_endpoint or _tier_env(tier, "BASE_URL")
     if not base_url:
         logger.warning(
             "LLM stage %s is falling back to default cloud LLM base_url "
@@ -69,17 +126,25 @@ def _stage_llm_config(stage: str) -> dict[str, str]:
     }
 
 
-def get_siliconflow_llm(model=None, temperature=0.7, api_key=None, base_url=None):
+def get_siliconflow_llm(model=None, temperature=None, api_key=None, base_url=None):
     """获取硅基流动或 OpenAI-compatible LLM 实例。"""
     if not model:
         model = os.getenv("LLM_MODEL") or "gpt-4o"
+    params = _settings_model_params()
+    llm_temperature = (
+        float(temperature)
+        if temperature is not None
+        else float(params.get("temperature", 0.7))
+    )
     llm = LLM(
         model=model,
-        max_completion_tokens=8192,
-        top_p=0.85,
+        max_completion_tokens=int(params.get("maxTokens", 8192)),
+        top_p=float(params.get("topP", 0.85)),
         api_key=api_key or os.getenv("LLM_API_KEY") or "",
         base_url=base_url or os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1",
-        temperature=temperature,
+        temperature=llm_temperature,
+        timeout=int(params.get("timeout", 60)),
+        frequency_penalty=float(params.get("repetitionPenalty", 0.0)),
         provider="openai",
     )
     _ACTIVE_LLMS.append(llm)
@@ -91,7 +156,7 @@ def get_llm_for(stage: str, temperature: float | None = None) -> LLM:
     llm_config = _stage_llm_config(stage)
     return get_siliconflow_llm(
         model=llm_config["model"],
-        temperature=0.7 if temperature is None else temperature,
+        temperature=temperature,
         api_key=llm_config["api_key"],
         base_url=llm_config["base_url"],
     )

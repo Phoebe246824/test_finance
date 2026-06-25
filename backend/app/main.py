@@ -16,9 +16,13 @@ from backend.app.api import (
     routes_dashboard,
     routes_events,
     routes_graph,
+    routes_model_services,
+    routes_notifications,
     routes_risk_rules,
     routes_settings,
     routes_system,
+    routes_users,
+    routes_webhook,
 )
 from backend.app.core.config import settings
 from backend.app.services.runtime_state import runtime_state
@@ -34,7 +38,7 @@ async def _periodic_task_cleanup() -> None:
         try:
             removed = runtime_state.cleanup_stale_tasks()
             if removed:
-                logger.info("Periodic cleanup: removed %d stale tasks", removed)
+                logger.info("Periodic cleanup removed %d stale tasks", removed)
         except Exception:
             logger.exception("Error in periodic task cleanup")
 
@@ -72,6 +76,10 @@ def create_app() -> FastAPI:
     app.include_router(routes_risk_rules.router)
     app.include_router(routes_settings.router)
     app.include_router(routes_system.router)
+    app.include_router(routes_users.router)
+    app.include_router(routes_webhook.router)
+    app.include_router(routes_model_services.router)
+    app.include_router(routes_notifications.router)
     return app
 
 

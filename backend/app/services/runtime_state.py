@@ -9,9 +9,11 @@ from datetime import datetime
 from threading import RLock
 from typing import Any
 
+from backend.app.services.settings_storage import load_settings_file, save_settings_file
+
 logger = logging.getLogger(__name__)
 
-_TERMINAL_STATUSES = frozenset({"success", "failed"})
+_TERMINAL_STATUSES = frozenset({"success", "failed", "cancelled"})
 _TASK_TTL_SECONDS = 3600
 _STUCK_TASK_TIMEOUT = 1800
 
@@ -65,12 +67,18 @@ class RuntimeState:
 
     def load_settings(self, default_value: dict[str, Any]) -> tuple[dict[str, Any], str]:
         with self._lock:
+            if self.settings is None:
+                stored = load_settings_file()
+                if stored is not None:
+                    self.settings = deepcopy(stored.settings)
+                    self.settings_updated_at = stored.updated_at
             return deepcopy(self.settings or default_value), self.settings_updated_at
 
     def save_settings(self, value: dict[str, Any]) -> tuple[dict[str, Any], str]:
         with self._lock:
             self.settings = deepcopy(value)
             self.settings_updated_at = self.now_text()
+            save_settings_file(self.settings, self.settings_updated_at)
             return deepcopy(self.settings), self.settings_updated_at
 
     def load_risk_rules(self, default_value: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -141,7 +149,7 @@ class RuntimeState:
         now = time.monotonic()
         now_epoch = time.time()
         removed: list[str] = []
-        notify: list[tuple[str, asyncio.Queue[dict[str, Any] | None]]] = []
+        notify: list[asyncio.Queue[dict[str, Any] | None]] = []
         with self._lock:
             for tid, finished in list(self._task_finished_at.items()):
                 if now - finished > ttl:
@@ -158,11 +166,10 @@ class RuntimeState:
                             pass
             removed = list(dict.fromkeys(removed))
             for tid in removed:
-                for q in self._subscribers.pop(tid, ()):
-                    notify.append((tid, q))
+                notify.extend(self._subscribers.pop(tid, ()))
                 self.tasks.pop(tid, None)
                 self._task_finished_at.pop(tid, None)
-        for _tid, q in notify:
+        for q in notify:
             try:
                 try:
                     q.get_nowait()

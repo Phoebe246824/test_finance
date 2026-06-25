@@ -325,6 +325,9 @@ h3 {
   font-size: 19px;
   font-weight: 850;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand span {
@@ -332,6 +335,9 @@ h3 {
   display: block;
   font-size: 12px;
   margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .auth-card {
@@ -635,10 +641,12 @@ h3 {
 
 .login-hero h1 {
   color: #10265c;
-  font-size: 43px;
+  font-size: clamp(26px, 5vw, 43px);
   font-weight: 900;
   line-height: 1.12;
   margin: 0;
+  max-width: min(680px, calc(100vw - 32px));
+  overflow-wrap: anywhere;
 }
 
 .login-hero p {
@@ -646,6 +654,8 @@ h3 {
   font-size: 23px;
   font-weight: 500;
   margin: 0;
+  max-width: min(680px, calc(100vw - 32px));
+  overflow-wrap: anywhere;
 }
 
 .login-hero span {
@@ -819,6 +829,10 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.justify-end {
+  justify-content: flex-end;
 }
 
 .panel {
@@ -1932,8 +1946,24 @@ td strong {
   padding: 0;
 }
 
+.action-spaced {
+  margin-left: 18px;
+}
+
 .status-ok {
   color: var(--success);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.status-danger {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.status-muted {
+  color: var(--muted);
   font-size: 12px;
   font-weight: 850;
 }
@@ -2122,10 +2152,6 @@ td strong {
   gap: 12px;
 }
 
-.model-running {
-  color: #13a56a;
-}
-
 .top-user-actions {
   align-items: center;
   color: #152d57;
@@ -2179,7 +2205,7 @@ td strong {
 .model-param-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .model-param-grid label {
@@ -2294,6 +2320,20 @@ td strong {
   grid-template-columns: 38px 150px 90px minmax(0, 1fr) 48px 48px;
   min-height: 58px;
   padding: 10px 14px;
+}
+
+.notification-target-input {
+  width: 200px;
+}
+
+.inline-check {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.align-right {
+  text-align: right;
 }
 
 .notification-row:last-child {

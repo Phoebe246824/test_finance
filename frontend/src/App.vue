@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAppSettingsStore } from './stores/appSettings'
 import { useAuthStore } from './stores/auth'
 
 const auth = useAuthStore()
+const appSettings = useAppSettingsStore()
 const router = useRouter()
 const loginUsername = ref('admin')
 const loginPassword = ref('admin')
@@ -48,6 +50,7 @@ async function login() {
       throw new Error('账号或密码错误')
     }
     await auth.login('sentinel-admin-token')
+    await appSettings.load()
     await router.push('/dashboard')
   } catch (err: any) {
     authError.value = err?.response?.data?.detail || err?.message || '登录失败'
@@ -55,6 +58,10 @@ async function login() {
     loggingIn.value = false
   }
 }
+
+onMounted(() => {
+  if (auth.isLoggedIn) appSettings.load().catch(() => undefined)
+})
 </script>
 
 <template>
@@ -65,8 +72,8 @@ async function login() {
           <img src="/sentinel-edge-logo.svg" alt="Sentinel Edge logo" />
         </div>
         <div>
-          <strong>Sentinel Edge</strong>
-          <span>金融风控智能体系统</span>
+          <strong>{{ appSettings.appName }}</strong>
+          <span>{{ appSettings.appDescription }}</span>
         </div>
       </div>
       <nav class="nav-list">
@@ -153,8 +160,8 @@ async function login() {
       <div class="login-mark">
         <img src="/sentinel-edge-logo.svg" alt="Sentinel Edge logo" />
       </div>
-      <h1>Sentinel Edge</h1>
-      <p>金融风控智能体系统</p>
+      <h1>{{ appSettings.appName }}</h1>
+      <p>{{ appSettings.appDescription }}</p>
       <span>AI 驱动 · 端侧部署 · 智能风控</span>
     </div>
     <div class="login-panel">
@@ -180,6 +187,6 @@ async function login() {
       <p v-if="authError" class="sidebar-error">{{ authError }}</p>
       <p class="login-admin-tip">还没有账号？联系系统管理员</p>
     </div>
-    <p class="login-footer">© 2026 Sentinel Edge 金融风控智能体系统<br />保留所有权利</p>
+    <p class="login-footer">© 2026 {{ appSettings.appName }}<br />保留所有权利</p>
   </div>
 </template>

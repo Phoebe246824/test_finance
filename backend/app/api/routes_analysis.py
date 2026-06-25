@@ -28,7 +28,7 @@ async def analyze(
     payload: AnalyzeRequest,
     user: CurrentUser = Depends(require_roles("admin", "reviewer")),
 ) -> dict:
-    result = await AnalysisService().analyze(payload.text)
+    result = await AnalysisService().analyze(payload.text, actor=user)
     write_audit_log(
         actor=user,
         action="analysis.sync",
@@ -47,7 +47,7 @@ async def create_analysis_task(
 ) -> dict:
     service = TaskService()
     task_id = service.create_analysis_task()
-    background_tasks.add_task(service.run_analysis_task, task_id, payload.text)
+    background_tasks.add_task(service.run_analysis_task, task_id, payload.text, user)
     write_audit_log(
         actor=user,
         action="analysis.enqueue",
@@ -66,6 +66,23 @@ async def get_analysis_task(
     task = TaskService().get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
+    return task
+
+
+@router.delete("/tasks/{task_id}")
+async def cancel_analysis_task(
+    task_id: str,
+    user: CurrentUser = Depends(require_roles("admin", "reviewer")),
+) -> dict:
+    task = TaskService().cancel_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    write_audit_log(
+        actor=user,
+        action="analysis.cancel",
+        resource_type="analysis_task",
+        resource_id=task_id,
+    )
     return task
 
 
@@ -105,15 +122,15 @@ async def stream_task(
                 except asyncio.TimeoutError:
                     if await request.is_disconnected():
                         break
-                    task = runtime_state.get_task(task_id)
-                    if task is None:
+                    current = runtime_state.get_task(task_id)
+                    if current is None:
                         break
-                    yield {"event": "update", "data": json.dumps(task)}
+                    yield {"event": "update", "data": json.dumps(current)}
                     continue
                 if snapshot is None:
                     break
                 yield {"event": "update", "data": json.dumps(snapshot)}
-                if snapshot.get("status") in ("success", "failed"):
+                if snapshot.get("status") in ("success", "failed", "cancelled"):
                     break
         except asyncio.CancelledError:
             pass

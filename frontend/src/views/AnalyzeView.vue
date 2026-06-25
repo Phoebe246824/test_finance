@@ -7,10 +7,13 @@ import BlacklistHitPanel from '../components/BlacklistHitPanel.vue'
 import GraphViewer from '../components/GraphViewer.vue'
 import PipelineProgressCard from '../components/PipelineProgressCard.vue'
 import TrendReportPanel from '../components/TrendReportPanel.vue'
+import { useAppSettingsStore } from '../stores/appSettings'
 import { useWorkbenchStore } from '../stores/workbench'
+import { formatSystemDate } from './settings/helpers'
 import { effectiveRiskLevel, riskRuleText, riskScoreText } from '../utils/risk'
 
 const store = useWorkbenchStore()
+const appSettings = useAppSettingsStore()
 const text = computed({
   get: () => store.analysisText,
   set: (value) => {
@@ -293,9 +296,9 @@ function downloadReport() {
 function downloadExperimentReport() {
   if (!demoRunRecords.value.length) return
   const lines = [
-    '# Sentinel Edge 金融 Demo 实验报告',
+    `# ${appSettings.appName} 金融 Demo 实验报告`,
     '',
-    `生成时间：${new Date().toLocaleString()}`,
+    `生成时间：${formatSystemDate(new Date(), appSettings.systemConfig)}`,
     '',
     '| 用例 | 风险等级 | 风险分数 | 事件类型 | 耗时(ms) | 图谱规模 | 黑名单决策 | 二次评估 |',
     '|---|---|---:|---|---:|---|---|---|',
@@ -331,9 +334,9 @@ function downloadExperimentReport() {
 function downloadBatchReport() {
   if (!batchRecords.value.length) return
   const lines = [
-    '# Sentinel Edge 批量事件分析报告',
+    `# ${appSettings.appName} 批量事件分析报告`,
     '',
-    `生成时间：${new Date().toLocaleString()}`,
+    `生成时间：${formatSystemDate(new Date(), appSettings.systemConfig)}`,
     `事件数量：${batchRecords.value.length}`,
     '',
     '| 序号 | 事件 | 风险等级 | 风险分数 | 事件类型 | 耗时(ms) | 黑名单决策 | 图谱规模 |',

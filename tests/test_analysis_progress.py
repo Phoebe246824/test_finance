@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi import BackgroundTasks
@@ -35,6 +37,13 @@ def test_created_analysis_task_exposes_initial_pipeline_stage() -> None:
     assert task["stage_index"] == 0
     assert task["stage_total"] > 0
     assert task["stage_detail"]
+
+
+@pytest.fixture(autouse=True)
+def reset_tasks() -> None:
+    runtime_state.tasks.clear()
+    runtime_state._subscribers.clear()
+    runtime_state._task_finished_at.clear()
 
 
 class FakeBackgroundTasks(BackgroundTasks):
@@ -249,7 +258,64 @@ async def test_analysis_service_passes_progress_callback_to_pipeline(
 
 
 @pytest.mark.asyncio
-async def test_update_task_signals_event_subscriber() -> None:
+async def test_task_cancel_keeps_cancelled_status_after_worker_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+
+    class FakeAnalysisService:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+        ) -> dict[str, str]:
+            assert progress_callback is not None
+            progress_callback(
+                pipeline_progress("single_graph", "单条构图", 4, "正在写入图谱")
+            )
+            service.cancel_task(task_id)
+            return {"event_id": "E-CANCELLED"}
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+
+    await service.run_analysis_task(task_id, "客户 P102 疑似高危交易")
+
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "cancelled"
+    assert task["event_id"] is None
+    assert task["stage_key"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_task_cancel_keeps_cancelled_status_after_worker_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+
+    class FakeAnalysisService:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+        ) -> dict[str, str]:
+            service.cancel_task(task_id)
+            raise RuntimeError("late failure after cancel")
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+
+    await service.run_analysis_task(task_id, "客户 P102 疑似高危交易")
+
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "cancelled"
+    assert task["stage_key"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_update_task_signals_subscriber_and_cleanup_notifies_removal() -> None:
     service = TaskService()
     task_id = service.create_analysis_task()
     q = runtime_state.subscribe_task(task_id)
@@ -259,11 +325,21 @@ async def test_update_task_signals_event_subscriber() -> None:
         assert initial is not None
         assert initial["status"] == "queued"
 
-        service._mark_running(task_id)
+        running = pipeline_progress("single_graph", "单条构图", 4, "正在写入图谱")
+        service._update_progress(task_id, running)
         updated = await asyncio.wait_for(q.get(), timeout=1.0)
-
         assert updated is not None
-        assert updated["status"] == "running"
+        assert updated["stage_key"] == "single_graph"
+
+        service.cancel_task(task_id)
+        cancelled = await asyncio.wait_for(q.get(), timeout=1.0)
+        assert cancelled is not None
+        assert cancelled["status"] == "cancelled"
+
+        removed = runtime_state.cleanup_stale_tasks(ttl=-1)
+        assert removed == 1
+        assert await asyncio.wait_for(q.get(), timeout=1.0) is None
+        assert service.get_task(task_id) is None
     finally:
         runtime_state.unsubscribe_task(task_id, q)
 
@@ -273,7 +349,12 @@ def test_sse_stream_yields_task_updates(monkeypatch: pytest.MonkeyPatch) -> None
     client = TestClient(app)
 
     class FakeAnalysisService:
-        async def analyze(self, text: str, progress_callback=None) -> dict:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+            actor: CurrentUser | None = None,
+        ) -> dict[str, str]:
             if progress_callback:
                 progress_callback(
                     pipeline_progress("single_graph", "单条构图", 4, "写入图谱")
@@ -301,3 +382,82 @@ def test_sse_stream_yields_task_updates(monkeypatch: pytest.MonkeyPatch) -> None
     assert len(updates) >= 1
     assert updates[-1]["task_id"] == task_id
     assert updates[-1]["status"] == "success"
+
+
+def test_cleanup_stale_tasks_removes_stuck_nonterminal_tasks() -> None:
+    service = TaskService()
+    task_id = service.create_analysis_task()
+    old_started_at = (datetime.now() - timedelta(hours=2)).isoformat(timespec="seconds")
+    runtime_state.update_task(task_id, {"started_at": old_started_at, "status": "running"})
+
+    removed = runtime_state.cleanup_stale_tasks()
+
+    assert removed == 1
+    assert service.get_task(task_id) is None
+
+
+@pytest.mark.asyncio
+async def test_analysis_tasks_respect_saved_model_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TaskService()
+    first_task = service.create_analysis_task()
+    second_task = service.create_analysis_task()
+    active = 0
+    max_active = 0
+    started: list[str] = []
+
+    class FakeAnalysisService:
+        async def analyze(
+            self,
+            text: str,
+            progress_callback: ProgressCallback | None = None,
+            actor: CurrentUser | None = None,
+        ) -> dict[str, str]:
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            started.append(text)
+            await asyncio.sleep(0.02)
+            active -= 1
+            return {"event_id": text}
+
+    monkeypatch.setattr(task_service, "AnalysisService", FakeAnalysisService)
+    monkeypatch.setattr(task_service, "model_concurrency_limit", lambda: 1)
+
+    started_at = time.perf_counter()
+    await asyncio.gather(
+        service.run_analysis_task(first_task, "E-1"),
+        service.run_analysis_task(second_task, "E-2"),
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert started == ["E-1", "E-2"]
+    assert max_active == 1
+    assert elapsed >= 0.04
+
+
+@pytest.mark.asyncio
+async def test_app_lifespan_runs_stale_task_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    import backend.app.main as app_main
+
+    calls = 0
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(delay: float) -> None:
+        await original_sleep(0)
+
+    class FakeRuntimeState:
+        def cleanup_stale_tasks(self) -> int:
+            nonlocal calls
+            calls += 1
+            return 0
+
+    monkeypatch.setattr(app_main, "_CLEANUP_INTERVAL", 0.001)
+    monkeypatch.setattr(app_main.asyncio, "sleep", fast_sleep)
+    monkeypatch.setattr(app_main, "runtime_state", FakeRuntimeState())
+
+    app = app_main.create_app()
+    async with app.router.lifespan_context(app):
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    assert calls >= 1

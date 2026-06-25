@@ -38,8 +38,6 @@ export type ManagedUser = {
 export type DataManagement = {
   summary: Array<{ label: string; value: string }>
   retentionDays: number
-  cleanupTime: string
-  cleanupEnabled: boolean
 }
 
 export type NotificationChannel = {
@@ -66,4 +64,29 @@ export async function getAppSettings() {
 export async function updateAppSettings(settings: AppSettings) {
   const { data } = await http.put('/api/settings', settings)
   return data as { settings: AppSettings; updated_at: string }
+}
+
+export async function updateSystemConfig(systemConfig: SystemConfig) {
+  const { data } = await http.put('/api/settings/system-config', systemConfig)
+  return data as { settings: AppSettings; updated_at: string }
+}
+
+export async function updateModelParams(modelParams: ModelParams) {
+  const { data } = await http.put('/api/settings/model-params', modelParams)
+  return data as { settings: AppSettings; updated_at: string }
+}
+
+export async function updateDataManagement(dataManagement: DataManagement) {
+  const { data } = await http.put('/api/settings/data-management', dataManagement)
+  return data as { settings: AppSettings; updated_at: string }
+}
+
+export async function updateNotificationEvents(notificationEvents: string[]) {
+  const { data } = await http.put('/api/settings/notification-events', notificationEvents)
+  return data as { settings: AppSettings; updated_at: string }
+}
+
+export async function runDataManagementCleanup() {
+  const { data } = await http.post('/api/settings/data-management/cleanup')
+  return data as { enabled: boolean; deleted: number; status: string }
 }

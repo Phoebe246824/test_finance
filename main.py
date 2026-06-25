@@ -38,6 +38,7 @@ try:
 except Exception:
     pass
 
+from backend.app.services.model_runtime_config import apply_model_services_to_config
 from blacklist.filter import BlacklistFilter
 from blacklist.stores.events_store import EventsStore
 from blacklist.stores.runtime import get_runtime_store_bundle
@@ -124,6 +125,11 @@ def load_config() -> dict:
             "model": os.getenv("EMBEDDER_MODEL") or "BAAI/bge-m3",
             "api_key": os.getenv("EMBEDDER_API_KEY") or os.getenv("LLM_API_KEY") or "",
             "api_base": os.getenv("EMBEDDER_API_BASE") or "https://api.openai.com/v1",
+        },
+        "reranker": {
+            "model": os.getenv("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3",
+            "api_key": os.getenv("RERANKER_API_KEY") or os.getenv("LLM_API_KEY") or "",
+            "base_url": os.getenv("RERANKER_BASE_URL") or "",
         },
         "graphiti": {
             "episode_source_name": os.getenv("GRAPHITI_EPISODE_SOURCE") or "sentinel",
@@ -224,6 +230,7 @@ def load_config() -> dict:
             )
         },
     }
+    config = apply_model_services_to_config(config)
     logger = get_logger("main.config")
     logger.info(
         "config loaded: neo4j=%s, milvus=%s, llm=%s, embedder=%s",
@@ -353,8 +360,14 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
             model_score = None
 
     has_dimension_input = bool(dimension_scores)
-    final_score = calculated_score if has_dimension_input else (model_score or calculated_score)
+    has_model_score = model_score is not None
+    final_score = model_score if has_model_score else calculated_score
     final_level = _risk_level_from_score(final_score, config)
+    score_source = (
+        "model_reported"
+        if has_model_score
+        else ("calculated" if has_dimension_input else "calculated_no_model_score")
+    )
 
     return {
         "risk_level": final_level,
@@ -365,9 +378,7 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         "model_reported_risk_score": model_score_raw,
         "model_reported_risk_level": result_dict.get("risk_level"),
         "risk_thresholds": _risk_thresholds(config),
-        "risk_score_source": "calculated"
-        if has_dimension_input
-        else "model_reported_no_dimensions",
+        "risk_score_source": score_source,
         "reasoning": result_dict.get("reasoning", ""),
     }
 
@@ -425,7 +436,7 @@ async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
 
     # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
-    llm = get_llm_for("classify", 0.3)
+    llm = get_llm_for("classify")
 
     type_classifier = Agent(
         llm=llm,
@@ -506,7 +517,7 @@ async def evaluate_risk(
     logger = get_logger("main.risk_evaluation")
 
     # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
-    llm = get_llm_for("risk_first", 0.1)
+    llm = get_llm_for("risk_first")
 
     risk_evaluator = Agent(
         llm=llm,
@@ -589,7 +600,7 @@ async def second_evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    llm = get_llm_for("risk_second", 0.1)
+    llm = get_llm_for("risk_second")
 
     risk_evaluator = Agent(
         llm=llm,
@@ -1098,7 +1109,7 @@ async def simulate_dashboard(
 ) -> dict:
     logger = get_logger("main.dashboard")
 
-    llm = get_llm_for("dashboard", 0.3)
+    llm = get_llm_for("dashboard")
 
     event = normalized_event
     reranked_edges = results.get("reranked_edges", []) if results else []
@@ -1268,7 +1279,7 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
     raw_content = payload.get("data", json.dumps(payload))
 
     try:
-        llm = get_llm_for("normalize", 0.3)
+        llm = get_llm_for("normalize")
         agent = create_normalizer_agent(llm)
         task = create_normalize_task(agent, raw_content)
 
@@ -1330,13 +1341,15 @@ async def rerank_historical_candidates(
     query: str,
     candidates: list[dict],
     min_score: float,
+    config: dict | None = None,
 ) -> dict[str, tuple[bool, str, float]]:
     if not candidates:
         return {}
 
-    api_key = os.getenv("RERANKER_API_KEY", "")
-    base_url = os.getenv("RERANKER_BASE_URL", "")
-    model = os.getenv("RERANKER_MODEL", "")
+    reranker_config = (config or {}).get("reranker", {})
+    api_key = reranker_config.get("api_key") or os.getenv("RERANKER_API_KEY", "")
+    base_url = reranker_config.get("base_url") or os.getenv("RERANKER_BASE_URL", "")
+    model = reranker_config.get("model") or os.getenv("RERANKER_MODEL", "")
     if not api_key or not base_url or not model:
         return {
             candidate.get("event_id", str(index)): (
@@ -1454,6 +1467,7 @@ async def batch_graph_event_with_related_stash(
                     normalized_event.raw_content,
                     rerank_candidate_events,
                     rerank_min_score,
+                    config,
                 )
             else:
                 rerank_results = {
