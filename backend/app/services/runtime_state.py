@@ -139,6 +139,7 @@ class RuntimeState:
 
     def cleanup_stale_tasks(self, ttl: float = _TASK_TTL_SECONDS) -> int:
         now = time.monotonic()
+        now_epoch = time.time()
         removed: list[str] = []
         notify: list[tuple[str, asyncio.Queue[dict[str, Any] | None]]] = []
         with self._lock:
@@ -150,9 +151,8 @@ class RuntimeState:
                     created_at = task.get("created_at", "")
                     if created_at:
                         try:
-                            from datetime import datetime as _dt
-                            created_ts = _dt.fromisoformat(created_at).timestamp()
-                            if now - created_ts > _STUCK_TASK_TIMEOUT:
+                            created_ts = datetime.fromisoformat(created_at).timestamp()
+                            if now_epoch - created_ts > _STUCK_TASK_TIMEOUT:
                                 removed.append(tid)
                         except (ValueError, TypeError):
                             pass

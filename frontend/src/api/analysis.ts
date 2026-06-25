@@ -11,6 +11,8 @@ export interface AnalyzeResult {
   blacklist: Record<string, unknown>
   graph_result?: Record<string, unknown> | null
   second_risk_applied: boolean
+  dimension_scores?: Record<string, number>
+  trend_report?: Record<string, unknown>
 }
 
 export interface PipelineProgress {
@@ -154,7 +156,8 @@ export async function analyzeText(
             dimension_scores: data.dimension_scores || {},
             trend_report: data.trend_report || {},
           } as AnalyzeResult)
-        })        .catch((err) => {
+        })
+        .catch((err) => {
           if (err?.name === 'CanceledError' || err?.name === 'AbortError') {
             reject(new DOMException('Aborted', 'AbortError'))
             return
