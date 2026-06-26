@@ -82,6 +82,49 @@ def test_get_llm_for_prefers_tier_specific_endpoint(monkeypatch):
     assert risk_llm.base_url == 'http://reason-llm.test/v1'
 
 
+def test_get_llm_for_prefers_passed_web_runtime_config_over_env(monkeypatch):
+    llm_provider = reload_provider(
+        monkeypatch,
+        {
+            'LLM_EXTRACT_MODEL': 'env-extract-model',
+            'LLM_EXTRACT_API_KEY': 'env-extract-key',
+            'LLM_EXTRACT_BASE_URL': 'http://env-extract.test/v1',
+            'LLM_REASON_MODEL': 'env-reason-model',
+            'LLM_REASON_API_KEY': 'env-reason-key',
+            'LLM_REASON_BASE_URL': 'http://env-reason.test/v1',
+            'REASON_MAX_ATTEMPTS': '2',
+            'REASON_MAX_STEPS': '4',
+        },
+    )
+    config = {
+        'llm': {
+            'model': 'web-base-model',
+            'api_key': 'web-base-key',
+            'base_url': 'http://web-base.test/v1',
+        },
+        'llm_extract': {
+            'model': 'web-extract-model',
+            'api_key': 'web-extract-key',
+            'base_url': 'http://web-extract.test/v1',
+        },
+        'llm_reason': {
+            'model': 'web-reason-model',
+            'api_key': 'web-reason-key',
+            'base_url': 'http://web-reason.test/v1',
+        },
+    }
+
+    classify_llm = llm_provider.get_llm_for('classify', config=config)
+    risk_llm = llm_provider.get_llm_for('risk_first', config=config)
+
+    assert classify_llm.model == 'web-extract-model'
+    assert classify_llm.api_key == 'web-extract-key'
+    assert classify_llm.base_url == 'http://web-extract.test/v1'
+    assert risk_llm.model == 'web-reason-model'
+    assert risk_llm.api_key == 'web-reason-key'
+    assert risk_llm.base_url == 'http://web-reason.test/v1'
+
+
 def test_get_llm_for_warns_when_falling_back_to_default_cloud_base_url(
     monkeypatch, caplog
 ):
@@ -135,3 +178,16 @@ def test_reasoning_kwargs_default_to_two_attempts_and_four_steps(monkeypatch):
     planning_config = llm_provider.reasoning_kwargs_for('risk_first')['planning_config']
     assert planning_config.max_attempts == 2
     assert planning_config.max_steps == 4
+
+
+def test_reasoning_kwargs_prefers_passed_web_runtime_config(monkeypatch):
+    llm_provider = reload_provider(
+        monkeypatch,
+        {'REASON_MAX_ATTEMPTS': '9', 'REASON_MAX_STEPS': '8'},
+    )
+    config = {'reasoning': {'max_attempts': 3, 'max_steps': 5}}
+
+    planning_config = llm_provider.reasoning_kwargs_for('risk_first', config=config)['planning_config']
+
+    assert planning_config.max_attempts == 3
+    assert planning_config.max_steps == 5

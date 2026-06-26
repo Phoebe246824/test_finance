@@ -12,12 +12,12 @@ from backend.app.services.settings_service import load_app_settings
 
 def _text(runtime_config: dict[str, RuntimeValue], env: str, default: str = "") -> str:
     value = runtime_config.get(env)
-    return value if isinstance(value, str) else default
+    return value if isinstance(value, str) and value else default
 
 
 def _secret(runtime_config: dict[str, RuntimeValue], env: str, default: str = "") -> str:
-    value = _text(runtime_config, env, default)
-    if value:
+    value = runtime_config.get(env)
+    if isinstance(value, str) and value:
         return value
     return os.getenv(env) or default
 
@@ -82,6 +82,44 @@ def load_web_runtime_config() -> dict[str, Any]:
             "api_key": _secret(runtime_config, "LLM_API_KEY"),
             "base_url": _text(runtime_config, "LLM_BASE_URL", "https://api.openai.com/v1"),
             "model": _text(runtime_config, "LLM_MODEL", "gpt-4o"),
+        },
+        "llm_extract": {
+            "api_key": _secret(
+                runtime_config,
+                "LLM_EXTRACT_API_KEY",
+                _secret(runtime_config, "LLM_API_KEY"),
+            ),
+            "base_url": _text(
+                runtime_config,
+                "LLM_EXTRACT_BASE_URL",
+                _text(runtime_config, "LLM_BASE_URL", "https://api.openai.com/v1"),
+            ),
+            "model": _text(
+                runtime_config,
+                "LLM_EXTRACT_MODEL",
+                _text(runtime_config, "LLM_MODEL", "gpt-4o"),
+            ),
+        },
+        "llm_reason": {
+            "api_key": _secret(
+                runtime_config,
+                "LLM_REASON_API_KEY",
+                _secret(runtime_config, "LLM_API_KEY"),
+            ),
+            "base_url": _text(
+                runtime_config,
+                "LLM_REASON_BASE_URL",
+                _text(runtime_config, "LLM_BASE_URL", "https://api.openai.com/v1"),
+            ),
+            "model": _text(
+                runtime_config,
+                "LLM_REASON_MODEL",
+                _text(runtime_config, "LLM_MODEL", "gpt-4o"),
+            ),
+        },
+        "reasoning": {
+            "max_attempts": _integer(runtime_config, "REASON_MAX_ATTEMPTS", 2),
+            "max_steps": _integer(runtime_config, "REASON_MAX_STEPS", 4),
         },
         "embedder": {
             "model": _text(runtime_config, "EMBEDDER_MODEL", "BAAI/bge-m3"),
@@ -198,7 +236,7 @@ def load_web_runtime_config() -> dict[str, Any]:
             )
         },
     }
-    return apply_model_services_to_config(config)
+    return apply_model_services_to_config(config, override_existing=False)
 
 
 __all__ = ["load_web_runtime_config"]

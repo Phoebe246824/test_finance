@@ -17,8 +17,9 @@ class FakeCrewResult:
 
 class StageRecorder:
     def __init__(self) -> None:
-        self.llm_stages: list[str] = []
-        self.reasoning_stages: list[str] = []
+        self.llm_calls: list[tuple[str, dict[str, Any]]] = []
+        self.reasoning_calls: list[tuple[str, dict[str, Any]]] = []
+        self.classifier_configs: list[dict[str, Any]] = []
         self.agent_kwargs: list[dict[str, Any]] = []
 
 
@@ -75,12 +76,12 @@ def _sample_event() -> NormalizedEvent:
 def stage_recorder(monkeypatch: pytest.MonkeyPatch) -> StageRecorder:
     recorder = StageRecorder()
 
-    def fake_get_llm_for(stage: str) -> str:
-        recorder.llm_stages.append(stage)
+    def fake_get_llm_for(stage: str, *, config: dict[str, Any] | None = None) -> str:
+        recorder.llm_calls.append((stage, config or {}))
         return f"llm:{stage}"
 
-    def fake_reasoning_kwargs_for(stage: str) -> dict[str, str]:
-        recorder.reasoning_stages.append(stage)
+    def fake_reasoning_kwargs_for(stage: str, *, config: dict[str, Any] | None = None) -> dict[str, str]:
+        recorder.reasoning_calls.append((stage, config or {}))
         return {"planning_config": f"planning:{stage}"}
 
     def fake_agent(**kwargs: Any) -> FakeAgent:
@@ -96,6 +97,22 @@ def stage_recorder(monkeypatch: pytest.MonkeyPatch) -> StageRecorder:
         return FakeTask(name="trend", **kwargs)
 
     class FakeEventClassifier:
+        def __init__(
+            self,
+            use_rerank: bool = True,
+            rerank_base_url: str | None = None,
+            rerank_api_key: str | None = None,
+            rerank_model: str | None = None,
+        ) -> None:
+            recorder.classifier_configs.append(
+                {
+                    "use_rerank": use_rerank,
+                    "base_url": rerank_base_url,
+                    "api_key": rerank_api_key,
+                    "model": rerank_model,
+                }
+            )
+
         async def classify_with_severity(self, text: str) -> tuple[str, float, str, float]:
             return ("finance", 1.0, "high", 1.0)
 
@@ -121,18 +138,21 @@ def stage_recorder(monkeypatch: pytest.MonkeyPatch) -> StageRecorder:
 async def test_main_uses_semantic_stage_router_for_classification_and_normalization(
     stage_recorder: StageRecorder,
 ) -> None:
-    await main.classify_event({}, _sample_event())
+    config = {"llm": {"model": "web-base"}}
+
+    await main.classify_event(config, _sample_event())
     await main.normalize_payload_to_event(
         {"data": "客户 P102 向虚拟币商户分拆转账"},
-        {},
+        config,
     )
 
-    assert stage_recorder.llm_stages == ["classify", "normalize"]
+    assert [stage for stage, _ in stage_recorder.llm_calls] == ["classify", "normalize"]
+    assert [config for _, config in stage_recorder.llm_calls] == [config, config]
     assert [kwargs["llm"] for kwargs in stage_recorder.agent_kwargs] == [
         "llm:classify",
         "llm:normalize",
     ]
-    assert stage_recorder.reasoning_stages == []
+    assert stage_recorder.reasoning_calls == []
 
 
 @pytest.mark.asyncio
@@ -140,13 +160,38 @@ async def test_main_attaches_reasoning_kwargs_only_to_risk_agents(
     stage_recorder: StageRecorder,
 ) -> None:
     event = _sample_event()
+    config = {
+        "llm": {"model": "web-base"},
+        "reranker": {
+            "base_url": "https://web-reranker.example/v1",
+            "api_key": "web-reranker-key",
+            "model": "web-reranker-model",
+        },
+    }
 
-    await main.evaluate_risk({}, event, {})
-    await main.second_evaluate_risk({}, event, {})
-    await main.simulate_dashboard({}, event, {})
+    await main.evaluate_risk(config, event, {})
+    await main.second_evaluate_risk(config, event, {})
+    await main.simulate_dashboard(config, event, {})
 
-    assert stage_recorder.llm_stages == ["risk_first", "risk_second", "dashboard"]
-    assert stage_recorder.reasoning_stages == ["risk_first", "risk_second"]
+    assert [stage for stage, _ in stage_recorder.llm_calls] == [
+        "risk_first",
+        "risk_second",
+        "dashboard",
+    ]
+    assert [config for _, config in stage_recorder.llm_calls] == [config, config, config]
+    assert [stage for stage, _ in stage_recorder.reasoning_calls] == [
+        "risk_first",
+        "risk_second",
+    ]
+    assert [config for _, config in stage_recorder.reasoning_calls] == [config, config]
     assert stage_recorder.agent_kwargs[0]["planning_config"] == "planning:risk_first"
     assert stage_recorder.agent_kwargs[1]["planning_config"] == "planning:risk_second"
     assert "planning_config" not in stage_recorder.agent_kwargs[2]
+    assert stage_recorder.classifier_configs == [
+        {
+            "use_rerank": True,
+            "base_url": "https://web-reranker.example/v1",
+            "api_key": "web-reranker-key",
+            "model": "web-reranker-model",
+        }
+    ]

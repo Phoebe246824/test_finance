@@ -21,6 +21,11 @@ _FLOAT_ENVS: Final = frozenset(
         "RAGFLOW_TIMEOUT_SECONDS",
     }
 )
+_INT_ENVS: Final = frozenset(
+    {
+        "BLACKLIST_PERSON_MIN_HITS",
+    }
+)
 
 
 def default_scalar_type(raw_default: str) -> str:
@@ -36,6 +41,8 @@ def default_scalar_type(raw_default: str) -> str:
 
 
 def field_scalar_type(field: EnvField) -> str:
+    if field.env in _INT_ENVS:
+        return "int"
     if field.env in _FLOAT_ENVS:
         return "float"
     return default_scalar_type(field.raw_default)

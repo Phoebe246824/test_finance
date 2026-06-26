@@ -34,6 +34,47 @@ def _stored_settings(path: Path) -> dict:
     return settings
 
 
+def test_settings_api_get_filters_legacy_runtime_derived_top_level_keys(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # Given
+    settings_file = tmp_path / "legacy-derived-settings.json"
+    settings_file.write_text(
+        json.dumps(
+            {
+                "settings": {
+                    "runtime_config": {"LLM_MODEL": "legacy-model"},
+                    "llm": {"model": "derived-model"},
+                    "neo4j": {"uri": "bolt://derived"},
+                    "search": {"num_results": 10},
+                    "ragflow": {"enabled": False},
+                },
+                "updated_at": "2026-06-26T19:00:00",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
+    reset_runtime_state()
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    # When
+    response = client.get("/api/settings", headers=ADMIN_HEADERS)
+    settings = response.json()["settings"]
+    put_response = client.put("/api/settings", headers=ADMIN_HEADERS, json=settings)
+
+    # Then
+    assert response.status_code == 200
+    assert "llm" not in settings
+    assert "neo4j" not in settings
+    assert "search" not in settings
+    assert "ragflow" not in settings
+    assert put_response.status_code == 200
+
+
 def test_settings_api_get_exposes_runtime_config_and_metadata() -> None:
     # Given
     reset_runtime_state()
@@ -72,6 +113,24 @@ def test_settings_api_put_persists_runtime_config() -> None:
         "alpha",
         "beta",
     ]
+
+
+def test_settings_api_accepts_blacklist_person_min_hits_as_integer() -> None:
+    # Given
+    reset_runtime_state()
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
+    metadata = {field["env"]: field for field in settings["runtime_config_metadata"]}
+    settings["runtime_config"]["BLACKLIST_PERSON_MIN_HITS"] = 3
+
+    # When
+    response = client.put("/api/settings", headers=ADMIN_HEADERS, json=settings)
+    reloaded = client.get("/api/settings", headers=ADMIN_HEADERS)
+
+    # Then
+    assert metadata["BLACKLIST_PERSON_MIN_HITS"]["scalar_type"] == "int"
+    assert response.status_code == 200
+    assert reloaded.json()["settings"]["runtime_config"]["BLACKLIST_PERSON_MIN_HITS"] == 3
 
 
 def test_settings_api_section_update_preserves_newer_runtime_config() -> None:
@@ -125,6 +184,21 @@ def test_settings_api_rejects_invalid_runtime_config_types() -> None:
     settings["runtime_config"]["RAGFLOW_ENABLED"] = "true"
     settings["runtime_config"]["RAGFLOW_TOP_K"] = "5"
     settings["runtime_config"]["RAGFLOW_DATASET_IDS"] = "alpha,beta"
+
+    # When
+    response = client.put("/api/settings", headers=ADMIN_HEADERS, json=settings)
+
+    # Then
+    assert response.status_code == 422
+
+
+def test_settings_api_rejects_invalid_numeric_runtime_config_domains() -> None:
+    # Given
+    reset_runtime_state()
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
+    settings["runtime_config"]["RAGFLOW_TOP_K"] = -5
+    settings["runtime_config"]["RISK_THRESHOLD"] = 99.0
 
     # When
     response = client.put("/api/settings", headers=ADMIN_HEADERS, json=settings)

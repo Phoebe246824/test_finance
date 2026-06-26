@@ -11,6 +11,9 @@ from backend.app.services.settings_runtime_config import ensure_runtime_settings
 HIDDEN_SETTINGS_RESPONSE_KEYS: Final[frozenset[str]] = frozenset(
     {"runtime_config", "runtime_config_metadata"}
 )
+VISIBLE_SETTINGS_RESPONSE_KEYS: Final[frozenset[str]] = frozenset(
+    set(DEFAULT_SETTINGS) | HIDDEN_SETTINGS_RESPONSE_KEYS
+)
 SECRET_MASK_VALUE: Final = "********"
 
 
@@ -19,7 +22,8 @@ class SettingsResponseView(dict[str, Any]):
         visible = {
             key: value
             for key, value in data.items()
-            if key not in HIDDEN_SETTINGS_RESPONSE_KEYS
+            if key in VISIBLE_SETTINGS_RESPONSE_KEYS
+            and key not in HIDDEN_SETTINGS_RESPONSE_KEYS
         }
         super().__init__(visible)
         self._hidden = {
@@ -71,7 +75,11 @@ def materialize_full_settings(
 
 
 def public_settings_response(settings: dict[str, Any] | SettingsResponseView) -> dict[str, Any]:
-    response = materialize_full_settings(settings)
+    response = {
+        key: value
+        for key, value in materialize_full_settings(settings).items()
+        if key in VISIBLE_SETTINGS_RESPONSE_KEYS
+    }
     runtime_config = response.get("runtime_config")
     if isinstance(runtime_config, dict):
         for env, value in runtime_config.items():

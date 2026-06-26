@@ -37,6 +37,8 @@ def test_web_runtime_config_uses_saved_values_while_cli_load_config_uses_env(
     # Then
     assert web_config["llm"]["model"] == "saved-web-model"
     assert web_config["llm"]["api_key"] == "saved-web-key"
+    assert web_config["llm_extract"]["model"] == "saved-web-model"
+    assert web_config["llm_reason"]["model"] == "saved-web-model"
     assert cli_config["llm"]["model"] == "env-cli-model"
     assert cli_config["llm"]["api_key"] == "env-cli-key"
 
@@ -71,6 +73,28 @@ def test_web_runtime_config_falls_back_to_env_only_for_blank_secret_fields(
     assert web_config["embedder"]["api_key"] == "env-embedder-secret"
     assert web_config["ragflow"]["client"].api_key == "env-ragflow-secret"
     assert web_config["ragflow"]["client"].dataset_ids == ["dataset-a", "dataset-b"]
+
+
+def test_web_runtime_config_keeps_saved_runtime_endpoint_over_default_model_service() -> None:
+    # Given
+    settings, _ = load_app_settings()
+    settings["runtime_config"]["LLM_BASE_URL"] = "https://saved-llm.example/v1"
+    settings["runtime_config"]["LLM_REASON_BASE_URL"] = "https://saved-reason.example/v1"
+    settings["runtime_config"]["LLM_EXTRACT_BASE_URL"] = "https://saved-extract.example/v1"
+    settings["runtime_config"]["RERANKER_BASE_URL"] = "https://saved-reranker.example/v1"
+    save_app_settings(settings)
+    reset_runtime_state()
+
+    # When
+    from backend.app.services.web_runtime_config import load_web_runtime_config
+
+    web_config = load_web_runtime_config()
+
+    # Then
+    assert web_config["llm"]["base_url"] == "https://saved-llm.example/v1"
+    assert web_config["llm_reason"]["base_url"] == "https://saved-reason.example/v1"
+    assert web_config["llm_extract"]["base_url"] == "https://saved-extract.example/v1"
+    assert web_config["reranker"]["base_url"] == "https://saved-reranker.example/v1"
 
 
 @pytest.mark.anyio
@@ -274,6 +298,12 @@ async def test_simulate_dashboard_uses_persisted_web_runtime_config(
     settings["runtime_config"]["RAGFLOW_MAX_CONTEXT_CHARS"] = 1234
     settings["runtime_config"]["RAGFLOW_FAIL_OPEN"] = False
     settings["runtime_config"]["LLM_MODEL"] = "saved-dashboard-model"
+    settings["runtime_config"]["LLM_REASON_MODEL"] = "saved-dashboard-reason-model"
+    settings["runtime_config"]["LLM_REASON_BASE_URL"] = "https://saved-reason.example/v1"
+    settings["runtime_config"]["LLM_REASON_API_KEY"] = "saved-reason-key"
+    settings["runtime_config"]["RERANKER_BASE_URL"] = "https://saved-reranker.example/v1"
+    settings["runtime_config"]["RERANKER_API_KEY"] = "saved-reranker-key"
+    settings["runtime_config"]["RERANKER_MODEL"] = "saved-reranker-model"
     save_app_settings(settings)
     reset_runtime_state()
     monkeypatch.setenv("RAGFLOW_BASE_URL", "https://env-ragflow.example")
@@ -297,6 +327,20 @@ async def test_simulate_dashboard_uses_persisted_web_runtime_config(
         return {"items": []}
 
     class FakeEventClassifier:
+        def __init__(
+            self,
+            use_rerank: bool = True,
+            rerank_base_url: str | None = None,
+            rerank_api_key: str | None = None,
+            rerank_model: str | None = None,
+        ) -> None:
+            captured["classifier_config"] = {
+                "use_rerank": use_rerank,
+                "base_url": rerank_base_url,
+                "api_key": rerank_api_key,
+                "model": rerank_model,
+            }
+
         async def classify_with_severity(self, text: str) -> tuple[str, float, str, float]:
             return ("finance", 1.0, "high", 1.0)
 
@@ -321,7 +365,11 @@ async def test_simulate_dashboard_uses_persisted_web_runtime_config(
         async def kickoff_async(self) -> _FakeCrewResult:
             return _FakeCrewResult(raw="dashboard ok")
 
-    monkeypatch.setattr(main, "get_llm_for", lambda stage: f"llm:{stage}")
+    def fake_get_llm_for(stage: str, *, config: dict[str, Any] | None = None) -> str:
+        captured.setdefault("llm_calls", []).append((stage, config))
+        return f"llm:{stage}:{config['llm_reason']['model'] if config else 'missing'}"
+
+    monkeypatch.setattr(main, "get_llm_for", fake_get_llm_for)
     monkeypatch.setattr(main, "retrieve_financial_knowledge", fake_retrieve_financial_knowledge)
     monkeypatch.setattr(main, "EventClassifier", FakeEventClassifier)
     monkeypatch.setattr(main, "Agent", FakeAgent)
@@ -345,5 +393,16 @@ async def test_simulate_dashboard_uses_persisted_web_runtime_config(
     assert ragflow_config.max_context_chars == 1234
     assert ragflow_config.fail_open is False
     assert captured["analysis_config"]["llm"]["model"] == "saved-dashboard-model"
-    assert captured["agent_llms"] == ["llm:dashboard", "llm:dashboard"]
+    assert captured["analysis_config"]["llm_reason"]["model"] == "saved-dashboard-reason-model"
+    assert captured["llm_calls"] == [("dashboard", config)]
+    assert captured["agent_llms"] == [
+        "llm:dashboard:saved-dashboard-reason-model",
+        "llm:dashboard:saved-dashboard-reason-model",
+    ]
+    assert captured["classifier_config"] == {
+        "use_rerank": True,
+        "base_url": "https://saved-reranker.example/v1",
+        "api_key": "saved-reranker-key",
+        "model": "saved-reranker-model",
+    }
     assert result["report"] == "dashboard ok"

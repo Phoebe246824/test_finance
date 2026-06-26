@@ -60,20 +60,22 @@ def _resolve_graphiti_llm_config(
 ) -> dict[str, str | None]:
     """解析 Graphiti 内部抽取 LLM 配置。
 
-    `main.load_config()` 会携带基础 `LLM_*` 配置传入 Graphiti。这里让
-    `LLM_EXTRACT_*` 优先于传入 config，确保 Graphiti 抽取走 extract 档。
+    Web runtime config 显式传入时优先使用持久化的 extract 档配置；
+    未传入或留空时再回退到环境变量和基础 `LLM_*` 配置。
     """
     llm_config = llm_config or {}
     graphiti_config = graphiti_config or {}
     return {
-        "api_key": os.environ.get("LLM_EXTRACT_API_KEY")
+        "api_key": graphiti_config.get("extract_api_key")
+        or os.environ.get("LLM_EXTRACT_API_KEY")
         or llm_config.get("api_key")
         or LLM_API_KEY,
-        "base_url": os.environ.get("LLM_EXTRACT_BASE_URL")
-        or graphiti_config.get("extract_base_url")
+        "base_url": graphiti_config.get("extract_base_url")
+        or os.environ.get("LLM_EXTRACT_BASE_URL")
         or llm_config.get("base_url")
         or LLM_BASE_URL,
-        "model": os.environ.get("LLM_EXTRACT_MODEL")
+        "model": graphiti_config.get("extract_model")
+        or os.environ.get("LLM_EXTRACT_MODEL")
         or llm_config.get("model")
         or LLM_MODEL,
     }

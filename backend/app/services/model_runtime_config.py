@@ -25,26 +25,63 @@ def active_model_service(
     return next((service for service in candidates if service.get("default")), candidates[0])
 
 
-def apply_model_services_to_config(config: dict[str, Any]) -> dict[str, Any]:
+def _apply_endpoint(
+    target: dict[str, Any],
+    key: str,
+    endpoint: str,
+    *,
+    override_existing: bool,
+) -> None:
+    if override_existing or not target.get(key):
+        target[key] = endpoint
+
+
+def apply_model_services_to_config(
+    config: dict[str, Any],
+    *,
+    override_existing: bool = True,
+) -> dict[str, Any]:
     from backend.app.services.settings_service import load_app_settings
 
     settings, _ = load_app_settings()
     if llm := active_model_service(settings, SERVICE_TYPE_LLM):
-        config["llm"]["base_url"] = str(llm.get("endpoint") or config["llm"]["base_url"])
+        endpoint = str(llm.get("endpoint") or config["llm"]["base_url"])
+        _apply_endpoint(config["llm"], "base_url", endpoint, override_existing=override_existing)
+        if "llm_reason" in config:
+            _apply_endpoint(
+                config["llm_reason"],
+                "base_url",
+                endpoint,
+                override_existing=override_existing,
+            )
     if embedder := active_model_service(settings, SERVICE_TYPE_EMBEDDER):
         config["embedder"]["api_base"] = str(
             embedder.get("endpoint") or config["embedder"]["api_base"]
         )
     if reranker := active_model_service(settings, SERVICE_TYPE_RERANKER):
-        config["reranker"] = {
-            **config.get("reranker", {}),
-            "base_url": str(reranker.get("endpoint") or ""),
-        }
+        config["reranker"] = {**config.get("reranker", {})}
+        _apply_endpoint(
+            config["reranker"],
+            "base_url",
+            str(reranker.get("endpoint") or ""),
+            override_existing=override_existing,
+        )
     if extractor := active_model_service(settings, SERVICE_TYPE_EXTRACT):
-        config["graphiti"] = {
-            **config.get("graphiti", {}),
-            "extract_base_url": str(extractor.get("endpoint") or ""),
-        }
+        endpoint = str(extractor.get("endpoint") or "")
+        config["graphiti"] = {**config.get("graphiti", {})}
+        _apply_endpoint(
+            config["graphiti"],
+            "extract_base_url",
+            endpoint,
+            override_existing=override_existing,
+        )
+        if "llm_extract" in config:
+            _apply_endpoint(
+                config["llm_extract"],
+                "base_url",
+                endpoint,
+                override_existing=override_existing,
+            )
     return config
 
 

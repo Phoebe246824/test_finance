@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Any
 
 from crewai import LLM
 from crewai.agent.planning_config import PlanningConfig
@@ -107,11 +108,31 @@ def _tier_env(tier: str, name: str) -> str | None:
     return os.getenv(f"{prefix}_{name}") or os.getenv(f"LLM_{name}")
 
 
-def _stage_llm_config(stage: str) -> dict[str, str]:
+def _config_text(config: dict[str, Any] | None, section: str, key: str) -> str | None:
+    if not config:
+        return None
+    section_config = config.get(section)
+    if not isinstance(section_config, dict):
+        return None
+    value = section_config.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _tier_config(config: dict[str, Any] | None, tier: str, name: str) -> str | None:
+    key = name.lower()
+    tier_section = f"llm_{tier}"
+    return _config_text(config, tier_section, key) or _config_text(config, "llm", key)
+
+
+def _stage_llm_config(stage: str, config: dict[str, Any] | None = None) -> dict[str, str]:
     """解析 stage 对应的 OpenAI-compatible LLM 连接配置。"""
     tier = _tier_for_stage(stage)
-    settings_endpoint = _tier_service_endpoint(tier)
-    base_url = settings_endpoint or _tier_env(tier, "BASE_URL")
+    settings_endpoint = None if config else _tier_service_endpoint(tier)
+    base_url = (
+        settings_endpoint
+        or _tier_config(config, tier, "BASE_URL")
+        or _tier_env(tier, "BASE_URL")
+    )
     if not base_url:
         logger.warning(
             "LLM stage %s is falling back to default cloud LLM base_url "
@@ -120,8 +141,8 @@ def _stage_llm_config(stage: str) -> dict[str, str]:
             stage,
         )
     return {
-        "model": _tier_env(tier, "MODEL") or "gpt-4o",
-        "api_key": _tier_env(tier, "API_KEY") or "",
+        "model": _tier_config(config, tier, "MODEL") or _tier_env(tier, "MODEL") or "gpt-4o",
+        "api_key": _tier_config(config, tier, "API_KEY") or _tier_env(tier, "API_KEY") or "",
         "base_url": base_url or "https://api.openai.com/v1",
     }
 
@@ -151,9 +172,14 @@ def get_siliconflow_llm(model=None, temperature=None, api_key=None, base_url=Non
     return llm
 
 
-def get_llm_for(stage: str, temperature: float | None = None) -> LLM:
+def get_llm_for(
+    stage: str,
+    temperature: float | None = None,
+    *,
+    config: dict[str, Any] | None = None,
+) -> LLM:
     """按工作流 stage 获取 LLM，call site 只声明语义 stage。"""
-    llm_config = _stage_llm_config(stage)
+    llm_config = _stage_llm_config(stage, config)
     return get_siliconflow_llm(
         model=llm_config["model"],
         temperature=temperature,
@@ -162,15 +188,29 @@ def get_llm_for(stage: str, temperature: float | None = None) -> LLM:
     )
 
 
-def reasoning_kwargs_for(stage: str) -> dict[str, PlanningConfig]:
+def _positive_int(value: Any, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+
+
+def reasoning_kwargs_for(
+    stage: str,
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, PlanningConfig]:
     """返回 CrewAI Agent reasoning 参数；抽取档保持默认关闭。"""
     tier = _tier_for_stage(stage)
     if tier != "reason" or stage == "dashboard":
         return {}
+    reasoning_config = config.get("reasoning", {}) if config else {}
+    max_attempts = REASON_MAX_ATTEMPTS
+    max_steps = REASON_MAX_STEPS
+    if isinstance(reasoning_config, dict):
+        max_attempts = _positive_int(reasoning_config.get("max_attempts"), max_attempts)
+        max_steps = _positive_int(reasoning_config.get("max_steps"), max_steps)
     return {
         "planning_config": PlanningConfig(
-            max_attempts=REASON_MAX_ATTEMPTS,
-            max_steps=REASON_MAX_STEPS,
+            max_attempts=max_attempts,
+            max_steps=max_steps,
         ),
     }
 

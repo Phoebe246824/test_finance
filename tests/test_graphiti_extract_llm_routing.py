@@ -6,7 +6,7 @@ import dotenv
 from graphiti import graphiti_workflow as workflow
 
 
-def test_graphiti_llm_config_prefers_extract_env_over_base_config(monkeypatch):
+def test_graphiti_llm_config_prefers_explicit_graphiti_config_over_extract_env(monkeypatch):
     monkeypatch.setenv('LLM_EXTRACT_API_KEY', 'extract-key')
     monkeypatch.setenv('LLM_EXTRACT_BASE_URL', 'http://extract-llm.test/v1')
     monkeypatch.setenv('LLM_EXTRACT_MODEL', 'extract-model')
@@ -16,13 +16,18 @@ def test_graphiti_llm_config_prefers_extract_env_over_base_config(monkeypatch):
             'api_key': 'base-key-from-config',
             'base_url': 'http://base-config.test/v1',
             'model': 'base-model-from-config',
-        }
+        },
+        {
+            'extract_api_key': 'saved-extract-key',
+            'extract_base_url': 'http://saved-extract.test/v1',
+            'extract_model': 'saved-extract-model',
+        },
     )
 
     assert resolved == {
-        'api_key': 'extract-key',
-        'base_url': 'http://extract-llm.test/v1',
-        'model': 'extract-model',
+        'api_key': 'saved-extract-key',
+        'base_url': 'http://saved-extract.test/v1',
+        'model': 'saved-extract-model',
     }
 
 

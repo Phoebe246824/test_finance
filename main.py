@@ -435,8 +435,7 @@ def format_risk_score(score: float | None) -> str:
 async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
 
-    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
-    llm = get_llm_for("classify")
+    llm = get_llm_for("classify", config=config)
 
     type_classifier = Agent(
         llm=llm,
@@ -516,8 +515,7 @@ async def evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
-    llm = get_llm_for("risk_first")
+    llm = get_llm_for("risk_first", config=config)
 
     risk_evaluator = Agent(
         llm=llm,
@@ -525,7 +523,7 @@ async def evaluate_risk(
         goal="评估事件的风险等级和风险分数",
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",
         verbose=True,
-        **reasoning_kwargs_for("risk_first"),
+        **reasoning_kwargs_for("risk_first", config=config),
     )
 
     related_events = _build_related_events_context(results)
@@ -600,7 +598,7 @@ async def second_evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    llm = get_llm_for("risk_second")
+    llm = get_llm_for("risk_second", config=config)
 
     risk_evaluator = Agent(
         llm=llm,
@@ -608,7 +606,7 @@ async def second_evaluate_risk(
         goal="评估事件的风险等级和风险分数",
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",
         verbose=True,
-        **reasoning_kwargs_for("risk_second"),
+        **reasoning_kwargs_for("risk_second", config=config),
     )
     reranked_edges = results.get("reranked_edges", []) if results else []
     reranked_episodes = results.get("reranked_episodes", []) if results else []
@@ -1109,7 +1107,7 @@ async def simulate_dashboard(
 ) -> dict:
     logger = get_logger("main.dashboard")
 
-    llm = get_llm_for("dashboard")
+    llm = get_llm_for("dashboard", config=config)
 
     event = normalized_event
     reranked_edges = results.get("reranked_edges", []) if results else []
@@ -1150,7 +1148,12 @@ async def simulate_dashboard(
 事件描述: {event.raw_content}
 """
 
-    classifier = EventClassifier()
+    reranker_config = config.get("reranker", {})
+    classifier = EventClassifier(
+        rerank_base_url=reranker_config.get("base_url"),
+        rerank_api_key=reranker_config.get("api_key"),
+        rerank_model=reranker_config.get("model"),
+    )
     (
         category,
         confidence,
@@ -1279,7 +1282,7 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
     raw_content = payload.get("data", json.dumps(payload))
 
     try:
-        llm = get_llm_for("normalize")
+        llm = get_llm_for("normalize", config=config)
         agent = create_normalizer_agent(llm)
         task = create_normalize_task(agent, raw_content)
 
@@ -2012,6 +2015,9 @@ async def process_message_detailed(
         persons_store=stores.persons,
         keywords_store=stores.keywords,
         samples_store=stores.event_samples,
+        similarity_threshold=config.get("blacklist", {}).get(
+            "event_similarity_threshold",
+        ),
     )
 
     report_pipeline_progress(
