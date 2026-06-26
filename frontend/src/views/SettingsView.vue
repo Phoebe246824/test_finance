@@ -5,9 +5,10 @@ import DataManagementTab from './settings/DataManagementTab.vue'
 import ModelSettingsTab from './settings/ModelSettingsTab.vue'
 import NotificationSettingsTab from './settings/NotificationSettingsTab.vue'
 import RiskRulesTab from './settings/RiskRulesTab.vue'
+import RuntimeConfigTab from './settings/RuntimeConfigTab.vue'
 import SystemSettingsTab from './settings/SystemSettingsTab.vue'
 
-const tabs = ['系统设置', '模型设置', '规则配置', '操作日志', '数据管理', '通知设置'] as const
+const tabs = ['系统设置', '模型设置', '规则配置', '完整配置', '操作日志', '数据管理', '通知设置'] as const
 type SettingsTab = (typeof tabs)[number]
 
 const activeTab = ref<SettingsTab>('系统设置')
@@ -71,6 +72,11 @@ function navigate(tab: string): void {
     />
     <RiskRulesTab
       v-else-if="activeTab === '规则配置'"
+      @notice="showNotice"
+      @error="showError"
+    />
+    <RuntimeConfigTab
+      v-else-if="activeTab === '完整配置'"
       @notice="showNotice"
       @error="showError"
     />
