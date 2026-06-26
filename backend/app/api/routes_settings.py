@@ -13,7 +13,7 @@ from backend.app.services.settings_response import (
     public_settings_response,
 )
 from backend.app.services.settings_runtime_catalog import is_list_env, load_env_catalog
-from backend.app.services.settings_runtime_values import default_scalar_type
+from backend.app.services.settings_runtime_values import field_scalar_type
 from backend.app.services.settings_service import (
     load_app_settings,
     save_app_settings,
@@ -26,13 +26,13 @@ RuntimeConfigValue: TypeAlias = bool | int | float | str | list[str]
 
 
 def _runtime_catalog() -> dict[str, str]:
-    return {field.env: field.raw_default for field in load_env_catalog()}
+    return {field.env: field_scalar_type(field) for field in load_env_catalog()}
 
 
-def _runtime_type_matches(env: str, raw_default: str, value: RuntimeConfigValue) -> bool:
+def _runtime_type_matches(env: str, scalar_type: str, value: RuntimeConfigValue) -> bool:
     if is_list_env(env):
         return isinstance(value, list) and all(isinstance(item, str) for item in value)
-    match default_scalar_type(raw_default):
+    match scalar_type:
         case "bool":
             return isinstance(value, bool)
         case "int":
@@ -156,10 +156,10 @@ class AppSettingsPayload(BaseModel):
             return None
         catalog = _runtime_catalog()
         for env, value in runtime_config.items():
-            raw_default = catalog.get(env)
-            if raw_default is None:
+            scalar_type = catalog.get(env)
+            if scalar_type is None:
                 raise ValueError(f"Unsupported runtime config key: {env}")
-            if not _runtime_type_matches(env, raw_default, value):
+            if not _runtime_type_matches(env, scalar_type, value):
                 raise ValueError(f"Invalid runtime config value type for {env}")
         return runtime_config
 

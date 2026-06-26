@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from main import load_config, process_message_detailed
+from main import process_message_detailed
 from pipeline_progress import ProgressCallback
 
 from backend.app.core.security import CurrentUser
@@ -9,6 +9,7 @@ from backend.app.services.notification_service import (
     dispatch_system_notification,
 )
 from backend.app.services.risk_rule_service import apply_rules_to_config, load_risk_rules
+from backend.app.services.web_runtime_config import load_web_runtime_config
 
 SYSTEM_ACTOR = CurrentUser(username="system", role="admin")
 
@@ -22,12 +23,12 @@ class AnalysisService:
     ) -> dict:
         notification_actor = actor or SYSTEM_ACTOR
         try:
+            config = load_web_runtime_config()
+            rules, _ = load_risk_rules()
+            apply_rules_to_config(config, rules)
             if progress_callback is None:
-                result = await process_message_detailed(text)
+                result = await process_message_detailed(text, config)
             else:
-                config = load_config()
-                rules, _ = load_risk_rules()
-                apply_rules_to_config(config, rules)
                 result = await process_message_detailed(text, config, progress_callback)
         except Exception as exc:
             await dispatch_system_notification(

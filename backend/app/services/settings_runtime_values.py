@@ -113,7 +113,7 @@ def coerce_saved_value(field: EnvField, value: object) -> RuntimeValue:
                 return coerce_runtime_value(field, value)
             case _:
                 return default_value
-    match default_scalar_type(field.raw_default):
+    match field_scalar_type(field):
         case "bool":
             return value if isinstance(value, bool) else (
                 coerce_runtime_value(field, value) if isinstance(value, str) else default_value
