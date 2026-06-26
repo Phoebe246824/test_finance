@@ -22,6 +22,15 @@ def _secret(runtime_config: dict[str, RuntimeValue], env: str, default: str = ""
     return os.getenv(env) or default
 
 
+def _stored_secret(
+    runtime_config: dict[str, RuntimeValue],
+    env: str,
+    default: str = "",
+) -> str:
+    value = runtime_config.get(env)
+    return value if isinstance(value, str) and value else default
+
+
 def _integer(runtime_config: dict[str, RuntimeValue], env: str, default: int) -> int:
     value = runtime_config.get(env)
     if isinstance(value, int) and not isinstance(value, bool):
@@ -72,51 +81,34 @@ def load_web_runtime_config() -> dict[str, Any]:
     if not isinstance(runtime_config, dict):
         runtime_config = {}
 
+    llm_api_key = _secret(runtime_config, "LLM_API_KEY")
+    llm_base_url = _text(runtime_config, "LLM_BASE_URL")
+    llm_model = _text(runtime_config, "LLM_MODEL", "gpt-4o")
+    llm_extract = {
+        "api_key": _stored_secret(runtime_config, "LLM_EXTRACT_API_KEY", llm_api_key),
+        "base_url": _text(runtime_config, "LLM_EXTRACT_BASE_URL", llm_base_url),
+        "model": _text(runtime_config, "LLM_EXTRACT_MODEL", llm_model),
+    }
+    llm_reason = {
+        "api_key": _stored_secret(runtime_config, "LLM_REASON_API_KEY", llm_api_key),
+        "base_url": _text(runtime_config, "LLM_REASON_BASE_URL", llm_base_url),
+        "model": _text(runtime_config, "LLM_REASON_MODEL", llm_model),
+    }
+
     config: dict[str, Any] = {
         "neo4j": {
             "uri": _text(runtime_config, "NEO4J_URI", "bolt://localhost:7687"),
             "user": _text(runtime_config, "NEO4J_USER", "neo4j"),
             "password": _secret(runtime_config, "NEO4J_PASSWORD", "pa55w0rd"),
+            "database": _text(runtime_config, "NEO4J_DATABASE", "neo4j"),
         },
         "llm": {
-            "api_key": _secret(runtime_config, "LLM_API_KEY"),
-            "base_url": _text(runtime_config, "LLM_BASE_URL", "https://api.openai.com/v1"),
-            "model": _text(runtime_config, "LLM_MODEL", "gpt-4o"),
+            "api_key": llm_api_key,
+            "base_url": llm_base_url,
+            "model": llm_model,
         },
-        "llm_extract": {
-            "api_key": _secret(
-                runtime_config,
-                "LLM_EXTRACT_API_KEY",
-                _secret(runtime_config, "LLM_API_KEY"),
-            ),
-            "base_url": _text(
-                runtime_config,
-                "LLM_EXTRACT_BASE_URL",
-                _text(runtime_config, "LLM_BASE_URL", "https://api.openai.com/v1"),
-            ),
-            "model": _text(
-                runtime_config,
-                "LLM_EXTRACT_MODEL",
-                _text(runtime_config, "LLM_MODEL", "gpt-4o"),
-            ),
-        },
-        "llm_reason": {
-            "api_key": _secret(
-                runtime_config,
-                "LLM_REASON_API_KEY",
-                _secret(runtime_config, "LLM_API_KEY"),
-            ),
-            "base_url": _text(
-                runtime_config,
-                "LLM_REASON_BASE_URL",
-                _text(runtime_config, "LLM_BASE_URL", "https://api.openai.com/v1"),
-            ),
-            "model": _text(
-                runtime_config,
-                "LLM_REASON_MODEL",
-                _text(runtime_config, "LLM_MODEL", "gpt-4o"),
-            ),
-        },
+        "llm_extract": llm_extract,
+        "llm_reason": llm_reason,
         "reasoning": {
             "max_attempts": _integer(runtime_config, "REASON_MAX_ATTEMPTS", 2),
             "max_steps": _integer(runtime_config, "REASON_MAX_STEPS", 4),
@@ -146,9 +138,9 @@ def load_web_runtime_config() -> dict[str, Any]:
         "graphiti": {
             "episode_source_name": _text(runtime_config, "GRAPHITI_EPISODE_SOURCE", "sentinel"),
             "dry_run": _boolean(runtime_config, "GRAPHITI_DRY_RUN", False),
-            "extract_base_url": _text(runtime_config, "LLM_EXTRACT_BASE_URL"),
-            "extract_model": _text(runtime_config, "LLM_EXTRACT_MODEL"),
-            "extract_api_key": _secret(runtime_config, "LLM_EXTRACT_API_KEY"),
+            "extract_base_url": llm_extract["base_url"],
+            "extract_model": llm_extract["model"],
+            "extract_api_key": llm_extract["api_key"],
         },
         "search": {
             "num_results": _integer(runtime_config, "SEARCH_NUM_RESULTS", 10),
@@ -236,7 +228,16 @@ def load_web_runtime_config() -> dict[str, Any]:
             )
         },
     }
-    return apply_model_services_to_config(config, override_existing=False)
+    config = apply_model_services_to_config(config, override_existing=False)
+    config["llm"]["base_url"] = config["llm"]["base_url"] or "https://api.openai.com/v1"
+    for tier in ("llm_extract", "llm_reason"):
+        config[tier]["api_key"] = config[tier]["api_key"] or config["llm"]["api_key"]
+        config[tier]["base_url"] = config[tier]["base_url"] or config["llm"]["base_url"]
+        config[tier]["model"] = config[tier]["model"] or config["llm"]["model"]
+    config["graphiti"]["extract_api_key"] = config["llm_extract"]["api_key"]
+    config["graphiti"]["extract_base_url"] = config["llm_extract"]["base_url"]
+    config["graphiti"]["extract_model"] = config["llm_extract"]["model"]
+    return config
 
 
 __all__ = ["load_web_runtime_config"]

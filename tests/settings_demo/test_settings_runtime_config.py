@@ -92,6 +92,35 @@ def test_runtime_config_env_overlay_coerces_values_and_exposes_effective_scope(
     assert metadata["SENTINEL_TARGET_PLATFORM"]["effective_scope"] == "display_only"
 
 
+def test_runtime_config_dotenv_overrides_existing_environment_on_first_bootstrap(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # Given
+    settings_file = tmp_path / "dotenv-override-settings.json"
+    dotenv_file = tmp_path / ".env"
+    dotenv_file.write_text("LLM_MODEL=dotenv-web-model\nRAGFLOW_TOP_K=11\n", encoding="utf-8")
+    monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
+    monkeypatch.setenv("LLM_MODEL", "process-env-model")
+    monkeypatch.setenv("RAGFLOW_TOP_K", "3")
+    monkeypatch.setattr(
+        "backend.app.services.settings_runtime_config.ROOT",
+        tmp_path,
+    )
+    reset_runtime_state()
+
+    # When
+    settings, _ = load_app_settings()
+
+    # Then
+    runtime_config = settings["runtime_config"]
+    assert runtime_config["LLM_MODEL"] == "dotenv-web-model"
+    assert runtime_config["RAGFLOW_TOP_K"] == 11
+    stored = _stored_settings(settings_file)["runtime_config"]
+    assert stored["LLM_MODEL"] == "dotenv-web-model"
+    assert stored["RAGFLOW_TOP_K"] == 11
+
+
 def test_runtime_config_env_overlay_accepts_integer_form_float_strings(
     monkeypatch,
     tmp_path,

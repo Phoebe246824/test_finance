@@ -27,7 +27,7 @@ RuntimeMetadata = dict[str, RuntimeValue]
 
 def build_runtime_config(*, use_environment: bool) -> RuntimeConfig:
     if use_environment:
-        load_dotenv(ROOT / ".env", override=False)
+        load_dotenv(ROOT / ".env", override=True)
     config: RuntimeConfig = {}
     for field in load_env_catalog():
         raw_value = os.getenv(field.env) if use_environment else None

@@ -31,6 +31,7 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 NEO4J_URI = os.environ.get("NEO4J_URI") or "bolt://localhost:7687"
 NEO4J_USER = os.environ.get("NEO4J_USER") or "neo4j"
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD") or "pa55w0rd"
+NEO4J_DATABASE = os.environ.get("NEO4J_DATABASE") or "neo4j"
 _BASE_LLM_API_KEY = os.environ.get("LLM_API_KEY")
 _BASE_LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
 _BASE_LLM_MODEL = os.environ.get("LLM_MODEL") or "gpt-4o"
@@ -196,6 +197,7 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
     neo4j_uri = neo4j_config.get("uri", NEO4J_URI)
     neo4j_user = neo4j_config.get("user", NEO4J_USER)
     neo4j_password = neo4j_config.get("password", NEO4J_PASSWORD)
+    neo4j_database = neo4j_config.get("database", NEO4J_DATABASE)
 
     graphiti_llm_config = _resolve_graphiti_llm_config(llm_config, config.get("graphiti", {}))
     llm_api_key = graphiti_llm_config["api_key"]
@@ -255,7 +257,7 @@ async def init_graph_client(config: dict | None = None) -> Graphiti:
             neo4j_uri,
             neo4j_user,
             neo4j_password,
-            database="neo4j",
+            database=neo4j_database,
         ),
     )
 

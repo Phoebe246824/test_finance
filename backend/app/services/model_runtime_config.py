@@ -7,6 +7,7 @@ SERVICE_TYPE_EMBEDDER = "向量模型"
 SERVICE_TYPE_RERANKER = "重排序模型"
 SERVICE_TYPE_EXTRACT = "信息抽取模型"
 RUNNABLE_MODEL_STATUS = "运行中"
+DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
 
 
 def active_model_service(
@@ -36,6 +37,19 @@ def _apply_endpoint(
         target[key] = endpoint
 
 
+def _apply_llm_service_endpoint(
+    target: dict[str, Any],
+    key: str,
+    endpoint: str,
+    *,
+    override_existing: bool,
+) -> None:
+    if target.get(key) == DEFAULT_LLM_BASE_URL:
+        target[key] = endpoint
+        return
+    _apply_endpoint(target, key, endpoint, override_existing=override_existing)
+
+
 def apply_model_services_to_config(
     config: dict[str, Any],
     *,
@@ -46,9 +60,14 @@ def apply_model_services_to_config(
     settings, _ = load_app_settings()
     if llm := active_model_service(settings, SERVICE_TYPE_LLM):
         endpoint = str(llm.get("endpoint") or config["llm"]["base_url"])
-        _apply_endpoint(config["llm"], "base_url", endpoint, override_existing=override_existing)
+        _apply_llm_service_endpoint(
+            config["llm"],
+            "base_url",
+            endpoint,
+            override_existing=override_existing,
+        )
         if "llm_reason" in config:
-            _apply_endpoint(
+            _apply_llm_service_endpoint(
                 config["llm_reason"],
                 "base_url",
                 endpoint,

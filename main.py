@@ -115,6 +115,7 @@ def load_config() -> dict:
             "uri": os.getenv("NEO4J_URI") or "bolt://localhost:7687",
             "user": os.getenv("NEO4J_USER") or "neo4j",
             "password": os.getenv("NEO4J_PASSWORD") or "pa55w0rd",
+            "database": os.getenv("NEO4J_DATABASE") or "neo4j",
         },
         "llm": {
             "api_key": os.getenv("LLM_API_KEY") or "",
