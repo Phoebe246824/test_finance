@@ -13,6 +13,7 @@ import {
   parseListEditorValue,
   serializeListEditorValue,
 } from './helpers'
+import './runtime-config.css'
 
 const emit = defineEmits<{
   notice: [message: string]

@@ -34,6 +34,19 @@ def _stored_settings(path: Path) -> dict:
     return settings
 
 
+def _write_dotenv(monkeypatch, root: Path, values: dict[str, str]) -> None:
+    root.joinpath(".env").write_text(
+        "".join(f"{key}={value}\n" for key, value in values.items()),
+        encoding="utf-8",
+    )
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        "backend.app.services.settings_runtime_config.ROOT",
+        root,
+    )
+
+
 def test_settings_api_get_filters_legacy_runtime_derived_top_level_keys(
     monkeypatch,
     tmp_path,
@@ -246,8 +259,12 @@ def test_settings_api_put_masked_secret_preserves_stored_value(
 ) -> None:
     # Given
     settings_file = tmp_path / "masked-secret-preserve.json"
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {"LLM_API_KEY": "stored-secret-before-mask"},
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("LLM_API_KEY", "stored-secret-before-mask")
     reset_runtime_state()
     client = TestClient(create_app(), raise_server_exceptions=False)
     settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
@@ -270,8 +287,12 @@ def test_settings_api_put_new_secret_updates_storage_and_runtime_loader(
 ) -> None:
     # Given
     settings_file = tmp_path / "new-secret-update.json"
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {"LLM_API_KEY": "bootstrap-secret-before-update"},
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("LLM_API_KEY", "bootstrap-secret-before-update")
     reset_runtime_state()
     client = TestClient(create_app(), raise_server_exceptions=False)
     settings = client.get("/api/settings", headers=ADMIN_HEADERS).json()["settings"]
@@ -297,11 +318,12 @@ def test_settings_api_put_new_secret_updates_storage_and_runtime_loader(
     )
 
 
-def test_settings_service_keeps_raw_secret_values_for_runtime_use(
+def test_settings_service_keeps_raw_dotenv_secret_values_for_runtime_use(
     monkeypatch,
+    tmp_path,
 ) -> None:
     # Given
-    monkeypatch.setenv("LLM_API_KEY", "service-raw-secret")
+    _write_dotenv(monkeypatch, tmp_path, {"LLM_API_KEY": "service-raw-secret"})
     reset_runtime_state()
 
     # When

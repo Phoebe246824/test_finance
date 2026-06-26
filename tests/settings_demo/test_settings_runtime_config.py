@@ -33,6 +33,19 @@ def _stored_settings(path: Path) -> dict:
     return settings
 
 
+def _write_dotenv(monkeypatch, root: Path, values: dict[str, str]) -> None:
+    root.joinpath(".env").write_text(
+        "".join(f"{key}={value}\n" for key, value in values.items()),
+        encoding="utf-8",
+    )
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        "backend.app.services.settings_runtime_config.ROOT",
+        root,
+    )
+
+
 def test_runtime_config_is_persisted_on_first_bootstrap_with_env_example_coverage(
     monkeypatch,
     tmp_path,
@@ -61,13 +74,19 @@ def test_runtime_config_env_overlay_coerces_values_and_exposes_effective_scope(
 ) -> None:
     # Given
     settings_file = tmp_path / "bootstrap-settings.json"
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {
+            "LLM_MODEL": "env-web-model",
+            "RAGFLOW_ENABLED": "true",
+            "RAGFLOW_DATASET_IDS": "alpha,beta",
+            "RAGFLOW_TOP_K": "9",
+            "SEARCH_MIN_SCORE": "0.45",
+            "GRAPHITI_EPISODE_SOURCE": "env-episode-source",
+        },
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("LLM_MODEL", "env-web-model")
-    monkeypatch.setenv("RAGFLOW_ENABLED", "true")
-    monkeypatch.setenv("RAGFLOW_DATASET_IDS", "alpha,beta")
-    monkeypatch.setenv("RAGFLOW_TOP_K", "9")
-    monkeypatch.setenv("SEARCH_MIN_SCORE", "0.45")
-    monkeypatch.setenv("GRAPHITI_EPISODE_SOURCE", "env-episode-source")
     reset_runtime_state()
 
     # When
@@ -98,15 +117,17 @@ def test_runtime_config_dotenv_overrides_existing_environment_on_first_bootstrap
 ) -> None:
     # Given
     settings_file = tmp_path / "dotenv-override-settings.json"
-    dotenv_file = tmp_path / ".env"
-    dotenv_file.write_text("LLM_MODEL=dotenv-web-model\nRAGFLOW_TOP_K=11\n", encoding="utf-8")
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {
+            "LLM_MODEL": "dotenv-web-model",
+            "RAGFLOW_TOP_K": "11",
+        },
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
     monkeypatch.setenv("LLM_MODEL", "process-env-model")
     monkeypatch.setenv("RAGFLOW_TOP_K", "3")
-    monkeypatch.setattr(
-        "backend.app.services.settings_runtime_config.ROOT",
-        tmp_path,
-    )
     reset_runtime_state()
 
     # When
@@ -121,15 +142,75 @@ def test_runtime_config_dotenv_overrides_existing_environment_on_first_bootstrap
     assert stored["RAGFLOW_TOP_K"] == 11
 
 
+def test_runtime_config_first_bootstrap_ignores_process_env_not_declared_in_dotenv(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # Given
+    settings_file = tmp_path / "dotenv-only-settings.json"
+    _write_dotenv(monkeypatch, tmp_path, {"LLM_MODEL": "dotenv-web-model"})
+    monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
+    monkeypatch.setenv("LLM_MODEL", "process-env-model")
+    monkeypatch.setenv("RAGFLOW_TOP_K", "77")
+    reset_runtime_state()
+
+    # When
+    settings, _ = load_app_settings()
+
+    # Then
+    runtime_config = settings["runtime_config"]
+    assert runtime_config["LLM_MODEL"] == "dotenv-web-model"
+    assert runtime_config["RAGFLOW_TOP_K"] == 5
+    stored = _stored_settings(settings_file)["runtime_config"]
+    assert stored["LLM_MODEL"] == "dotenv-web-model"
+    assert stored["RAGFLOW_TOP_K"] == 5
+
+
+def test_runtime_config_first_bootstrap_ignores_dotenv_bare_key_process_value(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # Given
+    settings_file = tmp_path / "dotenv-bare-key-settings.json"
+    tmp_path.joinpath(".env").write_text(
+        "LLM_API_KEY\nLLM_MODEL=dotenv-model\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "backend.app.services.settings_runtime_config.ROOT",
+        tmp_path,
+    )
+    monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
+    monkeypatch.setenv("LLM_API_KEY", "process-secret-must-not-persist")
+    reset_runtime_state()
+
+    # When
+    settings, _ = load_app_settings()
+
+    # Then
+    runtime_config = settings["runtime_config"]
+    assert runtime_config["LLM_MODEL"] == "dotenv-model"
+    assert runtime_config["LLM_API_KEY"] == "ollama"
+    stored = _stored_settings(settings_file)["runtime_config"]
+    assert stored["LLM_MODEL"] == "dotenv-model"
+    assert stored["LLM_API_KEY"] == "ollama"
+
+
 def test_runtime_config_env_overlay_accepts_integer_form_float_strings(
     monkeypatch,
     tmp_path,
 ) -> None:
     # Given
     settings_file = tmp_path / "integer-float-settings.json"
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {
+            "SEARCH_MIN_SCORE": "1",
+            "RISK_THRESHOLD": "0",
+        },
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("SEARCH_MIN_SCORE", "1")
-    monkeypatch.setenv("RISK_THRESHOLD", "0")
     reset_runtime_state()
 
     # When
@@ -149,8 +230,8 @@ def test_runtime_config_existing_settings_are_not_overwritten_by_later_env_chang
 ) -> None:
     # Given
     settings_file = tmp_path / "existing-settings.json"
+    _write_dotenv(monkeypatch, tmp_path, {"LLM_MODEL": "first-env-model"})
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("LLM_MODEL", "first-env-model")
     reset_runtime_state()
     settings, _ = load_app_settings()
     settings["runtime_config"]["LLM_MODEL"] = "saved-web-model"
@@ -178,8 +259,8 @@ def test_runtime_config_corrupt_settings_file_falls_back_to_bootstrap(
     # Given
     settings_file = tmp_path / "corrupt-settings.json"
     settings_file.write_text("{not-json", encoding="utf-8")
+    _write_dotenv(monkeypatch, tmp_path, {"RAGFLOW_ENABLED": "yes"})
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("RAGFLOW_ENABLED", "yes")
     reset_runtime_state()
 
     # When
@@ -235,8 +316,12 @@ def test_runtime_config_section_first_bootstrap_preserves_env_overlay(
 ) -> None:
     # Given
     settings_file = tmp_path / "section-first-settings.json"
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {"LLM_MODEL": "env-model-before-section-call"},
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("LLM_MODEL", "env-model-before-section-call")
     reset_runtime_state()
 
     # When

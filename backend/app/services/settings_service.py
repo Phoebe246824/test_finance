@@ -50,23 +50,12 @@ def _filter_supported_channels(settings: dict[str, Any]) -> dict[str, Any]:
     return filtered
 
 
-def _ensure_runtime_settings(
-    settings: dict[str, Any],
-    *,
-    updated_at: str,
-) -> tuple[dict[str, Any], bool]:
-    return ensure_runtime_settings(
-        settings,
-        use_environment=not updated_at,
-    )
-
-
 def load_app_settings() -> tuple[dict[str, Any], str]:
     settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
     merged = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
-    merged, changed = _ensure_runtime_settings(
+    merged, changed = ensure_runtime_settings(
         merged,
-        updated_at=updated_at,
+        use_environment=not updated_at,
     )
     if changed or not updated_at:
         saved, saved_at = runtime_state.save_settings(merged)
@@ -84,9 +73,9 @@ def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
         merge_settings=_merge,
         filter_settings=_filter_supported_channels,
     )
-    settings, _ = _ensure_runtime_settings(
+    settings, _ = ensure_runtime_settings(
         settings,
-        updated_at="persisted",
+        use_environment=False,
     )
     model_service_settings.validate_model_services(settings.get("model_services") or [])
     settings["model_services"] = model_service_settings.normalize_model_services(
@@ -108,9 +97,9 @@ def update_settings_section(key: str, value: dict[str, Any] | list[str]) -> tupl
 def _get_section(key: str) -> list[dict[str, Any]]:
     settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
     merged = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
-    merged, changed = _ensure_runtime_settings(
+    merged, changed = ensure_runtime_settings(
         merged,
-        updated_at=updated_at,
+        use_environment=not updated_at,
     )
     if changed:
         runtime_state.save_settings(merged)
@@ -120,9 +109,9 @@ def _get_section(key: str) -> list[dict[str, Any]]:
 def _set_section(key: str, items: list[dict[str, Any]]) -> None:
     settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
     settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
-    settings, _ = _ensure_runtime_settings(
+    settings, _ = ensure_runtime_settings(
         settings,
-        updated_at=updated_at,
+        use_environment=not updated_at,
     )
     settings[key] = items
     runtime_state.save_settings(settings)
@@ -215,6 +204,7 @@ def add_model_service(
     type: str,
     deployment: str,
     endpoint: str,
+    api_key: str,
     status: str,
     default: bool,
 ) -> dict[str, Any]:
@@ -225,6 +215,7 @@ def add_model_service(
         type=type,
         deployment=deployment,
         endpoint=endpoint,
+        api_key=api_key,
         status=status,
         default=default,
     )
@@ -237,6 +228,7 @@ def update_model_service(
     type: str,
     deployment: str,
     endpoint: str,
+    api_key: str,
     default: bool,
 ) -> dict[str, Any] | None:
     return model_service_settings.update_model_service(
@@ -247,6 +239,7 @@ def update_model_service(
         type=type,
         deployment=deployment,
         endpoint=endpoint,
+        api_key=api_key,
         default=default,
     )
 
@@ -271,8 +264,13 @@ def delete_model_service(name: str) -> bool:
 async def test_model_endpoint(
     endpoint: str,
     service_type: str = "大语言模型",
+    api_key: str = "",
 ) -> dict[str, Any]:
-    return await model_service_settings.test_model_endpoint(endpoint, service_type)
+    return await model_service_settings.test_model_endpoint(
+        endpoint,
+        service_type,
+        api_key,
+    )
 
 
 def list_notification_channels() -> list[dict[str, Any]]:

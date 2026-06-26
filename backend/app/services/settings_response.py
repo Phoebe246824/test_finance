@@ -17,6 +17,15 @@ VISIBLE_SETTINGS_RESPONSE_KEYS: Final[frozenset[str]] = frozenset(
 SECRET_MASK_VALUE: Final = "********"
 
 
+def mask_model_service_api_key(api_key: str) -> str:
+    normalized = api_key.strip()
+    if not normalized:
+        return ""
+    if len(normalized) <= 4:
+        return "****"
+    return f"sk-****{normalized[-4:]}"
+
+
 class SettingsResponseView(dict[str, Any]):
     def __init__(self, data: dict[str, Any]) -> None:
         visible = {
@@ -80,6 +89,13 @@ def public_settings_response(settings: dict[str, Any] | SettingsResponseView) ->
         for key, value in materialize_full_settings(settings).items()
         if key in VISIBLE_SETTINGS_RESPONSE_KEYS
     }
+    model_services = response.get("model_services")
+    if isinstance(model_services, list):
+        for service in model_services:
+            if isinstance(service, dict):
+                api_key = service.get("apiKey")
+                if isinstance(api_key, str):
+                    service["apiKey"] = mask_model_service_api_key(api_key)
     runtime_config = response.get("runtime_config")
     if isinstance(runtime_config, dict):
         for env, value in runtime_config.items():
@@ -98,8 +114,13 @@ def preserve_masked_runtime_secrets(
     persisted: dict[str, Any] | SettingsResponseView,
 ) -> dict[str, Any]:
     next_source = deepcopy(source)
+    persisted_settings = materialize_full_settings(persisted)
+    _preserve_masked_model_service_secrets(
+        next_source.get("model_services"),
+        persisted_settings.get("model_services"),
+    )
     runtime_config = next_source.get("runtime_config")
-    persisted_runtime = materialize_full_settings(persisted).get("runtime_config")
+    persisted_runtime = persisted_settings.get("runtime_config")
     if not isinstance(runtime_config, dict) or not isinstance(persisted_runtime, dict):
         return next_source
     for env, value in runtime_config.items():
@@ -107,6 +128,36 @@ def preserve_masked_runtime_secrets(
             persisted_value = persisted_runtime.get(env)
             runtime_config[env] = persisted_value if isinstance(persisted_value, str) else ""
     return next_source
+
+
+def _preserve_masked_model_service_secrets(
+    source_services: Any,
+    persisted_services: Any,
+) -> None:
+    if not isinstance(source_services, list) or not isinstance(persisted_services, list):
+        return
+    persisted_by_name = {
+        str(service.get("name") or ""): service
+        for service in persisted_services
+        if isinstance(service, dict)
+    }
+    for source_service in source_services:
+        if not isinstance(source_service, dict):
+            continue
+        source_api_key = source_service.get("apiKey")
+        if not isinstance(source_api_key, str):
+            continue
+        persisted_service = persisted_by_name.get(str(source_service.get("name") or ""))
+        persisted_api_key = (
+            persisted_service.get("apiKey")
+            if isinstance(persisted_service, dict)
+            else None
+        )
+        if (
+            isinstance(persisted_api_key, str)
+            and source_api_key == mask_model_service_api_key(persisted_api_key)
+        ):
+            source_service["apiKey"] = persisted_api_key
 
 
 def response_view(settings: dict[str, Any]) -> SettingsResponseView:

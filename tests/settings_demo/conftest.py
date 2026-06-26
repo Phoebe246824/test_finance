@@ -14,9 +14,17 @@ class AsyncClientFactory:
     def __init__(self, transport: httpx.MockTransport) -> None:
         self.transport = transport
         self.client_class = httpx.AsyncClient
+        self.calls: list[dict[str, object | None]] = []
 
     def __call__(self, *, timeout: float, **kwargs) -> httpx.AsyncClient:
         kwargs.pop("transport", None)
+        self.calls.append(
+            {
+                "timeout": timeout,
+                "follow_redirects": kwargs.get("follow_redirects"),
+                "headers": kwargs.get("headers"),
+            }
+        )
         return self.client_class(transport=self.transport, timeout=timeout, **kwargs)
 
 

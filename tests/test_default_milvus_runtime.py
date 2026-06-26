@@ -130,13 +130,13 @@ async def test_process_message_detailed_reuses_default_store_bundle(
 async def test_analysis_service_uses_default_runtime_store_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    process_args: list[tuple[object, ...]] = []
+    process_configs: list[dict[str, Any]] = []
 
     async def fake_process_message_detailed(
         text: str,
-        *args: object,
+        config: dict[str, Any],
     ) -> dict[str, str]:
-        process_args.append(args)
+        process_configs.append(config)
         return {"event_id": "E001", "status": "stashed", "raw_content": text}
 
     monkeypatch.setattr(
@@ -148,4 +148,6 @@ async def test_analysis_service_uses_default_runtime_store_cache(
     result = await AnalysisService().analyze("客户 P102 日常消费")
 
     assert result["event_id"] == "E001"
-    assert process_args == [()]
+    assert process_configs
+    assert process_configs[0]["storage"] == {"backend": "milvus"}
+    assert process_configs[0]["milvus"]["stash_collection"] == "events"

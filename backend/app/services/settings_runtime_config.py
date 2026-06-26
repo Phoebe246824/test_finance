@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
-
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 from backend.app.services.settings_runtime_catalog import (
     ROOT,
@@ -25,12 +23,23 @@ RuntimeConfig = dict[str, RuntimeValue]
 RuntimeMetadata = dict[str, RuntimeValue]
 
 
+def _dotenv_configured_values() -> dict[str, str]:
+    values = dotenv_values(ROOT / ".env")
+    return {
+        key: value
+        for key, value in values.items()
+        if key is not None and value is not None
+    }
+
+
 def build_runtime_config(*, use_environment: bool) -> RuntimeConfig:
+    configured_env_values: dict[str, str] = {}
     if use_environment:
         load_dotenv(ROOT / ".env", override=True)
+        configured_env_values = _dotenv_configured_values()
     config: RuntimeConfig = {}
     for field in load_env_catalog():
-        raw_value = os.getenv(field.env) if use_environment else None
+        raw_value = configured_env_values.get(field.env)
         config[field.env] = coerce_runtime_value(
             field,
             field.raw_default if raw_value is None else raw_value,

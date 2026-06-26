@@ -4,7 +4,6 @@ import {
   createModelService,
   deleteModelService,
   listModelServices,
-  testModelService,
   testSavedModelService,
   updateModelService,
   type ModelService,
@@ -18,6 +17,7 @@ type ModelServiceFormPayload = {
   readonly type: string
   readonly deployment: string
   readonly endpoint: string
+  readonly apiKey: string
   readonly default: boolean
 }
 
@@ -66,19 +66,22 @@ async function testModel(name: string): Promise<void> {
       return
     }
     const results = await Promise.all(
-      targets.map((service) => testModelService(service.endpoint, service.type)),
+      targets.map((service) => testSavedModelService(service.name)),
     )
-    const failed = results.find((result) => !result.success)
+    services.value = services.value.map((service) => {
+      const updated = results.find((result) => result.service.name === service.name)
+      return updated?.service ?? service
+    })
+    const failed = results.find((result) => !result.result.success)
     if (failed) {
-      emit('error', modelTestFeedback(failed).message)
+      emit('error', modelTestFeedback(failed.result).message)
       return
     }
     const success = modelTestFeedback({
       success: true,
-      message: name === '模型集群' ? '模型服务连接测试通过' : results[0].message,
+      message: '模型服务连接测试通过',
     })
     emit('notice', success.message)
-    await load()
   } catch (err: unknown) {
     emit('error', errorMessage(err, '模型连接测试失败'))
   } finally {
@@ -126,6 +129,7 @@ async function submitModelForm(payload: ModelServiceFormPayload): Promise<void> 
         type: payload.type,
         deployment: payload.deployment,
         endpoint: payload.endpoint,
+        apiKey: payload.apiKey,
         default: payload.default,
       })
       emit('notice', '模型服务已更新')
@@ -135,6 +139,7 @@ async function submitModelForm(payload: ModelServiceFormPayload): Promise<void> 
         type: payload.type,
         deployment: payload.deployment,
         endpoint: payload.endpoint,
+        apiKey: payload.apiKey,
         default: payload.default,
       })
       emit('notice', '模型服务已添加')

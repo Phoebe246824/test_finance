@@ -73,6 +73,13 @@ def apply_model_services_to_config(
                 endpoint,
                 override_existing=override_existing,
             )
+        if "llm_extract" in config:
+            _apply_llm_service_endpoint(
+                config["llm_extract"],
+                "base_url",
+                endpoint,
+                override_existing=override_existing,
+            )
     if embedder := active_model_service(settings, SERVICE_TYPE_EMBEDDER):
         config["embedder"]["api_base"] = str(
             embedder.get("endpoint") or config["embedder"]["api_base"]
@@ -85,7 +92,7 @@ def apply_model_services_to_config(
             str(reranker.get("endpoint") or ""),
             override_existing=override_existing,
         )
-    if extractor := active_model_service(settings, SERVICE_TYPE_EXTRACT):
+    if extractor := _default_model_service(settings, SERVICE_TYPE_EXTRACT):
         endpoint = str(extractor.get("endpoint") or "")
         config["graphiti"] = {**config.get("graphiti", {})}
         _apply_endpoint(
@@ -102,6 +109,16 @@ def apply_model_services_to_config(
                 override_existing=override_existing,
             )
     return config
+
+
+def _default_model_service(
+    settings: dict[str, Any],
+    service_type: str,
+) -> dict[str, Any] | None:
+    service = active_model_service(settings, service_type)
+    if service is None or not service.get("default"):
+        return None
+    return service
 
 
 def configured_service_endpoint(service_type: str) -> str | None:

@@ -34,7 +34,7 @@ def test_web_runtime_config_uses_saved_values_while_cli_load_config_uses_env(
     assert cli_config["llm"]["api_key"] == "env-cli-key"
 
 
-def test_web_runtime_config_falls_back_to_env_only_for_blank_secret_fields(
+def test_web_runtime_config_reads_blank_secret_fields_from_saved_settings_only(
     monkeypatch,
 ) -> None:
     # Given
@@ -60,9 +60,9 @@ def test_web_runtime_config_falls_back_to_env_only_for_blank_secret_fields(
 
     # Then
     assert web_config["llm"]["model"] == "saved-web-model"
-    assert web_config["llm"]["api_key"] == "env-llm-secret"
-    assert web_config["embedder"]["api_key"] == "env-embedder-secret"
-    assert web_config["ragflow"]["client"].api_key == "env-ragflow-secret"
+    assert web_config["llm"]["api_key"] == ""
+    assert web_config["embedder"]["api_key"] == ""
+    assert web_config["ragflow"]["client"].api_key == ""
     assert web_config["ragflow"]["client"].dataset_ids == ["dataset-a", "dataset-b"]
 
 

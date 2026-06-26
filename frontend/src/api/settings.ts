@@ -22,6 +22,7 @@ export type ModelService = {
   type: string
   deployment: string
   endpoint: string
+  apiKey: string
   status: string
   default: boolean
   updatedAt: string

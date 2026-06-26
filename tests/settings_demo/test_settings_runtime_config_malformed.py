@@ -15,17 +15,36 @@ def _stored_runtime_config(settings_file) -> dict:
     return runtime_config
 
 
+def _write_dotenv(monkeypatch, root, values: dict[str, str]) -> None:
+    root.joinpath(".env").write_text(
+        "".join(f"{key}={value}\n" for key, value in values.items()),
+        encoding="utf-8",
+    )
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        "backend.app.services.settings_runtime_config.ROOT",
+        root,
+    )
+
+
 def test_runtime_config_malformed_env_values_fall_back_to_defaults(
     monkeypatch,
     tmp_path,
 ) -> None:
     # Given
     settings_file = tmp_path / "malformed-env-settings.json"
+    _write_dotenv(
+        monkeypatch,
+        tmp_path,
+        {
+            "RAGFLOW_ENABLED": "not-a-bool",
+            "RAGFLOW_TOP_K": "oops",
+            "SEARCH_MIN_SCORE": "bad-float",
+            "RAGFLOW_DATASET_IDS": "alpha,,beta",
+        },
+    )
     monkeypatch.setenv("SENTINEL_SETTINGS_FILE", str(settings_file))
-    monkeypatch.setenv("RAGFLOW_ENABLED", "not-a-bool")
-    monkeypatch.setenv("RAGFLOW_TOP_K", "oops")
-    monkeypatch.setenv("SEARCH_MIN_SCORE", "bad-float")
-    monkeypatch.setenv("RAGFLOW_DATASET_IDS", "alpha,,beta")
     reset_runtime_state()
 
     # When

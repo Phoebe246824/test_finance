@@ -33,6 +33,7 @@ def add_model_service(
     type: str,
     deployment: str,
     endpoint: str,
+    api_key: str,
     status: str,
     default: bool,
 ) -> dict[str, Any]:
@@ -45,6 +46,7 @@ def add_model_service(
         "type": type,
         "deployment": deployment,
         "endpoint": endpoint,
+        "apiKey": api_key,
         "status": status,
         "default": default,
         "updatedAt": now_text(),
@@ -91,6 +93,7 @@ def update_model_service(
     type: str,
     deployment: str,
     endpoint: str,
+    api_key: str,
     default: bool,
 ) -> dict[str, Any] | None:
     services = get_section("model_services")
@@ -109,6 +112,7 @@ def update_model_service(
         service["type"] = type
         service["deployment"] = deployment
         service["endpoint"] = endpoint
+        service["apiKey"] = api_key
         service["default"] = service_default
         if default and not service_default:
             service["pendingDefault"] = True
@@ -154,7 +158,11 @@ def delete_model_service(get_section, set_section, name: str) -> bool:
     return True
 
 
-async def test_model_endpoint(endpoint: str, service_type: str = "大语言模型") -> dict[str, Any]:
+async def test_model_endpoint(
+    endpoint: str,
+    service_type: str = "大语言模型",
+    api_key: str = "",
+) -> dict[str, Any]:
     normalized = endpoint.strip()
     safety = validate_outbound_http_url(normalized)
     if not safety.allowed:
@@ -163,7 +171,11 @@ async def test_model_endpoint(endpoint: str, service_type: str = "大语言模�
             "message": safety.message,
             "endpoint": normalized,
         }
-    method, url, payload = _model_probe_request(normalized, service_type)
+    method, url, payload, headers = _model_probe_request(
+        normalized,
+        service_type,
+        api_key,
+    )
     request_safety = validate_outbound_http_url(url)
     if not request_safety.allowed:
         return {
@@ -172,7 +184,11 @@ async def test_model_endpoint(endpoint: str, service_type: str = "大语言模�
             "endpoint": normalized,
         }
     try:
-        async with create_outbound_async_client(timeout=3.0, follow_redirects=False) as client:
+        async with create_outbound_async_client(
+            timeout=10.0,
+            follow_redirects=False,
+            headers=headers,
+        ) as client:
             if method == "post":
                 response = await client.post(url, json=payload)
             else:
@@ -217,22 +233,42 @@ def _ensure_safe_endpoint(endpoint: str, service_type: str) -> None:
 def _model_probe_request(
     endpoint: str,
     service_type: str,
-) -> tuple[str, str, dict[str, Any] | None]:
+    api_key: str,
+) -> tuple[str, str, dict[str, Any] | None, dict[str, str] | None]:
     normalized = endpoint.rstrip("/")
+    headers = _authorization_headers(api_key)
     if service_type == "向量模型":
         return (
             "post",
             normalized if normalized.endswith("/embeddings") else urljoin(normalized + "/", "embeddings"),
             {"input": "ping", "model": "probe"},
+            headers,
         )
     if service_type == "重排序模型":
         return (
             "post",
             normalized if normalized.endswith("/rerank") else urljoin(normalized + "/", "rerank"),
             {"query": "ping", "documents": ["ping"]},
+            headers,
         )
     return (
         "get",
         normalized if normalized.endswith("/models") else urljoin(normalized + "/", "models"),
         None,
+        headers,
     )
+
+
+def build_model_probe(
+    endpoint: str,
+    service_type: str,
+    api_key: str,
+) -> tuple[str, str, dict[str, Any] | None, dict[str, str] | None]:
+    return _model_probe_request(endpoint.strip(), service_type, api_key)
+
+
+def _authorization_headers(api_key: str) -> dict[str, str] | None:
+    normalized = api_key.strip()
+    if not normalized:
+        return None
+    return {"Authorization": f"Bearer {normalized}"}

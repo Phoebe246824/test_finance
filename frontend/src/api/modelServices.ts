@@ -5,6 +5,7 @@ export type ModelService = {
   readonly type: string
   readonly deployment: string
   readonly endpoint: string
+  readonly apiKey: string
   readonly status: string
   readonly default: boolean
   readonly updatedAt: string
@@ -25,6 +26,7 @@ export async function createModelService(payload: {
   type: string
   deployment?: string
   endpoint: string
+  apiKey?: string
   status?: string
   default?: boolean
 }): Promise<{ service: ModelService }> {
@@ -39,6 +41,7 @@ export async function updateModelService(
     type: string
     deployment?: string
     endpoint: string
+    apiKey?: string
     default?: boolean
   },
 ): Promise<{ service: ModelService }> {
@@ -61,8 +64,9 @@ export async function deleteModelService(
 export async function testModelService(
   endpoint: string,
   type: string,
+  apiKey = '',
 ): Promise<{ success: boolean; message: string; endpoint: string }> {
-  const { data } = await http.post('/api/model-services/test', { endpoint, type })
+  const { data } = await http.post('/api/model-services/test', { endpoint, type, apiKey })
   return data as { success: boolean; message: string; endpoint: string }
 }
 

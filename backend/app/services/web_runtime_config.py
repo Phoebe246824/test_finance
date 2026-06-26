@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import os
 from typing import Any
 
 from ragflow.client import RagflowConfig
@@ -17,9 +15,7 @@ def _text(runtime_config: dict[str, RuntimeValue], env: str, default: str = "") 
 
 def _secret(runtime_config: dict[str, RuntimeValue], env: str, default: str = "") -> str:
     value = runtime_config.get(env)
-    if isinstance(value, str) and value:
-        return value
-    return os.getenv(env) or default
+    return value if isinstance(value, str) and value else default
 
 
 def _stored_secret(

@@ -93,10 +93,12 @@ def create_outbound_async_client(
     *,
     timeout: float,
     follow_redirects: bool = False,
+    headers: dict[str, str] | None = None,
 ) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=follow_redirects,
+        headers=headers,
         trust_env=False,
         transport=SafeAsyncHTTPTransport(),
     )

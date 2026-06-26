@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { ModelService } from '../../api/modelServices'
 
 type ModelServiceDialogPayload = {
@@ -7,6 +7,7 @@ type ModelServiceDialogPayload = {
   readonly type: string
   readonly deployment: string
   readonly endpoint: string
+  readonly apiKey: string
   readonly default: boolean
 }
 
@@ -26,15 +27,22 @@ const form = reactive({
   type: '',
   deployment: '本地部署',
   endpoint: '',
+  apiKey: '',
   default: false,
 })
+const showApiKey = ref(false)
+const apiKeyPlaceholder = computed(() =>
+  form.deployment.trim() === '云端部署' ? '填写云端服务 API Key' : '本地部署可留空',
+)
 
 function resetForm(service: ModelService | null): void {
   form.name = service?.name || ''
   form.type = service?.type || ''
   form.deployment = service?.deployment || '本地部署'
   form.endpoint = service?.endpoint || ''
+  form.apiKey = service?.apiKey || ''
   form.default = service?.default || false
+  showApiKey.value = false
 }
 
 function submit(): void {
@@ -43,6 +51,7 @@ function submit(): void {
     type: form.type,
     deployment: form.deployment,
     endpoint: form.endpoint,
+    apiKey: form.apiKey,
     default: form.default,
   })
 }
@@ -76,6 +85,21 @@ watch(
           <div class="settings-row">
             <label for="model-endpoint">服务地址</label>
             <input id="model-endpoint" v-model="form.endpoint" class="input" placeholder="http://localhost:8001/v1" />
+          </div>
+          <div class="settings-row">
+            <label for="model-api-key">API Key</label>
+            <div class="secret-field">
+              <input
+                id="model-api-key"
+                v-model="form.apiKey"
+                class="input"
+                :type="showApiKey ? 'text' : 'password'"
+                :placeholder="apiKeyPlaceholder"
+              />
+              <button class="button secondary secret-toggle" type="button" @click="showApiKey = !showApiKey">
+                {{ showApiKey ? '隐藏' : '显示' }}
+              </button>
+            </div>
           </div>
           <div class="settings-row">
             <label for="model-default">默认模型</label>
@@ -122,5 +146,15 @@ watch(
 }
 .modal-actions {
   margin-top: 16px;
+}
+.secret-field {
+  display: flex;
+  gap: 8px;
+}
+.secret-field .input {
+  flex: 1;
+}
+.secret-toggle {
+  white-space: nowrap;
 }
 </style>

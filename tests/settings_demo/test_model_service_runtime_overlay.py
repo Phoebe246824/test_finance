@@ -38,6 +38,7 @@ def test_web_runtime_config_uses_default_llm_service_for_blank_runtime_base_url(
     assert response.status_code == 200
     assert config["llm"]["base_url"] == "http://saved-service.test/v1"
     assert config["llm_reason"]["base_url"] == "http://saved-service.test/v1"
+    assert config["llm_extract"]["base_url"] == "http://saved-service.test/v1"
 
 
 def test_web_runtime_config_uses_default_llm_service_for_cloud_default_base_url(
@@ -67,6 +68,7 @@ def test_web_runtime_config_uses_default_llm_service_for_cloud_default_base_url(
     assert response.status_code == 200
     assert config["llm"]["base_url"] == "http://saved-service.test/v1"
     assert config["llm_reason"]["base_url"] == "http://saved-service.test/v1"
+    assert config["llm_extract"]["base_url"] == "http://saved-service.test/v1"
 
 
 def test_web_runtime_config_preserves_explicit_llm_endpoint_over_model_service(

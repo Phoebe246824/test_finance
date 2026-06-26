@@ -18,10 +18,10 @@ const loaded = ref(false)
 const modelServices = ref<ModelService[]>([])
 
 const serviceFallbacks: ModelService[] = [
-  { name: 'API 服务', type: '后端接口', deployment: '本地部署', endpoint: 'http://localhost:8000', status: '正常', default: true, updatedAt: '' },
-  { name: 'Milvus 向量库', type: '向量数据库', deployment: 'Docker Compose', endpoint: 'http://localhost:19530', status: '正常', default: false, updatedAt: '' },
-  { name: 'Neo4j 图数据库', type: '图数据库', deployment: 'Docker Compose', endpoint: 'bolt://localhost:7687', status: '正常', default: false, updatedAt: '' },
-  { name: 'LLM 大模型服务', type: '大语言模型', deployment: '本地部署', endpoint: '本地模型（Qwen3-8B）', status: '正常', default: false, updatedAt: '' },
+  { name: 'API 服务', type: '后端接口', deployment: '本地部署', endpoint: 'http://localhost:8000', apiKey: '', status: '正常', default: true, updatedAt: '' },
+  { name: 'Milvus 向量库', type: '向量数据库', deployment: 'Docker Compose', endpoint: 'http://localhost:19530', apiKey: '', status: '正常', default: false, updatedAt: '' },
+  { name: 'Neo4j 图数据库', type: '图数据库', deployment: 'Docker Compose', endpoint: 'bolt://localhost:7687', apiKey: '', status: '正常', default: false, updatedAt: '' },
+  { name: 'LLM 大模型服务', type: '大语言模型', deployment: '本地部署', endpoint: '本地模型（Qwen3-8B）', apiKey: '', status: '正常', default: false, updatedAt: '' },
 ]
 
 const serviceCards = computed(() =>

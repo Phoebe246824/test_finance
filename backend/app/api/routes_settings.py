@@ -57,6 +57,7 @@ class ModelServicePayload(BaseModel):
     type: str = Field(..., min_length=1, max_length=64)
     deployment: str = Field(default="本地部署", max_length=64)
     endpoint: str = Field(..., min_length=1, max_length=512)
+    apiKey: str = Field(default="", max_length=512)
     status: str = Field(default="未验证", max_length=32)
     default: bool = Field(default=False)
     updatedAt: str = Field(default="", max_length=64)
