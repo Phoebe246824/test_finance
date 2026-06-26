@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from typing import TypeAlias
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.core.security import CurrentUser, require_roles
 from backend.app.services.audit_service import write_audit_log
 from backend.app.services.data_management_service import apply_data_management_settings
+from backend.app.services.settings_response import (
+    preserve_masked_runtime_secrets,
+    public_settings_response,
+)
+from backend.app.services.settings_runtime_catalog import is_list_env, load_env_catalog
+from backend.app.services.settings_runtime_values import default_scalar_type
 from backend.app.services.settings_service import (
     load_app_settings,
     save_app_settings,
@@ -13,6 +21,35 @@ from backend.app.services.settings_service import (
 )
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+RuntimeConfigValue: TypeAlias = bool | int | float | str | list[str]
+
+
+def _runtime_catalog() -> dict[str, str]:
+    return {field.env: field.raw_default for field in load_env_catalog()}
+
+
+def _runtime_type_matches(env: str, raw_default: str, value: RuntimeConfigValue) -> bool:
+    if is_list_env(env):
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+    match default_scalar_type(raw_default):
+        case "bool":
+            return isinstance(value, bool)
+        case "int":
+            return isinstance(value, int) and not isinstance(value, bool)
+        case "float":
+            return isinstance(value, (float, int)) and not isinstance(value, bool)
+        case "string":
+            return isinstance(value, str)
+        case _:
+            return False
+
+
+def _settings_payload(settings: dict, updated_at: str) -> dict:
+    return {
+        "settings": public_settings_response(settings),
+        "updated_at": updated_at,
+    }
 
 
 class ModelParamsPayload(BaseModel):
@@ -81,6 +118,21 @@ class NotificationChannelPayload(BaseModel):
     target: str = Field(..., min_length=1, max_length=512)
 
 
+class RuntimeMetadataPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    env: str = Field(..., min_length=1)
+    group: str = Field(..., min_length=1)
+    key_path: str = Field(..., min_length=1)
+    label: str = Field(..., min_length=1)
+    help: str = Field(default="")
+    scalar_type: str = Field(..., min_length=1)
+    default: RuntimeConfigValue
+    secret: bool
+    editable: bool
+    effective_scope: str = Field(..., min_length=1)
+
+
 class AppSettingsPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +143,25 @@ class AppSettingsPayload(BaseModel):
     data_management: DataManagementPayload = Field(default_factory=DataManagementPayload)
     notification_channels: list[NotificationChannelPayload] = Field(default_factory=list)
     notification_events: list[str] = Field(default_factory=list)
+    runtime_config: dict[str, RuntimeConfigValue] | None = Field(default=None)
+    runtime_config_metadata: list[RuntimeMetadataPayload] | None = Field(default=None)
+
+    @field_validator("runtime_config")
+    @classmethod
+    def validate_runtime_config(
+        cls,
+        runtime_config: dict[str, RuntimeConfigValue] | None,
+    ) -> dict[str, RuntimeConfigValue] | None:
+        if runtime_config is None:
+            return None
+        catalog = _runtime_catalog()
+        for env, value in runtime_config.items():
+            raw_default = catalog.get(env)
+            if raw_default is None:
+                raise ValueError(f"Unsupported runtime config key: {env}")
+            if not _runtime_type_matches(env, raw_default, value):
+                raise ValueError(f"Invalid runtime config value type for {env}")
+        return runtime_config
 
 
 @router.get("")
@@ -98,7 +169,7 @@ async def get_settings(
     _: CurrentUser = Depends(require_roles("admin")),
 ) -> dict:
     settings, updated_at = load_app_settings()
-    return {"settings": settings, "updated_at": updated_at}
+    return _settings_payload(settings, updated_at)
 
 
 @router.put("")
@@ -108,6 +179,11 @@ async def update_settings(
 ) -> dict:
     previous, _ = load_app_settings()
     payload_dict = payload.model_dump()
+    if payload.runtime_config is None:
+        payload_dict.pop("runtime_config", None)
+    if payload.runtime_config_metadata is None:
+        payload_dict.pop("runtime_config_metadata", None)
+    payload_dict = preserve_masked_runtime_secrets(payload_dict, previous)
     try:
         settings, updated_at = save_app_settings(payload_dict)
     except ValueError as exc:
@@ -123,7 +199,7 @@ async def update_settings(
             != previous.get("data_management"),
         },
     )
-    return {"settings": settings, "updated_at": updated_at}
+    return _settings_payload(settings, updated_at)
 
 
 @router.put("/system-config")
@@ -139,7 +215,7 @@ async def update_system_config(
         resource_id="system_config",
         detail={"updated_at": updated_at},
     )
-    return {"settings": settings, "updated_at": updated_at}
+    return _settings_payload(settings, updated_at)
 
 
 @router.put("/model-params")
@@ -155,7 +231,7 @@ async def update_model_params(
         resource_id="model_params",
         detail={"updated_at": updated_at},
     )
-    return {"settings": settings, "updated_at": updated_at}
+    return _settings_payload(settings, updated_at)
 
 
 @router.put("/data-management")
@@ -171,7 +247,7 @@ async def update_data_management(
         resource_id="data_management",
         detail={"updated_at": updated_at},
     )
-    return {"settings": settings, "updated_at": updated_at}
+    return _settings_payload(settings, updated_at)
 
 
 @router.put("/notification-events")
@@ -187,7 +263,7 @@ async def update_notification_events(
         resource_id="notification_events",
         detail={"updated_at": updated_at},
     )
-    return {"settings": settings, "updated_at": updated_at}
+    return _settings_payload(settings, updated_at)
 
 
 @router.post("/data-management/cleanup")

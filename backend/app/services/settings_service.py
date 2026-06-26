@@ -6,11 +6,17 @@ from typing import Any
 from backend.app.services import model_service_settings, notification_settings
 from backend.app.services.risk_rule_service import now_text
 from backend.app.services.runtime_state import runtime_state
+from backend.app.services.settings_response import (
+    materialize_full_settings,
+    response_view,
+    with_runtime_settings_for_storage,
+)
 from backend.app.services.settings_defaults import (
     DEFAULT_SETTINGS,
     IMPLEMENTED_NOTIFICATION_CHANNELS,
     IMPLEMENTED_NOTIFICATION_EVENTS,
 )
+from backend.app.services.settings_runtime_config import ensure_runtime_settings
 
 
 def _merge(default_value: Any, stored_value: Any) -> Any:
@@ -44,13 +50,44 @@ def _filter_supported_channels(settings: dict[str, Any]) -> dict[str, Any]:
     return filtered
 
 
+def _ensure_runtime_settings(
+    settings: dict[str, Any],
+    *,
+    updated_at: str,
+) -> tuple[dict[str, Any], bool]:
+    return ensure_runtime_settings(
+        settings,
+        use_environment=not updated_at,
+    )
+
+
 def load_app_settings() -> tuple[dict[str, Any], str]:
     settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
-    return _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings)), updated_at
+    merged = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
+    merged, changed = _ensure_runtime_settings(
+        merged,
+        updated_at=updated_at,
+    )
+    if changed or not updated_at:
+        saved, saved_at = runtime_state.save_settings(merged)
+        return response_view(saved), saved_at
+    return response_view(merged), updated_at
 
 
 def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, value))
+    source = materialize_full_settings(value)
+    settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, source))
+    settings = with_runtime_settings_for_storage(
+        settings,
+        source,
+        load_persisted_settings=runtime_state.load_settings,
+        merge_settings=_merge,
+        filter_settings=_filter_supported_channels,
+    )
+    settings, _ = _ensure_runtime_settings(
+        settings,
+        updated_at="persisted",
+    )
     model_service_settings.validate_model_services(settings.get("model_services") or [])
     settings["model_services"] = model_service_settings.normalize_model_services(
         settings.get("model_services") or []
@@ -59,7 +96,7 @@ def save_app_settings(value: dict[str, Any]) -> tuple[dict[str, Any], str]:
     saved, updated_at = runtime_state.save_settings(settings)
     if not updated_at:
         updated_at = now_text()
-    return saved, updated_at
+    return response_view(saved), updated_at
 
 
 def update_settings_section(key: str, value: dict[str, Any] | list[str]) -> tuple[dict[str, Any], str]:
@@ -69,14 +106,24 @@ def update_settings_section(key: str, value: dict[str, Any] | list[str]) -> tupl
 
 
 def _get_section(key: str) -> list[dict[str, Any]]:
-    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
     merged = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
+    merged, changed = _ensure_runtime_settings(
+        merged,
+        updated_at=updated_at,
+    )
+    if changed:
+        runtime_state.save_settings(merged)
     return list(merged.get(key) or [])
 
 
 def _set_section(key: str, items: list[dict[str, Any]]) -> None:
-    settings, _ = runtime_state.load_settings(DEFAULT_SETTINGS)
+    settings, updated_at = runtime_state.load_settings(DEFAULT_SETTINGS)
     settings = _filter_supported_channels(_merge(DEFAULT_SETTINGS, settings))
+    settings, _ = _ensure_runtime_settings(
+        settings,
+        updated_at=updated_at,
+    )
     settings[key] = items
     runtime_state.save_settings(settings)
 
