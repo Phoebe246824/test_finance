@@ -101,7 +101,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
 ## Todos
 > Implementation + Test = ONE todo. Never separate.
 <!-- APPEND TASK BATCHES BELOW THIS LINE WITH edit/apply_patch - never rewrite the headers above. -->
-- [ ] 1. Add complete config catalog defaults, env overlay, and first-bootstrap persistence
+- [x] 1. Add complete config catalog defaults, env overlay, and first-bootstrap persistence
   What to do / Must NOT do: Create a backend service module, recommended path `backend/app/services/settings_runtime_config.py`, that owns the complete Web settings config dictionary and metadata. It must define defaults for every config key in `.env.example`, including runtime, Web/server, frontend-build, Docker/Compose, auth, and platform-marker fields. It must provide functions equivalent to: build defaults, load `.env` into process before first bootstrap overlay, overlay supported env vars with type coercion, convert stored Web settings into the runtime config shape expected by `process_message_detailed()`, list field metadata for the frontend, and expose an effective-scope marker for fields that require restart/rebuild/recreate. It must not alter CLI/script env loading.
   Parallelization: Wave 1 | Blocked by: none | Blocks: 2, 3, 4, 5
   References (executor has NO interview context - be exhaustive): `backend/app/services/settings_defaults.py:13`; `backend/app/services/settings_service.py:47`; `backend/app/services/settings_storage.py:21`; `main.py:106`; `main.py:113`; `.env.example`; `docs/env-vars.md`; `providers/llm_provider.py`; `providers/embedder_provider.py`; `graphiti/graphiti_workflow.py`; `trend_prediction/classifier.py:499`.
@@ -109,7 +109,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
   QA scenarios (name the exact tool + invocation): Happy: `SENTINEL_SETTINGS_FILE=$(mktemp -u) LLM_MODEL=env-web-model RAGFLOW_ENABLED=true uv run pytest tests/settings_demo/test_settings_core.py -q -k 'bootstrap or runtime_config'`, evidence `.omo/evidence/task-1-settings-full-impl.md`. Failure: corrupt JSON at `SENTINEL_SETTINGS_FILE` falls back through the same bootstrap path and records a warning without crashing, evidence in the same file.
   Commit: Y | `feat(settings): bootstrap complete web runtime config`
 
-- [ ] 2. Extend settings persistence and API schemas without breaking existing section endpoints
+- [x] 2. Extend settings persistence and API schemas without breaking existing section endpoints
   What to do / Must NOT do: Extend `DEFAULT_SETTINGS`, `load_app_settings()`, `save_app_settings()`, `AppSettingsPayload`, and frontend-facing response shape to include `runtime_config` and config metadata. Preserve existing `system-config`, `model-params`, `data-management`, `notification-events`, model-service, and notification endpoints. Reject unsupported config keys and invalid scalar/list/bool/secret types with 422/400. Keep audit logs, `extra="forbid"` behavior for known payloads, and model service validation.
   Parallelization: Wave 1 | Blocked by: 1 | Blocks: 5, 7
   References: `backend/app/api/routes_settings.py:15`; `backend/app/api/routes_settings.py:85`; `backend/app/api/routes_settings.py:97`; `backend/app/api/routes_settings.py:129`; `backend/app/services/settings_service.py:16`; `backend/app/services/settings_service.py:52`; `backend/app/services/model_runtime_config.py:28`; `tests/settings_demo/test_settings_core.py`; `tests/settings_demo/test_model_services.py`.
@@ -117,7 +117,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
   QA scenarios: Happy: `uv run pytest tests/settings_demo/test_settings_core.py tests/settings_demo/test_model_services.py -q`, evidence `.omo/evidence/task-2-settings-full-impl.md`. Failure: send `{"runtime_config":{"unknown_group":{"x":1}}}` through TestClient and assert 422/400 without file corruption.
   Commit: Y | `feat(settings): expose full runtime config in api`
 
-- [ ] 3. Add explicit WebUI runtime config loader while preserving CLI/script env behavior
+- [x] 3. Add explicit WebUI runtime config loader while preserving CLI/script env behavior
   What to do / Must NOT do: Add a Web-specific loader, recommended function `load_web_runtime_config()` in the new settings runtime service or a clearly named adjacent module. It must map only runtime-effective catalog fields into the nested dictionary expected by `process_message_detailed()`. Update Web API service code to use it. Keep `main.load_config()` env-driven for CLI/terminal pipeline and scripts. If a Web caller needs runtime config, it must call the Web loader and pass the result into `process_message_detailed()`. Ensure API key/secret fallback reads environment only when the stored Web setting is empty.
   Parallelization: Wave 1 | Blocked by: 1 | Blocks: 4, 7
   References: `main.py:106`; `main.py:1976`; `backend/app/services/analysis_service.py:3`; `backend/app/services/analysis_service.py:28`; `backend/app/services/store_provider.py`; `backend/app/services/neo4j_graph_service.py`; `scripts/reset_and_seed_blacklist.py`; `scripts/run_blacklist_kv_demo.py`; `scripts/cleanup_milvus_duplicates.py`.
@@ -125,7 +125,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
   QA scenarios: Happy: `uv run pytest tests/settings_demo/test_settings_core.py -q -k 'web_runtime or cli_env'`, evidence `.omo/evidence/task-3-settings-full-impl.md`. Failure: save Web `llm.model = saved-model`, then monkeypatch `LLM_MODEL=env-model`; assert Web loader returns `saved-model` and `main.load_config()` returns `env-model`.
   Commit: Y | `feat(settings): separate web and cli config sources`
 
-- [ ] 4. Route Web analysis and trend prediction through the persisted Web runtime config
+- [x] 4. Route Web analysis and trend prediction through the persisted Web runtime config
   What to do / Must NOT do: Update `backend/app/services/analysis_service.py` and the Web analysis path so all Web-triggered event analysis uses the Web loader, applies risk rules, and passes config into `process_message_detailed()`. Where provider helpers are used during Web-triggered trend prediction (`get_llm_for`, `EventClassifier`, reranker, RAGFlow, Graphiti), ensure config values are either passed through existing function params or read from the Web runtime config context. Avoid global env mutation as the main mechanism; if a transitional context variable is necessary, scope it to the request and test isolation. Do not migrate standalone scripts. Non-runtime catalog fields must not be consulted during the prediction pipeline.
   Parallelization: Wave 2 | Blocked by: 3 | Blocks: 7
   References: `backend/app/services/analysis_service.py:11`; `main.py:1108`; `main.py:1153`; `main.py:1201`; `main.py:1344`; `trend_prediction/classifier.py:499`; `providers/llm_provider.py:105`; `providers/llm_provider.py:132`; `graphiti/graphiti_workflow.py:57`; `graphiti/graphiti_workflow.py:194`; `tests/test_main_llm_stage_wiring.py`.
@@ -133,7 +133,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
   QA scenarios: Happy: `uv run pytest tests/test_main_llm_stage_wiring.py tests/settings_demo/test_settings_core.py -q -k 'trend or web_runtime or stage'`, evidence `.omo/evidence/task-4-settings-full-impl.md`. Failure: Web settings set RAGFlow fail-closed/timeout values and env differs; mocked `retrieve_financial_knowledge` observes the Web settings values.
   Commit: Y | `feat(analysis): use web settings for web trend prediction`
 
-- [ ] 5. Build the frontend complete configuration editor
+- [x] 5. Build the frontend complete configuration editor
   What to do / Must NOT do: Extend `frontend/src/api/settings.ts` with strict types for `runtime_config` and metadata. Add a Settings tab (recommended label `完整配置`) and a component such as `frontend/src/views/settings/RuntimeConfigTab.vue`. Render all groups and fields from backend metadata or a stable typed response. Use appropriate controls: checkbox/toggle for booleans, number inputs for numbers, text/password input for strings/secrets, comma/newline list editor for string lists. Show effective-scope notes for fields requiring restart/rebuild/recreate. Preserve specialized tabs and store behavior. Do not show secrets in clear text by default; do not introduce unrelated UI libraries.
   Parallelization: Wave 2 | Blocked by: 1, 2 | Blocks: 6, 7
   References: `frontend/src/api/settings.ts:49`; `frontend/src/views/SettingsView.vue:10`; `frontend/src/views/settings/SystemSettingsTab.vue`; `frontend/src/views/settings/ModelSettingsTab.vue`; `frontend/src/views/settings/helpers.ts`; `frontend/src/stores/appSettings.ts`; `DESIGN.md`; `frontend/package.json`.
@@ -141,7 +141,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
   QA scenarios: Happy: `cd frontend && npm run test && npm run build`, evidence `.omo/evidence/task-5-settings-full-impl.md`. Failure: attempt to save invalid number/list value in the UI helper path and assert the save call is blocked or API error is surfaced with `emit('error')` pattern.
   Commit: Y | `feat(frontend): add complete runtime config editor`
 
-- [ ] 6. Harden settings editor UX, styling, and browser behavior
+- [x] 6. Harden settings editor UX, styling, and browser behavior
   What to do / Must NOT do: Integrate the new tab with existing `DESIGN.md` tokens and `frontend/src/styles.css` patterns. Ensure dense operational layout, no nested cards, stable field widths, no horizontal overflow, visible loading/saving/error states, filter/search by group or env name, and keyboard-accessible controls. Secret fields must have reveal/edit affordance without leaking values in page text. Scope notes should be compact, not explanatory marketing copy. Keep the page visually consistent with existing Settings tabs.
   Parallelization: Wave 2 | Blocked by: 5 | Blocks: 7
   References: `DESIGN.md`; `frontend/src/styles.css`; `frontend/src/views/SettingsView.vue`; `frontend/src/views/settings/*.vue`; `frontend/package.json`; frontend skill requirements already loaded in planning.
@@ -149,7 +149,7 @@ The executor must treat `.env.example` as the authoritative catalog input and ex
   QA scenarios: Happy: start Vite preview/dev server, open `/settings`, switch to `完整配置`, capture screenshots at 375, 768, and 1280 px, evidence `.omo/evidence/task-6-settings-full-impl.md`. Failure: force API error or invalid payload and verify error banner appears without layout shift; evidence in the same file.
   Commit: Y | `style(settings): polish complete config editor`
 
-- [ ] 7. Run end-to-end regression and record final evidence
+- [x] 7. Run end-to-end regression and record final evidence
   What to do / Must NOT do: Execute the whole feature through its matching surfaces. Use a temp `SENTINEL_SETTINGS_FILE`; set env vars spanning at least one field from each major config group; trigger `GET /api/settings` to bootstrap; verify file exists and contains defaults overlaid by env; update a runtime config field and a non-runtime config field through API and frontend if server/browser is available; reload and verify persistence; run Web API analysis/trend path with fakes/mocks or controlled services; separately prove CLI/script env behavior remains unchanged. Do not claim live Neo4j/Milvus/LLM success if those services are unavailable; record substituted mocks clearly.
   Parallelization: Wave 3 | Blocked by: 2, 4, 6 | Blocks: final verification
   References: all changed files; `docs/commands.md`; `docs/testing.md`; `tests/settings_demo/conftest.py`; `backend/app/main.py`; `frontend/package.json`.
