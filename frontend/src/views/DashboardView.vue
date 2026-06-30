@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getDashboardOverview } from '../api/dashboard'
 import RiskBadge from '../components/RiskBadge.vue'
@@ -85,6 +85,7 @@ const trendRows = computed(() => {
 const trendPolylineHigh = computed(() => makeTrendPolyline('high'))
 const trendPolylineMedium = computed(() => makeTrendPolyline('medium'))
 const trendPolylineLow = computed(() => makeTrendPolyline('low'))
+let refreshTimer: number | undefined
 
 function makeTrendPolyline(key: 'high' | 'medium' | 'low') {
   const rows = trendRows.value
@@ -122,6 +123,12 @@ function hitType(event: any) {
 }
 
 onMounted(load)
+onMounted(() => {
+  refreshTimer = window.setInterval(load, 30000)
+})
+onUnmounted(() => {
+  if (refreshTimer !== undefined) window.clearInterval(refreshTimer)
+})
 </script>
 
 <template>

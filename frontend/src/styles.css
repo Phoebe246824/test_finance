@@ -895,7 +895,7 @@ h3 {
   align-items: stretch;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 560px);
   margin-top: 8px;
 }
 

@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sentinel Edge 多智能体风险研判流程图</title>
+  <style>
+    :root {
+      --ink: #273248;
+      --muted: #667085;
+      --bg: #f7f9fc;
+      --line: #8b98aa;
+      --card: #ffffff;
+      --border: #aeb8c8;
+      --blue: #eaf1ff;
+      --blue-border: #88a7ee;
+      --green: #e1f7ea;
+      --green-border: #77c894;
+      --amber: #fff1cc;
+      --amber-border: #e4b652;
+      --rose: #ffe6e6;
+      --rose-border: #e89a9a;
+      --purple: #eee8ff;
+      --purple-border: #aa94e8;
+      --cyan: #e3f6ff;
+      --cyan-border: #79bddf;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    .page {
+      width: 980px;
+      min-height: 980px;
+      margin: 0 auto;
+      padding: 26px 28px 30px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.78)), var(--bg);
+    }
+
+    .title {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.3;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .flow {
+      position: relative;
+      height: 840px;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(139,152,170,0.08) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(139,152,170,0.08) 1px, transparent 1px),
+        #fff;
+      background-size: 28px 28px;
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      min-height: 48px;
+      padding: 8px 12px;
+      border: 1.4px solid var(--border);
+      border-radius: 5px;
+      background: var(--card);
+      text-align: center;
+      line-height: 1.35;
+      box-shadow: 0 2px 0 rgba(16, 24, 40, 0.05);
+      z-index: 2;
+    }
+
+    .node strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .node span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .input {
+      background: var(--blue);
+      border-color: var(--blue-border);
+    }
+
+    .agent {
+      background: var(--amber);
+      border-color: var(--amber-border);
+    }
+
+    .tool {
+      background: var(--cyan);
+      border-color: var(--cyan-border);
+    }
+
+    .store {
+      background: var(--green);
+      border-color: var(--green-border);
+    }
+
+    .risk {
+      background: var(--rose);
+      border-color: var(--rose-border);
+    }
+
+    .output {
+      background: var(--purple);
+      border-color: var(--purple-border);
+    }
+
+    .decision {
+      width: 116px;
+      height: 62px;
+      padding: 0;
+      border-color: var(--amber-border);
+      background: var(--amber);
+      transform: rotate(45deg);
+      box-shadow: 0 2px 0 rgba(16, 24, 40, 0.05);
+    }
+
+    .decision .decision-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px;
+      transform: rotate(-45deg);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    .w-small { width: 178px; }
+    .w-mid { width: 230px; }
+    .w-wide { width: 290px; }
+
+    .n-input { left: 345px; top: 18px; }
+    .n-normalize { left: 330px; top: 86px; }
+    .n-blacklist { left: 330px; top: 156px; }
+    .n-hit { left: 386px; top: 232px; }
+    .n-stash { left: 56px; top: 332px; }
+    .n-baseline { left: 88px; top: 420px; }
+    .n-classify { left: 640px; top: 314px; }
+    .n-rag { left: 650px; top: 392px; }
+    .n-first-risk { left: 650px; top: 476px; }
+    .n-high { left: 704px; top: 556px; }
+    .n-search { left: 405px; top: 628px; }
+    .n-second-risk { left: 410px; top: 704px; }
+    .n-report { left: 685px; top: 650px; }
+    .n-review { left: 685px; top: 728px; }
+
+    .edge-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 1.45;
+      marker-end: url(#arrow);
+    }
+
+    .edge-dashed {
+      stroke-dasharray: 4 4;
+    }
+
+    .edge-label {
+      position: absolute;
+      z-index: 3;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #536174;
+      font-size: 11px;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+
+    .l-no-1 { left: 262px; top: 283px; }
+    .l-yes-1 { left: 548px; top: 283px; }
+    .l-context { left: 256px; top: 421px; }
+    .l-no-2 { left: 805px; top: 594px; }
+    .l-yes-2 { left: 617px; top: 602px; }
+    .l-context-2 { left: 542px; top: 676px; }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .swatch {
+      width: 18px;
+      height: 12px;
+      border: 1px solid;
+      border-radius: 3px;
+    }
+
+    .swatch.agent { background: var(--amber); border-color: var(--amber-border); }
+    .swatch.tool { background: var(--cyan); border-color: var(--cyan-border); }
+    .swatch.store { background: var(--green); border-color: var(--green-border); }
+    .swatch.risk { background: var(--rose); border-color: var(--rose-border); }
+    .swatch.output { background: var(--purple); border-color: var(--purple-border); }
+
+    .note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px dashed #b5c0d0;
+      border-radius: 6px;
+      color: #526174;
+      background: rgba(255,255,255,0.78);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        width: 100%;
+        padding: 12px;
+        background: #fff;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="title">
+      <h1>Sentinel Edge 多智能体风险研判流程图</h1>
+      <p>基于端侧 AI 的银行零售反欺诈与反洗钱风险预警链路</p>
+    </header>
+
+    <section class="flow" aria-label="Sentinel Edge 多智能体风险研判流程">
+      <svg class="edge-layer" viewBox="0 0 924 840" aria-hidden="true">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b98aa"></path>
+          </marker>
+        </defs>
+
+        <path class="edge" d="M 460 66 L 460 86"></path>
+        <path class="edge" d="M 460 134 L 460 156"></path>
+        <path class="edge" d="M 460 204 L 460 232"></path>
+
+        <path class="edge" d="M 418 282 L 145 282 L 145 332"></path>
+        <path class="edge" d="M 145 380 L 145 420"></path>
+        <path class="edge edge-dashed" d="M 266 444 L 392 444 L 392 652"></path>
+
+        <path class="edge" d="M 502 282 L 755 282 L 755 314"></path>
+        <path class="edge" d="M 755 362 L 755 392"></path>
+        <path class="edge" d="M 755 440 L 755 476"></path>
+        <path class="edge" d="M 755 524 L 755 556"></path>
+
+        <path class="edge" d="M 755 606 L 755 650"></path>
+        <path class="edge" d="M 755 698 L 755 728"></path>
+
+        <path class="edge" d="M 715 606 L 520 606 L 520 628"></path>
+        <path class="edge" d="M 520 676 L 520 704"></path>
+        <path class="edge" d="M 640 728 L 685 728"></path>
+      </svg>
+
+      <div class="node input w-mid n-input">
+        <strong>事件输入</strong>
+        <span>金融交易 / 客户行为 / Demo Case</span>
+      </div>
+
+      <div class="node agent w-mid n-normalize">
+        <strong>事件标准化智能体</strong>
+        <span>抽取客户、账户、金额、设备、地点等</span>
+      </div>
+
+      <div class="node tool w-mid n-blacklist">
+        <strong>黑名单过滤模块</strong>
+        <span>人员黑名单 / 关键词 / 事件样本</span>
+      </div>
+
+      <div class="node decision n-hit">
+        <div class="decision-text">是否命中<br />黑名单规则？</div>
+      </div>
+
+      <div class="edge-label l-no-1">否：先入库留存</div>
+      <div class="edge-label l-yes-1">是：进入研判</div>
+
+      <div class="node store w-mid n-stash">
+        <strong>Milvus 暂存库</strong>
+        <span>低/中风险、留痕、行为基线</span>
+      </div>
+
+      <div class="node store w-small n-baseline">
+        <strong>历史事件基线</strong>
+        <span>作为后续检索上下文</span>
+      </div>
+
+      <div class="edge-label l-context">风险触发时补充历史上下文</div>
+
+      <div class="node agent w-mid n-classify">
+        <strong>事件分类智能体</strong>
+        <span>反诈 / 反洗钱 / 贷前欺诈</span>
+      </div>
+
+      <div class="node tool w-mid n-rag">
+        <strong>RAG 检索与重排模块</strong>
+        <span>制度 / 案例 / 规则证据</span>
+      </div>
+
+      <div class="node agent w-mid n-first-risk">
+        <strong>首次风险评估智能体</strong>
+        <span>risk_score / risk_level / 证据点</span>
+      </div>
+
+      <div class="node decision n-high">
+        <div class="decision-text">是否高风险？</div>
+      </div>
+
+      <div class="edge-label l-no-2">否：输出低/中风险结论</div>
+      <div class="edge-label l-yes-2">是：触发回捞</div>
+
+      <div class="node tool w-mid n-search">
+        <strong>历史回捞与批量补图模块</strong>
+        <span>Milvus + Graphiti + Neo4j</span>
+      </div>
+
+      <div class="node agent w-mid n-second-risk">
+        <strong>二次风险评估智能体</strong>
+        <span>结合补图事件修正上下文</span>
+      </div>
+
+      <div class="edge-label l-context-2">加载关联事件上下文</div>
+
+      <div class="node agent w-mid n-report">
+        <strong>报告归纳智能体</strong>
+        <span>等级、命中项、原因、证据</span>
+      </div>
+
+      <div class="node output w-mid n-review">
+        <strong>人工复核</strong>
+        <span>确认 / 驳回 / 处置建议</span>
+      </div>
+    </section>
+
+    <div class="legend" aria-label="图例">
+      <div class="legend-item"><span class="swatch agent"></span>LLM/CrewAI 智能体</div>
+      <div class="legend-item"><span class="swatch tool"></span>规则或工具模块</div>
+      <div class="legend-item"><span class="swatch store"></span>本地数据沉淀</div>
+      <div class="legend-item"><span class="swatch risk"></span>风险评估节点</div>
+      <div class="legend-item"><span class="swatch output"></span>人工复核闭环</div>
+    </div>
+
+    <p class="note">
+      说明：带“智能体”的节点对应代码中的 LLM/CrewAI 处理环节；黑名单过滤、RAG 检索、Milvus 回捞、Graphiti + Neo4j 补图属于工具化模块。模型推理使用 <strong>Gemma-4-12B-it Q4_K_M</strong>，端侧服务器为 <strong>Intel Core i9-10900X / NVIDIA RTX 2080 Ti 11GB / Ubuntu 22.04.5 LTS</strong>。
+    </p>
+  </main>
+</body>
+</html>

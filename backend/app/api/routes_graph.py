@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 
 from fastapi import APIRouter, Query
@@ -110,6 +111,60 @@ async def _try_neo4j_terms(terms: list[str], limit: int = 100) -> dict:
         await service.close()
 
 
+def _fallback_person_graph(keyword: str) -> dict:
+    event_repo = EventRepository()
+    rows = event_repo.list_events(page=1, page_size=10000)["items"]
+    clean = keyword.strip()
+    if not clean:
+        return {"nodes": [], "edges": [], "source": "fallback"}
+    matched = [
+        row
+        for row in rows
+        if clean.lower() in str(row.get("raw_content") or "").lower()
+        or clean.upper() in {str(pid).upper() for pid in row.get("person_ids") or []}
+        or clean.lower() in str(row.get("event_id") or "").lower()
+        or clean.lower() in str(row.get("title") or "").lower()
+        or clean.lower() in str(row.get("summary") or "").lower()
+        or clean.lower() in str(row.get("matched_persons") or "").lower()
+    ]
+    nodes_by_id: dict[str, dict] = {}
+    edges: list[dict] = []
+    for row in matched:
+        event_id = str(row.get("event_id") or "")
+        if not event_id:
+            continue
+        nodes_by_id[event_id] = {
+            "id": event_id,
+            "label": str(row.get("title") or event_id),
+            "type": "RiskEvent",
+            "risk_level": row.get("risk_level"),
+            "properties": row,
+        }
+        for pid in row.get("person_ids") or []:
+            pid = str(pid)
+            nodes_by_id.setdefault(
+                pid,
+                {
+                    "id": pid,
+                    "label": pid,
+                    "type": "Customer",
+                    "risk_level": row.get("risk_level"),
+                    "properties": {"id_number": pid},
+                },
+            )
+            edges.append(
+                {
+                    "id": f"{pid}-{event_id}-fallback",
+                    "source": pid,
+                    "target": event_id,
+                    "label": "相关事件",
+                    "type": "FALLBACK_EVENT",
+                    "properties": {"source": "event_repository"},
+                }
+            )
+    return {"nodes": list(nodes_by_id.values()), "edges": edges, "source": "fallback"}
+
+
 @router.get("/events/{event_id}")
 async def event_graph(event_id: str) -> dict:
     event = EventRepository().get_event(event_id)
@@ -134,11 +189,15 @@ async def event_graph(event_id: str) -> dict:
 async def person_graph(q: str = Query(..., min_length=1), limit: int = 100) -> dict:
     service = Neo4jGraphService()
     try:
-        graph = await service.search_person(q, limit=limit)
+        graph = await asyncio.wait_for(service.search_person(q, limit=limit), timeout=18)
         graph["source"] = "neo4j"
-        return graph
+        if graph["nodes"]:
+            return graph
+    except Exception:
+        pass
     finally:
         await service.close()
+    return _fallback_person_graph(q)
 
 
 @router.get("/nodes/{node_id}/expand")

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG 检索与重排序流程图</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --ink: #223044;
+      --muted: #667085;
+      --line: #9aa8bd;
+      --blue: #e8f1ff;
+      --blue-border: #7da2e8;
+      --green: #e7f7ee;
+      --green-border: #65bd86;
+      --amber: #fff2d6;
+      --amber-border: #e1b15c;
+      --rose: #ffe8e8;
+      --rose-border: #e69797;
+      --purple: #f0eaff;
+      --purple-border: #a992e9;
+      --card: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    .page {
+      width: 1180px;
+      margin: 0 auto;
+      padding: 28px 32px 34px;
+      background: linear-gradient(180deg, #fff, #f7f9fc);
+    }
+
+    .title {
+      text-align: center;
+      margin-bottom: 18px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1.25;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .diagram {
+      position: relative;
+      border: 1.5px solid #d0d8e5;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .lane-title {
+      font-weight: 800;
+      font-size: 17px;
+      fill: var(--ink);
+    }
+
+    .lane-subtitle {
+      font-size: 12px;
+      fill: var(--muted);
+    }
+
+    .box-title {
+      font-size: 14px;
+      font-weight: 800;
+      fill: var(--ink);
+    }
+
+    .box-sub {
+      font-size: 11px;
+      fill: var(--muted);
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 700;
+      fill: #516174;
+    }
+
+    .caption {
+      margin-top: 12px;
+      color: #526174;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        width: 100%;
+        padding: 12px;
+        background: #fff;
+      }
+
+      .diagram {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="title">
+      <h1>RAG 检索与重排序流程图</h1>
+      <p>金融制度、风险案例与历史事件通过 bge-m3 召回，再由 bge-reranker-v2-m3 精排后输入风险评估智能体</p>
+    </header>
+
+    <section class="diagram" aria-label="RAG 检索与重排序流程图">
+      <svg viewBox="0 0 1120 660" role="img">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#7b8798"></path>
+          </marker>
+          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"></feDropShadow>
+          </filter>
+        </defs>
+
+        <rect x="0" y="0" width="1120" height="660" fill="#ffffff"></rect>
+
+        <rect x="28" y="34" width="1064" height="220" rx="12" fill="#f2f7ff" stroke="#9db8ee" stroke-width="1.5"></rect>
+        <text x="54" y="70" class="lane-title">离线知识建库</text>
+        <text x="54" y="92" class="lane-subtitle">将金融制度、风险案例、业务规则和历史事件沉淀为可检索向量索引</text>
+
+        <rect x="28" y="284" width="1064" height="310" rx="12" fill="#f8f5ff" stroke="#b9a6ef" stroke-width="1.5"></rect>
+        <text x="54" y="320" class="lane-title">在线风险事件检索增强</text>
+        <text x="54" y="342" class="lane-subtitle">当前银行零售风险事件进入系统后，召回相关证据并精排，供风险评估智能体使用</text>
+
+        <!-- Offline lane boxes -->
+        <g filter="url(#shadow)">
+          <rect x="74" y="126" width="170" height="82" rx="8" fill="#ffffff" stroke="#7da2e8" stroke-width="1.5"></rect>
+          <text x="159" y="155" text-anchor="middle" class="box-title">金融知识来源</text>
+          <text x="159" y="177" text-anchor="middle" class="box-sub">制度 / 案例 / 规则</text>
+          <text x="159" y="194" text-anchor="middle" class="box-sub">历史风险事件</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="300" y="126" width="170" height="82" rx="8" fill="#ffffff" stroke="#7da2e8" stroke-width="1.5"></rect>
+          <text x="385" y="155" text-anchor="middle" class="box-title">RAGFlow 文档处理</text>
+          <text x="385" y="177" text-anchor="middle" class="box-sub">上传 / 切分 / 清洗</text>
+          <text x="385" y="194" text-anchor="middle" class="box-sub">金融知识 Dataset</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="526" y="126" width="170" height="82" rx="8" fill="#ffffff" stroke="#65bd86" stroke-width="1.5"></rect>
+          <text x="611" y="155" text-anchor="middle" class="box-title">bge-m3 向量化</text>
+          <text x="611" y="177" text-anchor="middle" class="box-sub">文本 Chunk Embedding</text>
+          <text x="611" y="194" text-anchor="middle" class="box-sub">多语言语义表示</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="752" y="126" width="170" height="82" rx="8" fill="#ffffff" stroke="#e1b15c" stroke-width="1.5"></rect>
+          <text x="837" y="155" text-anchor="middle" class="box-title">向量索引存储</text>
+          <text x="837" y="177" text-anchor="middle" class="box-sub">RAGFlow / Milvus</text>
+          <text x="837" y="194" text-anchor="middle" class="box-sub">Top-K 检索基础</text>
+        </g>
+
+        <path d="M244 167 L292 167" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M470 167 L518 167" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M696 167 L744 167" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+
+        <!-- Online lane boxes -->
+        <g filter="url(#shadow)">
+          <rect x="62" y="386" width="150" height="82" rx="8" fill="#ffffff" stroke="#b9a6ef" stroke-width="1.5"></rect>
+          <text x="137" y="414" text-anchor="middle" class="box-title">当前风险事件</text>
+          <text x="137" y="436" text-anchor="middle" class="box-sub">交易文本 / 客户线索</text>
+          <text x="137" y="453" text-anchor="middle" class="box-sub">反欺诈 / 反洗钱</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="252" y="386" width="150" height="82" rx="8" fill="#ffffff" stroke="#65bd86" stroke-width="1.5"></rect>
+          <text x="327" y="414" text-anchor="middle" class="box-title">查询向量生成</text>
+          <text x="327" y="436" text-anchor="middle" class="box-sub">bge-m3 编码</text>
+          <text x="327" y="453" text-anchor="middle" class="box-sub">事件语义向量</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="442" y="386" width="150" height="82" rx="8" fill="#ffffff" stroke="#e1b15c" stroke-width="1.5"></rect>
+          <text x="517" y="414" text-anchor="middle" class="box-title">Top-K 召回</text>
+          <text x="517" y="436" text-anchor="middle" class="box-sub">RAGFlow / Milvus</text>
+          <text x="517" y="453" text-anchor="middle" class="box-sub">候选制度与案例</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="632" y="386" width="150" height="82" rx="8" fill="#ffffff" stroke="#e69797" stroke-width="1.5"></rect>
+          <text x="707" y="414" text-anchor="middle" class="box-title">证据重排序</text>
+          <text x="707" y="436" text-anchor="middle" class="box-sub">bge-reranker-v2-m3</text>
+          <text x="707" y="453" text-anchor="middle" class="box-sub">相关性精排</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="822" y="386" width="150" height="82" rx="8" fill="#ffffff" stroke="#b9a6ef" stroke-width="1.5"></rect>
+          <text x="897" y="414" text-anchor="middle" class="box-title">Top-N 高相关证据</text>
+          <text x="897" y="436" text-anchor="middle" class="box-sub">过滤噪声证据</text>
+          <text x="897" y="453" text-anchor="middle" class="box-sub">保留可引用依据</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="822" y="502" width="150" height="82" rx="8" fill="#ffffff" stroke="#65bd86" stroke-width="1.5"></rect>
+          <text x="897" y="530" text-anchor="middle" class="box-title">风险评估智能体</text>
+          <text x="897" y="552" text-anchor="middle" class="box-sub">事件 + 证据 + 图谱</text>
+          <text x="897" y="569" text-anchor="middle" class="box-sub">风险等级 / 处置建议</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="632" y="502" width="150" height="82" rx="8" fill="#ffffff" stroke="#9db8ee" stroke-width="1.5"></rect>
+          <text x="707" y="530" text-anchor="middle" class="box-title">证据链输出</text>
+          <text x="707" y="552" text-anchor="middle" class="box-sub">制度依据 / 案例依据</text>
+          <text x="707" y="569" text-anchor="middle" class="box-sub">历史事件线索</text>
+        </g>
+
+        <path d="M212 427 L244 427" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M402 427 L434 427" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M592 427 L624 427" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M782 427 L814 427" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M897 468 L897 494" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M822 543 L790 543" stroke="#7b8798" stroke-width="2" marker-end="url(#arrow)"></path>
+
+        <!-- Link from offline index to online recall -->
+        <path d="M837 208 C837 264 517 305 517 378" fill="none" stroke="#7b8798" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#arrow)"></path>
+
+
+
+        <!-- Output badge -->
+        <rect x="86" y="606" width="948" height="34" rx="17" fill="#f8fafc" stroke="#cbd5e1"></rect>
+        <text x="560" y="628" text-anchor="middle" class="tag">输出：高相关证据片段 + 来源信息 + 相关性排序，用于支撑风险分数、证据摘要和人工复核</text>
+      </svg>
+    </section>
+
+    <p class="caption">
+      图 4 RAG 检索与重排序流程图：离线阶段将金融制度、风险案例、业务规则和历史事件切分并向量化；
+      在线阶段使用 bge-m3 召回 Top-K 候选证据，再通过 bge-reranker-v2-m3 精排为 Top-N 高相关证据，最终输入风险评估智能体。
+    </p>
+  </main>
+</body>
+</html>

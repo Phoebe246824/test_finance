@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { expandGraphNode, searchPersonGraph } from '../api/events'
 import GraphViewer from '../components/GraphViewer.vue'
 import { useWorkbenchStore } from '../stores/workbench'
+import { normalizeGraphData } from '../utils/graph'
 
 const store = useWorkbenchStore()
 const keyword = computed({
@@ -13,17 +14,65 @@ const keyword = computed({
 })
 const loading = ref(false)
 const error = ref('')
+const status = ref('请输入客户编号或姓名后搜索')
+const graph = ref<{ nodes: any[]; edges: any[]; source?: string }>({ nodes: [], edges: [] })
+const SEARCH_TIMEOUT_MS = 25000
+let searchToken = 0
+let searchController: AbortController | null = null
+const graphVersion = ref(0)
+const graphKey = computed(() => `person-graph-${graphVersion.value}`)
+
+onMounted(() => {
+  if ((store.personGraph.nodes || []).length) {
+    setGraph(store.personGraph)
+    const kw = store.personKeyword
+    status.value = kw
+      ? `已搜索 ${kw}，返回 ${store.personGraph.nodes.length} 个节点`
+      : `图谱已恢复，共 ${store.personGraph.nodes.length} 个节点`
+  }
+})
 
 async function search() {
   if (!keyword.value.trim()) return
+  const term = keyword.value.trim()
+  searchController?.abort()
+  searchController = new AbortController()
   loading.value = true
   error.value = ''
-  try {
-    store.setPersonGraph(keyword.value.trim(), await searchPersonGraph(keyword.value.trim()))
-  } catch (err: any) {
-    error.value = err?.response?.data?.detail || err?.message || '搜索失败'
-  } finally {
+  status.value = '正在搜索图谱...'
+  setGraph({ nodes: [], edges: [] })
+  const currentToken = ++searchToken
+  const timeoutId = window.setTimeout(() => {
+    if (currentToken !== searchToken) return
+    searchController?.abort()
     loading.value = false
+    error.value = '搜索超时，请重试'
+    status.value = '搜索超时'
+  }, SEARCH_TIMEOUT_MS)
+  try {
+    const nextGraph = await searchPersonGraph(term, searchController.signal)
+    if (currentToken !== searchToken) return
+    const normalized = normalizeGraphData(nextGraph)
+    store.setPersonGraph(term, normalized)
+    await Promise.resolve()
+    if (currentToken !== searchToken) return
+    setGraph(normalized)
+    if (!(normalized.nodes || []).length) {
+      status.value = `已搜索 ${term}，结果为空`
+    } else {
+      status.value = `已搜索 ${term}，返回 ${normalized.nodes.length} 个节点`
+    }
+  } catch (err: any) {
+    if (currentToken !== searchToken) return
+    if (err?.name === 'CanceledError' || err?.name === 'AbortError') return
+    if (!loading.value && error.value === '搜索超时，请重试') return
+    error.value = err?.response?.data?.detail || err?.message || '搜索失败'
+    status.value = '搜索失败'
+  } finally {
+    if (currentToken === searchToken) {
+      loading.value = false
+    }
+    window.clearTimeout(timeoutId)
   }
 }
 
@@ -31,10 +80,22 @@ async function expand(node: any) {
   const nodeId = node.properties?.id_number || node.id || node.neo4j_element_id
   if (!nodeId) return
   try {
-    store.mergePersonGraph(await expandGraphNode(nodeId))
+    const expanded = normalizeGraphData(await expandGraphNode(nodeId))
+    store.mergePersonGraph(expanded)
+    setGraph(store.personGraph)
   } catch (err: any) {
     error.value = err?.response?.data?.detail || err?.message || '扩展节点失败'
   }
+}
+
+function setGraph(nextGraph: { nodes?: any[]; edges?: any[]; source?: string }) {
+  const normalized = normalizeGraphData(nextGraph)
+  graph.value = {
+    nodes: normalized.nodes,
+    edges: normalized.edges,
+    source: normalized.source,
+  }
+  graphVersion.value += 1
 }
 </script>
 
@@ -64,10 +125,12 @@ async function expand(node: any) {
       </button>
     </div>
     <div v-if="error" class="error">{{ error }}</div>
+    <p class="muted small">{{ status }}</p>
     <p class="muted small">点击节点或边可查看 Neo4j 属性；点击节点详情里的“扩展关联节点”可继续展开。</p>
     <GraphViewer
-      :nodes="store.personGraph.nodes"
-      :edges="store.personGraph.edges"
+      :key="graphKey"
+      :nodes="graph.nodes"
+      :edges="graph.edges"
       expandable
       @expand="expand"
     />

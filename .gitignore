@@ -7,6 +7,8 @@ __pycache__/
 .omo/
 .DS_Store
 
+docs/
+
 # Frontend dependencies, build output, and package-manager caches
 node_modules/
 frontend/node_modules/

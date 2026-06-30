@@ -5,57 +5,64 @@ import platform
 import shutil
 import time
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter
-from redis.asyncio import Redis
 
-from backend.app.core.config import settings
-from backend.app.db.session import get_connection
-from main import load_config
+from backend.app.services import store_provider
+from backend.app.repositories.events import EventRepository
+from backend.app.services.neo4j_graph_service import Neo4jGraphService
 from sentinel_edge import collect_hardware_profile
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 STARTED_AT = time.time()
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def _milvus_ready() -> bool:
+    try:
+        stores = store_provider.get_store_bundle()
+        stores.events.ensure_collection()
+    except Exception:
+        return False
+    return True
+
+
+async def _neo4j_ready() -> bool:
+    service = Neo4jGraphService()
+    try:
+        await service.graph_by_terms(["health"], limit=1)
+    except Exception:
+        return False
+    else:
+        return True
+    finally:
+        await service.close()
 
 
 @router.get("/health")
 async def health() -> dict:
+    from main import load_config
+
     config = load_config()
-    checks = {
-        "api": {"ok": True, "detail": "响应时间 56 ms"},
-        "redis": {"ok": False, "detail": "连接数 0"},
-        "database": {
-            "ok": settings.database_path.exists(),
-            "detail": f"大小 {round(settings.database_path.stat().st_size / 1024 / 1024, 1) if settings.database_path.exists() else 0} MB",
+    return {
+        "api": {"ok": True, "detail": "FastAPI 已启动"},
+        "milvus": {
+            "ok": _milvus_ready(),
+            "detail": f"collection {config['milvus']['stash_collection']}",
         },
-        "milvus": {"ok": True, "detail": "集合数 3"},
-        "neo4j": {"ok": True, "detail": "节点数 6,542"},
-        "llm": {"ok": bool(config['llm'].get('model')), "detail": f"模型 {config['llm'].get('model') or '未配置'}"},
+        "neo4j": {"ok": await _neo4j_ready(), "detail": config["neo4j"]["uri"]},
+        "llm": {
+            "ok": bool(config["llm"].get("model")),
+            "detail": f"模型 {config['llm'].get('model') or '未配置'}",
+        },
     }
-    redis = Redis(
-        host=config["redis"]["host"],
-        port=config["redis"]["port"],
-        password=config["redis"]["password"] or None,
-        db=config["redis"]["blacklist_db"],
-    )
-    try:
-        checks["redis"] = {
-            "ok": bool(await redis.ping()),
-            "detail": f"连接数 {config['redis']['blacklist_db']}",
-        }
-    except Exception as exc:
-        checks["redis"] = {"ok": False, "detail": str(exc)[:40]}
-    try:
-        await redis.aclose()
-    except Exception:
-        pass
-    return checks
 
 
 @router.get("/hardware")
 async def hardware() -> dict:
     profile = collect_hardware_profile().to_dict()
-    disk = shutil.disk_usage(settings.database_path.parent)
+    disk = shutil.disk_usage(ROOT)
     gpu_details = profile.get("gpu_details") or []
     gpu = ", ".join(gpu_details[:2]) if gpu_details else profile.get("gpu_backend") or "未检测到"
     profile.update(
@@ -71,45 +78,40 @@ async def hardware() -> dict:
 
 @router.get("/runtime")
 async def runtime() -> dict:
-    with get_connection() as conn:
-        event_count = conn.execute("SELECT COUNT(*) AS count FROM financial_events").fetchone()["count"]
-        review_count = conn.execute("SELECT COUNT(*) AS count FROM review_actions").fetchone()["count"]
-        blacklist_count = conn.execute(
-            "SELECT COUNT(*) AS count FROM blacklist_items WHERE enabled = 1"
-        ).fetchone()["count"]
-        latest_event = conn.execute(
-            "SELECT updated_at FROM financial_events ORDER BY updated_at DESC LIMIT 1"
-        ).fetchone()
-        recent_events = conn.execute(
-            """
-            SELECT updated_at, risk_score
-            FROM financial_events
-            ORDER BY updated_at DESC
-            LIMIT 12
-            """
-        ).fetchall()
+    stores = store_provider.get_store_bundle()
+    event_repo = EventRepository(stores)
+    event_rows = event_repo.list_events(page=1, page_size=10000)["items"]
+    recent_analysis_rows = event_repo.list_recent_events(limit=8)
+    review_rows = stores.review_actions.list_recent(limit=10000)
+    blacklist_count = (
+        len(stores.persons.list_items())
+        + len(stores.keywords.list_items())
+        + len(stores.event_samples.list_items())
+    )
+    recent_events = event_rows[:12]
     latency_series = []
     for index, row in enumerate(reversed(recent_events)):
-        label = ""
         try:
-            label = datetime.fromisoformat(row["updated_at"]).strftime("%H:%M")
-        except Exception:
+            label = datetime.fromisoformat(str(row.get("updated_at") or "")).strftime("%H:%M")
+        except ValueError:
             label = f"T-{len(recent_events) - index}"
-        risk_score = float(row["risk_score"] or 0)
+        risk_score = float(row.get("risk_score") or 0)
         latency_series.append(
             {
                 "label": label,
                 "seconds": round(5.5 + risk_score * 5 + (index % 3) * 0.8, 2),
             }
         )
+    latest_event = recent_events[0] if recent_events else {}
     return {
         "process_id": os.getpid(),
         "uptime_seconds": round(time.time() - STARTED_AT, 2),
         "python": platform.python_version(),
-        "database_path": str(settings.database_path),
-        "event_count": event_count,
-        "review_count": review_count,
+        "storage_backend": "milvus",
+        "event_count": len(event_rows),
+        "review_count": len(review_rows),
+        "recent_analysis": recent_analysis_rows,
         "blacklist_count": blacklist_count,
-        "latest_event_at": latest_event["updated_at"] if latest_event else "",
+        "latest_event_at": latest_event.get("updated_at", ""),
         "analysis_latency_series": latency_series,
     }

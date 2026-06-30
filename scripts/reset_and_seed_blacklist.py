@@ -1,4 +1,4 @@
-"""重置 Neo4j、Redis、Milvus 状态并重新写入黑名单测试种子数据。"""
+from __future__ import annotations
 
 import asyncio
 import os
@@ -8,19 +8,21 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from redis.asyncio import Redis
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blacklist.store import BlacklistStore  # noqa: E402
+from blacklist.milvus_client import MilvusConfig, create_milvus_client  # noqa: E402
+from blacklist.stores.event_samples_store import EventSamplesStore  # noqa: E402
+from blacklist.stores.factory import (  # noqa: E402
+    create_embedding_fn,
+    milvus_collection_names,
+)
+from blacklist.stores.keywords_store import KeywordsStore  # noqa: E402
+from blacklist.stores.persons_store import PersonsStore  # noqa: E402
 
-# P05 保留旧测试；P105 用于金融黑名单命中测试。
-PERSON_SEEDS = [
-    "P05",
-    "P105",
-]
+PERSON_SEEDS = ["P05", "P105"]
 
 KEYWORD_SEEDS = [
     "制裁",
@@ -43,20 +45,9 @@ KEYWORD_SEEDS = [
     "支付通道",
     "投诉",
     "返利",
-    "刀具",
-    "可燃液体",
-    "危险化学品",
 ]
 
 EVENT_SEEDS = [
-    (
-        "E-HIGH-RISK-001",
-        "某人员携带刀具与可燃液体进入地下停车场并与他人发生冲突，存在严重公共安全风险。",
-    ),
-    (
-        "E-HIGH-RISK-002",
-        "仓库内发现大量危险化学品和疑似爆炸装置材料，现场情况紧急，警方和消防已介入。",
-    ),
     (
         "E-FIN-AML-001",
         "客户在短时间内向多个新开户账户转出接近阈值资金，随后资金归集至虚拟币平台，疑似分拆交易与洗钱。",
@@ -84,7 +75,6 @@ async def reset_neo4j_graph(
     database: str,
     driver_factory: Callable[..., Any] | None = None,
 ) -> int:
-    """Delete all nodes and relationships from the configured Neo4j database."""
     if driver_factory is None:
         from neo4j import AsyncGraphDatabase
 
@@ -102,99 +92,127 @@ async def reset_neo4j_graph(
                 """
             )
             record = await result.single()
-            if record is None:
-                return 0
-            return int(record["node_count"])
+            return 0 if record is None else int(record["node_count"])
     finally:
         await driver.close()
 
 
-def reset_milvus_collection(
-    *,
-    uri: str,
-    token: str,
-    collection_name: str,
-    client_factory: Callable[..., Any] | None = None,
-) -> bool:
-    """Drop the Milvus stash collection if it exists."""
-    if client_factory is None:
-        from pymilvus import MilvusClient
+def reset_milvus_collections(
+    client: Any,
+    collections: tuple[str, ...] | None = None,
+) -> list[str]:
+    collection_names = milvus_collection_names() if collections is None else collections
+    dropped: list[str] = []
+    for collection_name in sorted(collection_names):
+        if client.has_collection(collection_name):
+            client.drop_collection(collection_name)
+            dropped.append(collection_name)
+    return dropped
 
-        client_factory = MilvusClient
 
-    client = client_factory(uri=uri, token=token or None)
-    try:
-        if not client.has_collection(collection_name):
-            return False
-        client.drop_collection(collection_name)
-        return True
-    finally:
-        close = getattr(client, "close", None)
-        if close is not None:
-            close()
+async def seed_blacklist_stores(
+    client: Any,
+    embedding_fn: Any,
+    embedding_dim: int = 1024,
+) -> dict[str, int]:
+    persons = PersonsStore(client, embedding_dim=embedding_dim)
+    keywords = KeywordsStore(client, embedding_dim=embedding_dim)
+    samples = EventSamplesStore(
+        client,
+        embedding_fn=embedding_fn,
+        embedding_dim=embedding_dim,
+    )
+    now = persons.now_iso()
+    persons.upsert_rows(
+        [
+            {
+                "person_id": person_id.upper(),
+                "summary": "",
+                "description": "",
+                "hit_count": 1,
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for person_id in PERSON_SEEDS
+        ]
+    )
+    keywords.upsert_rows(
+        [
+            {
+                "keyword_id": keywords.keyword_id(keyword),
+                "keyword": keyword,
+                "summary": "",
+                "description": "",
+                "hit_count": 1,
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for keyword in KEYWORD_SEEDS
+        ]
+    )
+    samples.upsert_rows(
+        [
+            {
+                "sample_id": event_id,
+                "summary": summary,
+                "description": summary,
+                "embedding": await samples.resolve_embedding(embedding_fn, summary),
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for event_id, summary in EVENT_SEEDS
+        ]
+    )
+    return {
+        "persons": len(PERSON_SEEDS),
+        "keywords": len(KEYWORD_SEEDS),
+        "event_samples": len(EVENT_SEEDS),
+    }
 
 
 async def main() -> None:
     load_dotenv(dotenv_path=ROOT / ".env")
-
-    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-    neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
-    neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
-
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = int(os.getenv("REDIS_PORT", "6379"))
-    password = os.getenv("REDIS_PASSWORD") or None
-    blacklist_db = int(os.getenv("BLACKLIST_REDIS_DB", "1"))
-
-    milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
-    milvus_token = os.getenv("MILVUS_TOKEN", "")
-    milvus_collection = os.getenv("MILVUS_STASH_COLLECTION", "stashed_events")
-
-    deleted_neo4j_nodes = await reset_neo4j_graph(
-        uri=neo4j_uri,
-        user=neo4j_user,
-        password=neo4j_password,
-        database=neo4j_database,
-    )
-    dropped_milvus_collection = reset_milvus_collection(
-        uri=milvus_uri,
-        token=milvus_token,
-        collection_name=milvus_collection,
-    )
-
-    redis = Redis(host=host, port=port, password=password, db=blacklist_db)
-    store = BlacklistStore(redis)
-
-    try:
-        before_blacklist = await redis.dbsize()
-        await redis.flushdb()
-
-        for person_id in PERSON_SEEDS:
-            await store.append_person(person_id)
-
-        for keyword in KEYWORD_SEEDS:
-            await store.append_keyword(keyword)
-
-        for event_id, summary in EVENT_SEEDS:
-            await store.append_event(event_id, summary)
-
-        person_stats = await store.get_person_stats()
-        keyword_stats = await store.get_keyword_stats()
-        event_count = await store.get_event_count()
-
-        print("Reset databases and seeded blacklist Redis:")
-        print(f"  Neo4j ({neo4j_database}): deleted {deleted_neo4j_nodes} graph nodes")
-        print(
-            f"  Blacklist DB ({blacklist_db}): cleared {before_blacklist} keys, seeded {len(PERSON_SEEDS)} persons, {len(KEYWORD_SEEDS)} keywords, {len(EVENT_SEEDS)} events"
+    milvus_config = {
+        "stash_collection": os.getenv("MILVUS_STASH_COLLECTION") or "stashed_events",
+    }
+    client = create_milvus_client(
+        MilvusConfig(
+            uri=os.getenv("MILVUS_URI", "http://localhost:19530"),
+            token=os.getenv("MILVUS_TOKEN", ""),
         )
-        milvus_status = "dropped" if dropped_milvus_collection else "not found"
-        print(f"  Milvus stash ({milvus_collection}): collection {milvus_status}")
-        print(f"  Persons : {sorted(person_stats.keys())}")
-        print(f"  Keywords count: {len(keyword_stats)}")
-        print(f"  Events  : {event_count}")
+    )
+    embedding_fn = create_embedding_fn(
+        {
+            "model": os.getenv("EMBEDDER_MODEL") or "BAAI/bge-m3",
+            "api_key": os.getenv("EMBEDDER_API_KEY")
+            or os.getenv("LLM_API_KEY")
+            or "",
+            "api_base": os.getenv("EMBEDDER_API_BASE")
+            or "https://api.openai.com/v1",
+        }
+    )
+    try:
+        dropped = reset_milvus_collections(
+            client,
+            collections=milvus_collection_names({"milvus": milvus_config}),
+        )
+        seeded = await seed_blacklist_stores(
+            client=client,
+            embedding_fn=embedding_fn,
+            embedding_dim=int(os.getenv("EMBEDDING_DIM") or "1024"),
+        )
+        print("Reset Milvus and seeded blacklist stores:")
+        print(f"  Dropped collections: {dropped}")
+        print(f"  Persons: {seeded['persons']}")
+        print(f"  Keywords: {seeded['keywords']}")
+        print(f"  Event samples: {seeded['event_samples']}")
     finally:
-        await redis.aclose()
+        close = getattr(client, "close", None)
+        if close is not None:
+            close()
 
 
 if __name__ == "__main__":

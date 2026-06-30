@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>知识图谱与历史回捞机制图</title>
+  <style>
+    :root {
+      --ink: #243044;
+      --muted: #667085;
+      --bg: #f6f8fb;
+      --line: #8795aa;
+      --blue: #e9f1ff;
+      --blue-border: #7fa3e8;
+      --green: #e9f7ef;
+      --green-border: #69bd89;
+      --amber: #fff2d6;
+      --amber-border: #dfb15e;
+      --rose: #ffe9e9;
+      --rose-border: #e49a9a;
+      --purple: #f1ecff;
+      --purple-border: #a995e7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    .page {
+      width: 1180px;
+      margin: 0 auto;
+      padding: 28px 32px 34px;
+      background: linear-gradient(180deg, #fff, #f6f8fb);
+    }
+
+    .title {
+      text-align: center;
+      margin-bottom: 18px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1.25;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .diagram {
+      border: 1.5px solid #d0d8e5;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 800;
+      fill: var(--ink);
+    }
+
+    .section-sub {
+      font-size: 12px;
+      fill: var(--muted);
+    }
+
+    .box-title {
+      font-size: 14px;
+      font-weight: 800;
+      fill: var(--ink);
+    }
+
+    .box-sub {
+      font-size: 11px;
+      fill: var(--muted);
+    }
+
+    .node-title {
+      font-size: 12px;
+      font-weight: 800;
+      fill: #334155;
+      text-anchor: middle;
+    }
+
+    .edge-text {
+      font-size: 10.5px;
+      fill: #64748b;
+      text-anchor: middle;
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 700;
+      fill: #526174;
+    }
+
+    .caption {
+      margin-top: 12px;
+      color: #526174;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        width: 100%;
+        padding: 12px;
+        background: #fff;
+      }
+
+      .diagram {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="title">
+      <h1>知识图谱与历史回捞机制图</h1>
+      <p>高风险事件触发后，从 Milvus 召回历史线索，补充到 Neo4j 时序图谱并进行二次研判</p>
+    </header>
+
+    <section class="diagram" aria-label="知识图谱与历史回捞机制图">
+      <svg viewBox="0 0 1120 660" role="img">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#7b8798"></path>
+          </marker>
+          <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#d05b5b"></path>
+          </marker>
+          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"></feDropShadow>
+          </filter>
+        </defs>
+
+        <rect x="0" y="0" width="1120" height="660" fill="#ffffff"></rect>
+
+        <rect x="30" y="42" width="304" height="526" rx="14" fill="#fff7e8" stroke="#dfb15e" stroke-width="1.5"></rect>
+        <text x="56" y="78" class="section-title">① 当前事件触发</text>
+        <text x="56" y="100" class="section-sub">抽取主体、交易和风险标签，完成首次风险评估</text>
+
+        <rect x="408" y="42" width="304" height="526" rx="14" fill="#eff8ff" stroke="#7fa3e8" stroke-width="1.5"></rect>
+        <text x="434" y="78" class="section-title">② Milvus 历史回捞</text>
+        <text x="434" y="100" class="section-sub">按同客户、同账户和语义相似度召回历史事件</text>
+
+        <rect x="786" y="42" width="304" height="526" rx="14" fill="#f3efff" stroke="#a995e7" stroke-width="1.5"></rect>
+        <text x="812" y="78" class="section-title">③ 图谱补图与二次研判</text>
+        <text x="812" y="100" class="section-sub">批量写入 Neo4j，形成组合风险证据链</text>
+
+        <!-- Current event -->
+        <g filter="url(#shadow)">
+          <rect x="72" y="138" width="220" height="80" rx="9" fill="#ffffff" stroke="#dfb15e" stroke-width="1.5"></rect>
+          <text x="182" y="168" text-anchor="middle" class="box-title">当前高风险事件</text>
+          <text x="182" y="191" text-anchor="middle" class="box-sub">异常转账 / 陌生设备 / 可疑收款方</text>
+          <text x="182" y="208" text-anchor="middle" class="box-sub">触发首次风险阈值</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="72" y="264" width="220" height="112" rx="9" fill="#ffffff" stroke="#dfb15e" stroke-width="1.5"></rect>
+          <text x="182" y="294" text-anchor="middle" class="box-title">实体与风险线索</text>
+          <text x="182" y="319" text-anchor="middle" class="box-sub">客户 P101 / 账户 A001</text>
+          <text x="182" y="341" text-anchor="middle" class="box-sub">设备 D01 / 收款方 M01</text>
+          <text x="182" y="363" text-anchor="middle" class="box-sub">风险标签：资金拆分、异常登录</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="72" y="426" width="220" height="80" rx="9" fill="#ffffff" stroke="#e49a9a" stroke-width="1.5"></rect>
+          <text x="182" y="456" text-anchor="middle" class="box-title">首次风险评估</text>
+          <text x="182" y="480" text-anchor="middle" class="box-sub">风险分超过阈值</text>
+          <text x="182" y="497" text-anchor="middle" class="box-sub">启动历史回捞</text>
+        </g>
+
+        <!-- Milvus recall -->
+        <g filter="url(#shadow)">
+          <rect x="450" y="138" width="220" height="80" rx="9" fill="#ffffff" stroke="#7fa3e8" stroke-width="1.5"></rect>
+          <text x="560" y="168" text-anchor="middle" class="box-title">Milvus events 历史库</text>
+          <text x="560" y="191" text-anchor="middle" class="box-sub">低风险暂存 + 已分析事件</text>
+          <text x="560" y="208" text-anchor="middle" class="box-sub">保存语义向量和结构化字段</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="450" y="264" width="220" height="118" rx="9" fill="#ffffff" stroke="#7fa3e8" stroke-width="1.5"></rect>
+          <text x="560" y="294" text-anchor="middle" class="box-title">三路召回策略</text>
+          <text x="560" y="321" text-anchor="middle" class="box-sub">同客户：P101 历史事件</text>
+          <text x="560" y="344" text-anchor="middle" class="box-sub">同账户：A001 交易记录</text>
+          <text x="560" y="367" text-anchor="middle" class="box-sub">语义相似：相近风险案例</text>
+        </g>
+
+        <g filter="url(#shadow)">
+          <rect x="450" y="430" width="220" height="82" rx="9" fill="#ffffff" stroke="#69bd89" stroke-width="1.5"></rect>
+          <text x="560" y="461" text-anchor="middle" class="box-title">历史事件候选集</text>
+          <text x="560" y="485" text-anchor="middle" class="box-sub">历史小额转账 / 历史设备异常</text>
+          <text x="560" y="502" text-anchor="middle" class="box-sub">历史收款方聚集 / 相似可疑案例</text>
+        </g>
+
+        <!-- Neo4j graph -->
+        <g filter="url(#shadow)">
+          <rect x="824" y="136" width="228" height="230" rx="10" fill="#ffffff" stroke="#a995e7" stroke-width="1.5"></rect>
+          <text x="938" y="165" text-anchor="middle" class="box-title">Graphiti + Neo4j 图谱</text>
+          <text x="938" y="187" text-anchor="middle" class="box-sub">当前事件 + 历史事件批量补图</text>
+        </g>
+
+        <circle cx="872" cy="226" r="24" fill="#e9f1ff" stroke="#7fa3e8" stroke-width="2"></circle>
+        <text x="872" y="230" class="node-title">客户</text>
+        <text x="872" y="262" class="edge-text">P101</text>
+
+        <circle cx="950" cy="226" r="24" fill="#e9f7ef" stroke="#69bd89" stroke-width="2"></circle>
+        <text x="950" y="230" class="node-title">账户</text>
+        <text x="950" y="262" class="edge-text">A001</text>
+
+        <circle cx="950" cy="302" r="24" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"></circle>
+        <text x="950" y="306" class="node-title">当前</text>
+        <text x="950" y="338" class="edge-text">高风险事件</text>
+
+        <circle cx="1022" cy="302" r="24" fill="#ffe9e9" stroke="#e49a9a" stroke-width="2"></circle>
+        <text x="1022" y="306" class="node-title">收款方</text>
+        <text x="1022" y="338" class="edge-text">M01</text>
+
+        <circle cx="878" cy="302" r="24" fill="#fff2d6" stroke="#dfb15e" stroke-width="2"></circle>
+        <text x="878" y="306" class="node-title">设备</text>
+        <text x="878" y="338" class="edge-text">D01</text>
+
+        <rect x="836" y="354" width="76" height="36" rx="18" fill="#eef6ff" stroke="#7fa3e8" stroke-width="1.8"></rect>
+        <text x="874" y="376" class="node-title">历史转账</text>
+
+        <rect x="928" y="354" width="76" height="36" rx="18" fill="#eef6ff" stroke="#7fa3e8" stroke-width="1.8"></rect>
+        <text x="966" y="376" class="node-title">历史设备</text>
+
+        <rect x="1002" y="354" width="42" height="36" rx="18" fill="#ffe9e9" stroke="#e49a9a" stroke-width="1.8"></rect>
+        <text x="1023" y="376" class="node-title">风险</text>
+
+        <path d="M896 226 L926 226" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <text x="912" y="215" class="edge-text">拥有</text>
+        <path d="M950 250 L950 276" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <text x="974" y="269" class="edge-text">发生</text>
+        <path d="M974 302 L998 302" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <text x="986" y="292" class="edge-text">转入</text>
+        <path d="M926 302 L902 302" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <text x="914" y="292" class="edge-text">使用</text>
+        <path d="M936 320 C912 335 890 342 874 354" fill="none" stroke="#8795aa" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"></path>
+        <text x="894" y="348" class="edge-text">回捞</text>
+        <path d="M960 326 C963 338 965 344 966 354" fill="none" stroke="#8795aa" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"></path>
+        <text x="982" y="345" class="edge-text">回捞</text>
+        <path d="M1008 326 L1018 354" fill="none" stroke="#d05b5b" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow-red)"></path>
+        <text x="1027" y="347" class="edge-text">标记</text>
+
+        <g filter="url(#shadow)">
+          <rect x="824" y="418" width="228" height="92" rx="9" fill="#ffffff" stroke="#e49a9a" stroke-width="1.5"></rect>
+          <text x="938" y="449" text-anchor="middle" class="box-title">二次风险研判</text>
+          <text x="938" y="473" text-anchor="middle" class="box-sub">结合当前事件与历史路径</text>
+          <text x="938" y="491" text-anchor="middle" class="box-sub">输出证据链和处置建议</text>
+        </g>
+
+        <!-- arrows -->
+        <path d="M182 218 L182 256" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M182 376 L182 418" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M292 466 C344 466 372 178 442 178" fill="none" stroke="#d05b5b" stroke-width="2.3" marker-end="url(#arrow-red)"></path>
+        <path d="M560 218 L560 256" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M560 382 L560 422" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+        <path d="M670 471 C728 471 750 250 816 250" fill="none" stroke="#8795aa" stroke-width="2.3" marker-end="url(#arrow)"></path>
+        <path d="M938 366 L938 410" stroke="#8795aa" stroke-width="2" marker-end="url(#arrow)"></path>
+
+        <rect x="320" y="134" width="92" height="28" rx="14" fill="#ffffff" stroke="#e49a9a"></rect>
+        <text x="366" y="153" text-anchor="middle" class="tag">高风险触发</text>
+
+        <rect x="690" y="216" width="92" height="28" rx="14" fill="#ffffff" stroke="#94a3b8"></rect>
+        <text x="736" y="235" text-anchor="middle" class="tag">批量补图</text>
+
+        <rect x="72" y="592" width="976" height="38" rx="19" fill="#f8fafc" stroke="#cbd5e1"></rect>
+        <text x="560" y="616" text-anchor="middle" class="tag">
+          输出：风险等级、图谱路径、历史交易线索、证据摘要与人工复核建议
+        </text>
+      </svg>
+    </section>
+
+    <p class="caption">
+      图 5 知识图谱与历史回捞机制图：当前事件首次评估为高风险后，系统从 Milvus events collection
+      按同客户、同账户和语义相似度召回历史事件，并批量补充到 Graphiti + Neo4j 时序知识图谱中，
+      再进行二次风险研判，输出风险等级、证据链和处置建议。
+    </p>
+  </main>
+</body>
+</html>

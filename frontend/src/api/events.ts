@@ -15,8 +15,8 @@ export async function getEventGraph(eventId: string) {
   return data
 }
 
-export async function searchPersonGraph(keyword: string) {
-  const { data } = await http.get('/api/graph/persons', { params: { q: keyword } })
+export async function searchPersonGraph(keyword: string, signal?: AbortSignal) {
+  const { data } = await http.get('/api/graph/persons', { params: { q: keyword }, signal })
   return data
 }
 

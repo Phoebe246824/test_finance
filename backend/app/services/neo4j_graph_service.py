@@ -5,8 +5,6 @@ from typing import Any
 
 from neo4j import AsyncGraphDatabase
 
-from main import load_config
-
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -36,6 +34,7 @@ def _node_id(node: Any) -> str:
         props.get("uuid"),
         props.get("id"),
         props.get("name"),
+        props.get("elementId"),
         getattr(node, "element_id", None),
     )
 
@@ -91,8 +90,9 @@ def _serialize_node(node: Any, *, match_reason: str | None = None) -> dict:
     props = {str(key): _jsonable(value) for key, value in dict(node).items()}
     labels = list(getattr(node, "labels", []) or props.get("labels") or [])
     element_id = getattr(node, "element_id", None)
+    node_id = _node_id(node) or _first_text(element_id, props.get("elementId"))
     return {
-        "id": _node_id(node),
+        "id": node_id,
         "neo4j_element_id": element_id,
         "label": _node_label(node),
         "type": _node_type(node),
@@ -185,7 +185,7 @@ def _merge_graph(records: Iterable[Any], *, match_reason: str | None = None) -> 
     nodes: dict[str, dict] = {}
     edges: dict[str, dict] = {}
     for record in records:
-        node = record.get("n")
+        node = record.get("n") or record.get("seed")
         related = record.get("m")
         rel = record.get("r")
         if node is not None:
@@ -229,8 +229,28 @@ def _merge_paths(records: Iterable[Any], *, match_reason: str | None = None) -> 
     return {"nodes": list(nodes.values()), "edges": list(edges.values())}
 
 
+def _combine_graphs(*graphs: dict) -> dict:
+    nodes: dict[str, dict] = {}
+    edges: dict[str, dict] = {}
+    for graph in graphs:
+        for node in graph.get("nodes") or []:
+            node_id = str(node.get("id") or "")
+            if node_id:
+                nodes[node_id] = node
+        for edge in graph.get("edges") or []:
+            edge_id = str(
+                edge.get("id")
+                or f'{edge.get("source")}-{edge.get("target")}-{edge.get("type") or edge.get("label")}'
+            )
+            if edge_id:
+                edges[edge_id] = edge
+    return {"nodes": list(nodes.values()), "edges": list(edges.values())}
+
+
 class Neo4jGraphService:
     def __init__(self) -> None:
+        from main import load_config
+
         config = load_config()
         neo4j = config["neo4j"]
         self._driver = AsyncGraphDatabase.driver(
@@ -278,6 +298,10 @@ class Neo4jGraphService:
             toLower(toString(coalesce(n.name, ''))) CONTAINS toLower(term)
             OR toLower(toString(coalesce(n.id_number, ''))) = toLower(term)
             OR toLower(toString(coalesce(n.uuid, ''))) = toLower(term)
+            OR toLower(toString(coalesce(n.id, ''))) = toLower(term)
+            OR toLower(elementId(n)) = toLower(term)
+            OR toLower(toString(coalesce(n.content, ''))) CONTAINS toLower(term)
+            OR toLower(toString(coalesce(n.summary, ''))) CONTAINS toLower(term)
         )
         RETURN n, null AS r, null AS m
         LIMIT 30
@@ -292,6 +316,7 @@ class Neo4jGraphService:
         MATCH (n)
         WHERE n.id_number = $node_id
             OR n.uuid = $node_id
+            OR n.id = $node_id
             OR n.name = $node_id
             OR elementId(n) = $node_id
         WITH n
@@ -308,4 +333,35 @@ class Neo4jGraphService:
         return await self._seed_nodes([node_id])
 
     async def search_person(self, keyword: str, limit: int = 100) -> dict:
-        return await self.graph_by_terms([keyword], limit=limit)
+        term = keyword.strip()
+        if not term:
+            return {"nodes": [], "edges": []}
+        query = """
+        MATCH (n)
+        WHERE any(value IN [
+            n.id_number,
+            n.name,
+            n.uuid,
+            n.id,
+            elementId(n),
+            n.content,
+            n.summary,
+            n.title,
+            n.description
+        ] WHERE toLower(toString(coalesce(value, ''))) CONTAINS toLower($term))
+        WITH collect(DISTINCT n)[0..16] AS seeds
+        UNWIND seeds AS seed
+        OPTIONAL MATCH p = (seed)-[*1..2]-(m)
+        RETURN seed AS seed, null AS r, null AS m, nodes(p) AS nodes, relationships(p) AS relationships
+        LIMIT $limit
+        """
+        async with self._driver.session(database="neo4j") as session:
+            result = await session.run(query, term=term, limit=limit)
+            records = [record async for record in result]
+        graph = _combine_graphs(
+            _merge_graph(records, match_reason="person_search"),
+            _merge_paths(records, match_reason="person_search"),
+        )
+        if graph["nodes"]:
+            return graph
+        return await self._seed_nodes([term])

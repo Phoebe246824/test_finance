@@ -1,84 +1,28 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from typing import Any
 
-from backend.app.db.session import get_connection
-
-
-def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def _row_to_dict(row) -> dict:
-    item = dict(row)
-    for field in (
-        "matched_persons_json",
-        "matched_keywords_json",
-        "event_similarity_json",
-        "dimension_scores_json",
-        "trend_report_json",
-    ):
-        value = item.get(field)
-        item[field.removesuffix("_json")] = json.loads(value) if value else None
-    return item
-
-
-def _plain_value(value: Any) -> Any:
-    return getattr(value, "value", value)
+from backend.app.services import store_provider
 
 
 class EventRepository:
-    def upsert_from_analysis(self, result: dict[str, Any]) -> None:
-        now = _now()
-        blacklist = result.get("blacklist") or {}
-        with get_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO financial_events (
-                    event_id, title, raw_content, event_type, summary, status,
-                    risk_level, risk_score, reasoning, blacklist_decision,
-                    matched_persons_json, matched_keywords_json, event_similarity_json,
-                    dimension_scores_json, trend_report_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(event_id) DO UPDATE SET
-                    title=excluded.title,
-                    raw_content=excluded.raw_content,
-                    event_type=excluded.event_type,
-                    summary=excluded.summary,
-                    status=excluded.status,
-                    risk_level=excluded.risk_level,
-                    risk_score=excluded.risk_score,
-                    reasoning=excluded.reasoning,
-                    blacklist_decision=excluded.blacklist_decision,
-                    matched_persons_json=excluded.matched_persons_json,
-                    matched_keywords_json=excluded.matched_keywords_json,
-                    event_similarity_json=excluded.event_similarity_json,
-                    dimension_scores_json=excluded.dimension_scores_json,
-                    trend_report_json=excluded.trend_report_json,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    result.get("event_id"),
-                    result.get("title") or "",
-                    result.get("raw_content") or "",
-                    result.get("event_type") or "",
-                    result.get("summary") or "",
-                    result.get("status") or "unknown",
-                    str(_plain_value(result.get("risk_level") or "")),
-                    result.get("risk_score"),
-                    result.get("reasoning") or "",
-                    blacklist.get("decision") or "",
-                    json.dumps(blacklist.get("matched_persons") or [], ensure_ascii=False),
-                    json.dumps(blacklist.get("matched_keywords") or [], ensure_ascii=False),
-                    json.dumps(blacklist.get("event_similarity") or {}, ensure_ascii=False),
-                    json.dumps(result.get("dimension_scores") or {}, ensure_ascii=False),
-                    json.dumps(result.get("trend_report") or {}, ensure_ascii=False),
-                    now,
-                    now,
-                ),
-            )
+    def __init__(self, stores: Any | None = None) -> None:
+        self._stores = stores or store_provider.get_store_bundle()
+
+    async def upsert_from_analysis(self, result: dict[str, Any]) -> int:
+        return await self._stores.events.upsert_analysis_result(result)
+
+    async def upsert_stashed_event(self, event: Any, *, person_ids: list[str], status: str, blacklist_decision: str, matched_persons: list[str] | None = None, matched_keywords: list[str] | None = None, event_similarity: dict[str, Any] | None = None, dedupe_content: bool = True) -> int:
+        return await self._stores.stashed_events.upsert_event(
+            event,
+            person_ids=person_ids,
+            status=status,
+            blacklist_decision=blacklist_decision,
+            matched_persons=matched_persons,
+            matched_keywords=matched_keywords,
+            event_similarity=event_similarity,
+            dedupe_content=dedupe_content,
+        )
 
     def list_events(
         self,
@@ -89,57 +33,102 @@ class EventRepository:
         keyword: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
-    ) -> dict:
-        where = []
-        params: list[Any] = []
-        if risk_level:
-            where.append("risk_level = ?")
-            params.append(risk_level)
-        if keyword:
-            where.append("(raw_content LIKE ? OR title LIKE ? OR summary LIKE ?)")
-            like = f"%{keyword}%"
-            params.extend([like, like, like])
-        if date_from:
-            where.append("date(created_at) >= date(?)")
-            params.append(date_from)
-        if date_to:
-            where.append("date(created_at) <= date(?)")
-            params.append(date_to)
-        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    ) -> dict[str, Any]:
+        rows = self._merged_events(risk_level=risk_level, keyword=keyword)
+        if date_from is not None or date_to is not None:
+            rows = [
+                row
+                for row in rows
+                if self._matches_date_range(row, date_from=date_from, date_to=date_to)
+            ]
         offset = (page - 1) * page_size
-        with get_connection() as conn:
-            total = conn.execute(
-                f"SELECT COUNT(*) AS count FROM financial_events {where_sql}",
-                params,
-            ).fetchone()["count"]
-            rows = conn.execute(
-                f"""
-                SELECT * FROM financial_events
-                {where_sql}
-                ORDER BY updated_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                [*params, page_size, offset],
-            ).fetchall()
         return {
-            "total": total,
+            "total": len(rows),
             "page": page,
             "page_size": page_size,
-            "items": [_row_to_dict(row) for row in rows],
+            "items": rows[offset : offset + page_size],
         }
 
-    def get_event(self, event_id: str) -> dict | None:
-        with get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM financial_events WHERE event_id = ?",
-                (event_id,),
-            ).fetchone()
-        return _row_to_dict(row) if row else None
+    def get_event(self, event_id: str) -> dict[str, Any] | None:
+        event = self._stores.events.get_event(event_id)
+        stash = self._stores.stashed_events.get_event(event_id)
+        if event is None:
+            return stash
+        if stash is None:
+            return event
+        return event if self._prefer_row(event, stash) else stash
+
+    def list_recent_events(
+        self,
+        *,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        return self._merged_events(risk_level=None, keyword=None)[:limit]
+
+    def get_event_for_detail(self, event_id: str) -> dict[str, Any] | None:
+        return self.get_event(event_id)
 
     def delete_event(self, event_id: str) -> bool:
-        with get_connection() as conn:
-            result = conn.execute(
-                "DELETE FROM financial_events WHERE event_id = ?",
-                (event_id,),
-            )
-        return result.rowcount > 0
+        deleted = self._stores.events.delete_event(event_id)
+        return self._stores.stashed_events.delete_event(event_id) or deleted
+
+    def has_content_hash(self, content_hash: str) -> bool:
+        return bool(
+            self._stores.events.query_by_content_hash(content_hash)
+            or self._stores.stashed_events.query_by_content_hash(content_hash)
+        )
+
+    def _merged_events(
+        self,
+        *,
+        risk_level: str | None,
+        keyword: str | None,
+    ) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for row in [
+            *self._stores.stashed_events.list_events(
+                page=1,
+                page_size=10000,
+                risk_level=risk_level,
+                keyword=keyword,
+            )["items"],
+            *self._stores.events.list_events(
+                page=1,
+                page_size=10000,
+                risk_level=risk_level,
+                keyword=keyword,
+            )["items"],
+        ]:
+            event_id = str(row.get("event_id") or "")
+            if not event_id:
+                continue
+            current = merged.get(event_id)
+            if current is None or self._prefer_row(row, current):
+                merged[event_id] = row
+        rows = list(merged.values())
+        rows.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        return rows
+
+    @staticmethod
+    def _prefer_row(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+        candidate_status = str(candidate.get("status") or "")
+        current_status = str(current.get("status") or "")
+        if candidate_status == "analyzed" and current_status != "analyzed":
+            return True
+        if candidate_status != "analyzed" and current_status == "analyzed":
+            return False
+        candidate_updated = str(candidate.get("updated_at") or "")
+        current_updated = str(current.get("updated_at") or "")
+        return candidate_updated > current_updated
+
+    @staticmethod
+    def _matches_date_range(
+        row: dict[str, Any],
+        *,
+        date_from: str | None,
+        date_to: str | None,
+    ) -> bool:
+        created_at = str(row.get("created_at") or "")[:10]
+        if date_from and created_at < date_from:
+            return False
+        return not (date_to and created_at > date_to)

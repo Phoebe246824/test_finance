@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 type NodeItem = {
   id: string
@@ -336,6 +336,25 @@ function closeDetail() {
   detailOpen.value = false
   selected.value = null
 }
+
+function resetGraphState() {
+  selected.value = null
+  detailOpen.value = true
+  zoom.value = 1
+  pan.value = { x: 0, y: 0 }
+  dragging.value = false
+  nodeDrag.value = null
+  manualPositions.value = {}
+  fullscreen.value = false
+}
+
+watch(
+  () => [props.nodes, props.edges],
+  () => {
+    resetGraphState()
+  },
+  { deep: true },
+)
 </script>
 
 <template>

@@ -24,7 +24,6 @@ os.environ["COLUMNS"] = os.getenv("SENTINEL_CREWAI_WIDTH", "96")
 from crewai import Agent, Crew, Process, Task
 from crewai.flow.flow import Flow, listen, router, start
 from rich.console import Console
-from redis.asyncio import Redis
 
 try:
     from crewai.events.utils.console_formatter import ConsoleFormatter
@@ -39,9 +38,11 @@ try:
 except Exception:
     pass
 
+from backend.app.services.model_runtime_config import apply_model_services_to_config
 from blacklist.filter import BlacklistFilter
-from blacklist.milvus_stash import MilvusStashStore
-from blacklist.store import BlacklistStore
+from backend.app.repositories.events import EventRepository
+from blacklist.stores.events_store import EventsStore
+from blacklist.stores.runtime import get_runtime_store_bundle
 from graphiti.graphiti_workflow import (
     add_event_to_graph,
     batch_add_to_graph,
@@ -61,15 +62,42 @@ from models import (
     EventSource,
     NormalizedEvent,
 )
-from providers.llm_provider import close_all_llms, get_llm
+from providers.llm_provider import (
+    close_all_llms,
+    get_llm_for,
+    reasoning_kwargs_for,
+)
+from ragflow import (
+    append_knowledge_context,
+    format_knowledge_for_prompt,
+    knowledge_section_for_prompt,
+    retrieve_financial_knowledge,
+)
+from ragflow.client import RagflowConfig
 from trend_prediction.classifier import EventClassifier
 from trend_prediction.task_templates import (
     get_intent_analysis_task,
     get_trend_prediction_task,
 )
 from utils.text import extract_person_id_numbers, extract_subject_id_numbers
+from pipeline_progress import (
+    ProgressCallback,
+    pipeline_progress,
+)
 
 load_dotenv()
+
+
+def report_pipeline_progress(
+    callback: ProgressCallback | None,
+    stage_key: str,
+    stage_label: str,
+    stage_index: int,
+    stage_detail: str,
+) -> None:
+    if callback is None:
+        return
+    callback(pipeline_progress(stage_key, stage_label, stage_index, stage_detail))
 
 # ============================================================
 #  全局配置加载
@@ -84,16 +112,10 @@ def load_config() -> dict:
         dict: 合并后的配置字典
     """
     config = {
-        "rabbitmq": {
-            "host": os.getenv("RABBITMQ_HOST") or "localhost",
-            "port": int(os.getenv("RABBITMQ_PORT") or "5672"),
-            "user": os.getenv("RABBITMQ_USER") or "guest",
-            "password": os.getenv("RABBITMQ_PASSWORD") or "password",
-        },
         "neo4j": {
             "uri": os.getenv("NEO4J_URI") or "bolt://localhost:7687",
             "user": os.getenv("NEO4J_USER") or "neo4j",
-            "password": os.getenv("NEO4J_PASSWORD") or "password",
+            "password": os.getenv("NEO4J_PASSWORD") or "pa55w0rd",
         },
         "llm": {
             "api_key": os.getenv("LLM_API_KEY") or "",
@@ -104,6 +126,11 @@ def load_config() -> dict:
             "model": os.getenv("EMBEDDER_MODEL") or "BAAI/bge-m3",
             "api_key": os.getenv("EMBEDDER_API_KEY") or os.getenv("LLM_API_KEY") or "",
             "api_base": os.getenv("EMBEDDER_API_BASE") or "https://api.openai.com/v1",
+        },
+        "reranker": {
+            "model": os.getenv("RERANKER_MODEL") or "BAAI/bge-reranker-v2-m3",
+            "api_key": os.getenv("RERANKER_API_KEY") or os.getenv("LLM_API_KEY") or "",
+            "base_url": os.getenv("RERANKER_BASE_URL") or "",
         },
         "graphiti": {
             "episode_source_name": os.getenv("GRAPHITI_EPISODE_SOURCE") or "sentinel",
@@ -161,12 +188,7 @@ def load_config() -> dict:
                 ),
             }
         },
-        "redis": {
-            "host": os.getenv("REDIS_HOST") or "localhost",
-            "port": int(os.getenv("REDIS_PORT") or "6379"),
-            "password": os.getenv("REDIS_PASSWORD") or "",
-            "blacklist_db": int(os.getenv("BLACKLIST_REDIS_DB") or "1"),
-        },
+        "storage": {"backend": "milvus"},
         "milvus": {
             "uri": os.getenv("MILVUS_URI") or "http://localhost:19530",
             "token": os.getenv("MILVUS_TOKEN") or "",
@@ -180,13 +202,41 @@ def load_config() -> dict:
             "max_per_person": int(os.getenv("BATCH_MAX_PER_PERSON") or "20"),
             "embedding_dim": int(os.getenv("EMBEDDING_DIM") or "1024"),
         },
+        "ragflow": {
+            "client": RagflowConfig(
+                enabled=os.getenv("RAGFLOW_ENABLED", "").lower()
+                in ("1", "true", "yes"),
+                base_url=os.getenv("RAGFLOW_BASE_URL") or "",
+                api_key=os.getenv("RAGFLOW_API_KEY") or "",
+                dataset_ids=[
+                    item.strip()
+                    for item in (
+                        os.getenv("RAGFLOW_DATASET_IDS")
+                        or os.getenv("RAGFLOW_DATASET_ID")
+                        or ""
+                    ).split(",")
+                    if item.strip()
+                ],
+                top_k=int(os.getenv("RAGFLOW_TOP_K") or "5"),
+                similarity_threshold=float(
+                    os.getenv("RAGFLOW_SIMILARITY_THRESHOLD") or "0.2"
+                ),
+                vector_similarity_weight=float(
+                    os.getenv("RAGFLOW_VECTOR_SIMILARITY_WEIGHT") or "0.7"
+                ),
+                timeout_seconds=float(os.getenv("RAGFLOW_TIMEOUT_SECONDS") or "15"),
+                max_context_chars=int(os.getenv("RAGFLOW_MAX_CONTEXT_CHARS") or "4000"),
+                fail_open=os.getenv("RAGFLOW_FAIL_OPEN", "true").lower()
+                not in ("0", "false", "no"),
+            )
+        },
     }
+    config = apply_model_services_to_config(config)
     logger = get_logger("main.config")
     logger.info(
-        "config loaded: rabbitmq=%s:%s, neo4j=%s, llm=%s, embedder=%s",
-        config["rabbitmq"]["host"],
-        config["rabbitmq"]["port"],
+        "config loaded: neo4j=%s, milvus=%s, llm=%s, embedder=%s",
         config["neo4j"]["uri"],
+        config["milvus"]["uri"],
         config["llm"]["model"],
         config["embedder"]["model"],
     )
@@ -311,8 +361,14 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
             model_score = None
 
     has_dimension_input = bool(dimension_scores)
-    final_score = calculated_score if has_dimension_input else (model_score or calculated_score)
+    has_model_score = model_score is not None
+    final_score = model_score if has_model_score else calculated_score
     final_level = _risk_level_from_score(final_score, config)
+    score_source = (
+        "model_reported"
+        if has_model_score
+        else ("calculated" if has_dimension_input else "calculated_no_model_score")
+    )
 
     return {
         "risk_level": final_level,
@@ -323,9 +379,7 @@ def build_weighted_risk_result(result_dict: dict, config: dict) -> dict:
         "model_reported_risk_score": model_score_raw,
         "model_reported_risk_level": result_dict.get("risk_level"),
         "risk_thresholds": _risk_thresholds(config),
-        "risk_score_source": "calculated"
-        if has_dimension_input
-        else "model_reported_no_dimensions",
+        "risk_score_source": score_source,
         "reasoning": result_dict.get("reasoning", ""),
     }
 
@@ -352,6 +406,16 @@ def print_blacklist_check_result(result) -> None:
         )
 
 
+def event_similarity_payload(event_similarity) -> dict:
+    return {
+        "hit": event_similarity.hit,
+        "score": event_similarity.score,
+        "event_id": event_similarity.event_id,
+        "summary": event_similarity.summary,
+        "threshold": event_similarity.threshold,
+    }
+
+
 def format_risk_score(score: float | None) -> str:
     if score is None:
         return "None"
@@ -372,12 +436,8 @@ def format_risk_score(score: float | None) -> str:
 async def classify_event(config: dict, normalized_event: dict) -> dict:
     logger = get_logger("main.classification")
 
-    llm = get_llm(
-        model=config["llm"]["model"],
-        api_key=config["llm"]["api_key"],
-        base_url=config["llm"]["base_url"],
-        temperature=0.3,
-    )
+    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
+    llm = get_llm_for("classify")
 
     type_classifier = Agent(
         llm=llm,
@@ -457,12 +517,8 @@ async def evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    llm = get_llm(
-        model=config["llm"]["model"],
-        api_key=config["llm"]["api_key"],
-        base_url=config["llm"]["base_url"],
-        temperature=0.1,
-    )
+    # LLM 路由现由 get_llm_for 按 stage 从环境解析，config["llm"] 不再在此使用。
+    llm = get_llm_for("risk_first")
 
     risk_evaluator = Agent(
         llm=llm,
@@ -470,9 +526,19 @@ async def evaluate_risk(
         goal="评估事件的风险等级和风险分数",
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",
         verbose=True,
+        **reasoning_kwargs_for("risk_first"),
     )
 
     related_events = _build_related_events_context(results)
+    ragflow_config = config.get("ragflow", {}).get("client")
+    ragflow_result = await retrieve_financial_knowledge(
+        config, event, stage="risk_first"
+    )
+    financial_knowledge = format_knowledge_for_prompt(
+        ragflow_result,
+        max_chars=getattr(ragflow_config, "max_context_chars", 4000),
+    )
+    related_events = append_knowledge_context(related_events, financial_knowledge)
     weights = _normalize_risk_weights(config)
     thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
@@ -535,7 +601,7 @@ async def second_evaluate_risk(
 ) -> dict:
     logger = get_logger("main.risk_evaluation")
 
-    llm = get_llm(temperature=0.1)
+    llm = get_llm_for("risk_second")
 
     risk_evaluator = Agent(
         llm=llm,
@@ -543,6 +609,7 @@ async def second_evaluate_risk(
         goal="评估事件的风险等级和风险分数",
         backstory="你是一位风险评估专家，擅长评估事件的潜在风险。",
         verbose=True,
+        **reasoning_kwargs_for("risk_second"),
     )
     reranked_edges = results.get("reranked_edges", []) if results else []
     reranked_episodes = results.get("reranked_episodes", []) if results else []
@@ -564,6 +631,15 @@ async def second_evaluate_risk(
             related_events_parts.append(f"[episode] {text}")
 
     related_events = "\n".join(related_events_parts)
+    ragflow_config = config.get("ragflow", {}).get("client")
+    ragflow_result = await retrieve_financial_knowledge(
+        config, event, stage="risk_second"
+    )
+    financial_knowledge = format_knowledge_for_prompt(
+        ragflow_result,
+        max_chars=getattr(ragflow_config, "max_context_chars", 4000),
+    )
+    related_events = append_knowledge_context(related_events, financial_knowledge)
     weights = _normalize_risk_weights(config)
     thresholds = _risk_thresholds(config)
     dimension_instruction = "、".join(
@@ -1034,7 +1110,7 @@ async def simulate_dashboard(
 ) -> dict:
     logger = get_logger("main.dashboard")
 
-    llm = get_llm(temperature=0.3)
+    llm = get_llm_for("dashboard")
 
     event = normalized_event
     reranked_edges = results.get("reranked_edges", []) if results else []
@@ -1055,10 +1131,23 @@ async def simulate_dashboard(
         if text:
             context_parts.append(f"[episode] {text}")
     episode_context = "\n".join(context_parts)
+    ragflow_config = config.get("ragflow", {}).get("client")
+    ragflow_result = await retrieve_financial_knowledge(
+        config, event, stage="dashboard"
+    )
+    financial_knowledge = format_knowledge_for_prompt(
+        ragflow_result,
+        max_chars=getattr(ragflow_config, "max_context_chars", 4000),
+    )
+    knowledge_section = knowledge_section_for_prompt(
+        financial_knowledge,
+        header="RAGFlow金融知识库参考:",
+    )
     event_description = f"""
 事件类型: {event.event_type}
 风险等级: {event.risk_level} (分数: {format_risk_score(event.risk_score)})
 上下文信息: {episode_context}
+{knowledge_section}
 事件描述: {event.raw_content}
 """
 
@@ -1191,7 +1280,7 @@ async def normalize_payload_to_event(payload: dict, config: dict) -> NormalizedE
     raw_content = payload.get("data", json.dumps(payload))
 
     try:
-        llm = get_llm(temperature=0.3)
+        llm = get_llm_for("normalize")
         agent = create_normalizer_agent(llm)
         task = create_normalize_task(agent, raw_content)
 
@@ -1253,13 +1342,15 @@ async def rerank_historical_candidates(
     query: str,
     candidates: list[dict],
     min_score: float,
+    config: dict | None = None,
 ) -> dict[str, tuple[bool, str, float]]:
     if not candidates:
         return {}
 
-    api_key = os.getenv("RERANKER_API_KEY", "")
-    base_url = os.getenv("RERANKER_BASE_URL", "")
-    model = os.getenv("RERANKER_MODEL", "")
+    reranker_config = (config or {}).get("reranker", {})
+    api_key = reranker_config.get("api_key") or os.getenv("RERANKER_API_KEY", "")
+    base_url = reranker_config.get("base_url") or os.getenv("RERANKER_BASE_URL", "")
+    model = reranker_config.get("model") or os.getenv("RERANKER_MODEL", "")
     if not api_key or not base_url or not model:
         return {
             candidate.get("event_id", str(index)): (
@@ -1309,7 +1400,7 @@ async def rerank_historical_candidates(
 
 async def batch_graph_event_with_related_stash(
     config: dict,
-    stash_store: MilvusStashStore | None,
+    stash_store: EventsStore | None,
     id_numbers: list[str],
     normalized_event: NormalizedEvent,
 ) -> dict:
@@ -1334,17 +1425,17 @@ async def batch_graph_event_with_related_stash(
     )
     summary["fetched_count"] = len(historical_events)
     logger.info(
-        "Milvus recall fetched_count=%d event_ids=%s",
+        "stash recall fetched_count=%d event_ids=%s",
         len(historical_events),
         [event.get("event_id") for event in historical_events if event.get("event_id")],
     )
 
     if not historical_events:
-        print_info("Milvus 暂存回捞为空，跳过批量构图")
+        print_info("暂存回捞为空，跳过批量构图")
         return summary
 
     print_info(
-        f"从 Milvus 取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
+        f"从暂存后端取回 {len(historical_events)} 条候选事件，检查相关性和是否需要批量构图"
     )
     graphiti = None
     try:
@@ -1377,6 +1468,7 @@ async def batch_graph_event_with_related_stash(
                     normalized_event.raw_content,
                     rerank_candidate_events,
                     rerank_min_score,
+                    config,
                 )
             else:
                 rerank_results = {
@@ -1413,7 +1505,7 @@ async def batch_graph_event_with_related_stash(
                 }
             )
             logger.info(
-                "skip Milvus candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
+                "skip stash candidate by rerank: event_id=%s, reason=%s, match_source=%s, semantic_score=%s, rerank_score=%.4f",
                 historical_event.get("event_id"),
                 reason,
                 historical_event.get("match_source"),
@@ -1464,11 +1556,11 @@ async def batch_graph_event_with_related_stash(
 
         if skipped_irrelevant_results:
             print_info(
-                f"Milvus 回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
+                f"暂存回捞中 {len(skipped_irrelevant_results)} 条未通过 rerank 过滤，跳过批量构图"
             )
         if skipped_existing_results:
             print_info(
-                f"Milvus 回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
+                f"暂存回捞中 {len(skipped_existing_results)} 条已存在 Neo4j，跳过重复批量构图"
             )
 
         if batch_texts:
@@ -1477,7 +1569,7 @@ async def batch_graph_event_with_related_stash(
                 graphiti, batch_texts, group_id, dry_run
             )
         else:
-            print_info("Milvus 回捞后无新增候选需要批量构图")
+            print_info("暂存回捞后无新增候选需要批量构图")
             batch_results = []
 
         all_results = [
@@ -1501,11 +1593,11 @@ async def batch_graph_event_with_related_stash(
             ]
             consumed_event_ids.extend(skipped_existing_event_ids)
             await stash_store.mark_events_graph_built(consumed_event_ids)
-            print_info("批量构图/跳过检查完成，已标记相关 Milvus 暂存事件为已构图")
+            print_info("批量构图/跳过检查完成，已标记相关暂存事件为已构图")
         else:
             failed = sum(1 for r in all_results if not r.get("success", True))
             print_info(
-                f"批量构图部分失败 ({failed}/{len(all_results)})，Milvus 暂存保留待重试"
+                f"批量构图部分失败 ({failed}/{len(all_results)})，暂存事件保留待重试"
             )
         return summary
     except Exception as e:
@@ -1535,6 +1627,7 @@ class SentinelPipelineFlow(Flow):
         store=None,
         stash_store=None,
         id_numbers=None,
+        progress_callback: ProgressCallback | None = None,
     ):
         super().__init__()
         self.config = config
@@ -1543,11 +1636,27 @@ class SentinelPipelineFlow(Flow):
         self._store = store
         self._stash_store = stash_store
         self._id_numbers = id_numbers or []
+        self._progress_callback = progress_callback
         self._log = get_logger("main.flow")
+
+    def _progress(self, stage_key: str, stage_label: str, stage_index: int, detail: str):
+        report_pipeline_progress(
+            self._progress_callback,
+            stage_key,
+            stage_label,
+            stage_index,
+            detail,
+        )
 
     @start()
     async def classification(self):
         event = self.normalized_event
+        self._progress(
+            "classification",
+            "事件分类",
+            4,
+            "正在识别事件类型和关键实体",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 1: Classification — 事件分类")
         self._log.info("=" * 60)
@@ -1570,6 +1679,12 @@ class SentinelPipelineFlow(Flow):
     @listen(classification)
     async def single_graph_build(self):
         event = self.normalized_event
+        self._progress(
+            "single_graph",
+            "单条构图",
+            5,
+            "正在把当前事件写入知识图谱",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 2: Graph — 单条构图")
         self._log.info("=" * 60)
@@ -1604,6 +1719,12 @@ class SentinelPipelineFlow(Flow):
     @listen(single_graph_build)
     async def search_first_risk_context(self, result):
         event = self.normalized_event
+        self._progress(
+            "first_search",
+            "首次上下文检索",
+            6,
+            "正在检索历史关系和相似风险上下文",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 3: Search — 首次风险上下文检索")
         self._log.info("=" * 60)
@@ -1622,6 +1743,12 @@ class SentinelPipelineFlow(Flow):
     @listen(search_first_risk_context)
     async def first_risk_evaluation(self, result):
         classified_event = self.normalized_event
+        self._progress(
+            "first_risk",
+            "首次风险评估",
+            7,
+            "正在计算多维风险分数和风险等级",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 4: Risk — 首次风险评估")
         self._log.info("=" * 60)
@@ -1677,6 +1804,12 @@ class SentinelPipelineFlow(Flow):
     @listen("batch_graph")
     async def batch_graph_build_from_stash(self, result):
         event = self.normalized_event
+        self._progress(
+            "batch_graph",
+            "批量补图",
+            8,
+            "高危事件命中阈值，正在回捞相关暂存事件并补图",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 5: Graph — 批量补图")
         self._log.info("=" * 60)
@@ -1695,6 +1828,12 @@ class SentinelPipelineFlow(Flow):
     @listen(batch_graph_build_from_stash)
     async def search_second_risk_context(self, result):
         event = self.normalized_event
+        self._progress(
+            "second_search",
+            "二次上下文检索",
+            9,
+            "正在基于补图结果重新检索风险上下文",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 6: Search — 二次风险上下文检索")
         self._log.info("=" * 60)
@@ -1715,12 +1854,12 @@ class SentinelPipelineFlow(Flow):
                 eligible_count,
             )
             if fetched_count == 0:
-                print_info("Milvus 暂存回捞为空，跳过二次检索和二次风险评估")
+                print_info("暂存回捞为空，跳过二次检索和二次风险评估")
             elif eligible_count == 0:
-                print_info("Milvus 回捞候选均未通过过滤，跳过二次检索和二次风险评估")
+                print_info("暂存回捞候选均未通过过滤，跳过二次检索和二次风险评估")
             else:
                 print_info(
-                    "Milvus 回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
+                    "暂存回捞后无新增候选需要批量构图，跳过二次检索和二次风险评估"
                 )
             return self.state.get("first_risk_context", {})
 
@@ -1737,6 +1876,12 @@ class SentinelPipelineFlow(Flow):
     @listen(search_second_risk_context)
     async def second_risk_evaluation_stage(self, result):
         event = self.normalized_event
+        self._progress(
+            "second_risk",
+            "二次风险评估",
+            10,
+            "正在结合补图后的上下文修正风险评估",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 7: Risk — 二次风险评估")
         self._log.info("=" * 60)
@@ -1792,6 +1937,12 @@ class SentinelPipelineFlow(Flow):
     @listen("go_dashboard")
     async def dashboard(self, result):
         event = self.normalized_event
+        self._progress(
+            "trend",
+            "意图与趋势分析",
+            11,
+            "正在生成意图分析和趋势预测报告",
+        )
         self._log.info("=" * 60)
         self._log.info("Stage 8: Dashboard — 意图分析与趋势预测")
         self._log.info("=" * 60)
@@ -1830,7 +1981,9 @@ async def process_message(message: str, config: dict | None = None) -> str:
 
 
 async def process_message_detailed(
-    message: str, config: dict | None = None
+    message: str,
+    config: dict | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """Process one user message and return a structured summary for API callers."""
     if config is None:
@@ -1839,6 +1992,13 @@ async def process_message_detailed(
     logger = get_logger("main.flow")
     logger.info("user input: %s", message)
 
+    report_pipeline_progress(
+        progress_callback,
+        "normalize",
+        "事件标准化",
+        1,
+        "正在解析原始事件文本并生成事件对象",
+    )
     payload = {"data": message}
     normalized_event = await normalize_payload_to_event(payload, config)
     logger.info(
@@ -1847,77 +2007,149 @@ async def process_message_detailed(
         normalized_event.source,
     )
 
-    # 黑名单过滤 + Milvus 暂存
-    blacklist_redis_client: Redis | None = None
-    try:
-        blacklist_redis_client = Redis(
-            host=config["redis"]["host"],
-            port=config["redis"]["port"],
-            password=config["redis"]["password"] or None,
-            db=config["redis"]["blacklist_db"],
-            decode_responses=False,
+    stores = get_runtime_store_bundle(config)
+    id_numbers = extract_person_id_numbers(normalized_event.raw_content)
+    bl_filter = BlacklistFilter(
+        persons_store=stores.persons,
+        keywords_store=stores.keywords,
+        samples_store=stores.event_samples,
+    )
+
+    report_pipeline_progress(
+        progress_callback,
+        "blacklist",
+        "黑名单过滤",
+        2,
+        "正在匹配人员、关键词和相似历史事件",
+    )
+    blacklist_result = await bl_filter.check_with_details(normalized_event)
+    print_blacklist_check_result(blacklist_result)
+    storage_summary = {
+        "backend": "milvus",
+        "events_collection": "events",
+        "stash_collection": "stashed_events",
+    }
+
+    event_repo = EventRepository(stores=stores)
+
+    if not blacklist_result.should_proceed:
+        report_pipeline_progress(
+            progress_callback,
+            "stash",
+            "事件暂存",
+            3,
+            "未命中高危规则，正在暂存事件等待后续回捞",
         )
-
-        store = BlacklistStore(blacklist_redis_client)
-        stash_store = MilvusStashStore.from_config(config)
-        bl_filter = BlacklistFilter(store)
-
-        id_numbers = extract_person_id_numbers(normalized_event.raw_content)
-        blacklist_result = await bl_filter.check_with_details(normalized_event)
-        print_blacklist_check_result(blacklist_result)
-
-        if not blacklist_result.should_proceed:
-            stashed_count = await stash_store.stash_event(
-                normalized_event, id_numbers or []
-            )
-            print_info(f"EVENT_ID: {normalized_event.event_id}")
-            if stashed_count:
-                print_info("事件未命中黑名单，已暂存到 Milvus")
-            else:
-                print_info("事件未命中黑名单，Milvus 已存在相同内容，跳过重复暂存")
-            return {
+        stashed_count = await event_repo.upsert_stashed_event(
+            normalized_event,
+            person_ids=id_numbers or [],
+            status="stashed",
+            blacklist_decision="miss",
+            matched_persons=blacklist_result.matched_persons,
+            matched_keywords=blacklist_result.matched_keywords,
+            event_similarity=event_similarity_payload(
+                blacklist_result.event_similarity
+            ),
+            dedupe_content=True,
+        )
+        print_info(f"EVENT_ID: {normalized_event.event_id}")
+        if stashed_count:
+            print_info("事件未命中黑名单，已暂存到 Milvus stashed_events")
+        else:
+            print_info("事件未命中黑名单，Milvus stashed_events 已存在相同内容，跳过重复暂存")
+        await stores.events.upsert_analysis_result(
+            {
                 "event_id": normalized_event.event_id,
                 "status": "stashed",
                 "risk_level": "low",
                 "risk_score": 0.0,
                 "summary": normalized_event.summary,
                 "event_type": normalized_event.event_type,
+                "reasoning": normalized_event.reasoning,
                 "dimension_scores": {},
                 "trend_report": {},
                 "blacklist": {
                     "decision": "STASH",
                     "matched_persons": blacklist_result.matched_persons,
                     "matched_keywords": blacklist_result.matched_keywords,
-                    "event_similarity": blacklist_result.event_similarity.__dict__,
+                    "event_similarity": event_similarity_payload(
+                        blacklist_result.event_similarity
+                    ),
                 },
-                "stashed_count": stashed_count,
                 "raw_content": normalized_event.raw_content,
                 "title": normalized_event.title,
             }
-
-        for pid in blacklist_result.matched_persons:
-            await store.append_person(pid)
-        for keyword in blacklist_result.matched_keywords:
-            await store.append_keyword(keyword)
-        if blacklist_result.event_hit:
-            await store.append_event(
-                normalized_event.event_id,
-                normalized_event.summary or normalized_event.raw_content[:200],
-            )
-
-        print_info("消息处理开始")
-        flow = SentinelPipelineFlow(
-            config,
-            normalized_event,
-            None,
-            store,
-            stash_store,
-            id_numbers,
         )
-        await flow.kickoff_async()
-        print_info(f"EVENT_ID: {normalized_event.event_id}")
-        print_info("消息处理完成")
+        report_pipeline_progress(
+            progress_callback,
+            "complete",
+            "完成",
+            12,
+            "事件已暂存，流程结束",
+        )
         return {
+            "event_id": normalized_event.event_id,
+            "status": "stashed",
+            "risk_level": "low",
+            "risk_score": 0.0,
+            "summary": normalized_event.summary,
+            "event_type": normalized_event.event_type,
+            "dimension_scores": {},
+            "trend_report": {},
+            "blacklist": {
+                "decision": "STASH",
+                "matched_persons": blacklist_result.matched_persons,
+                "matched_keywords": blacklist_result.matched_keywords,
+                "event_similarity": event_similarity_payload(
+                    blacklist_result.event_similarity
+                ),
+            },
+            "stashed_count": stashed_count,
+            "storage": storage_summary,
+            "raw_content": normalized_event.raw_content,
+            "title": normalized_event.title,
+        }
+
+    for pid in blacklist_result.matched_persons:
+        await stores.persons.append_person(pid)
+    for keyword in blacklist_result.matched_keywords:
+        await stores.keywords.append_keyword(keyword)
+    if blacklist_result.event_hit:
+        await stores.event_samples.append_event(
+            normalized_event.event_id,
+            normalized_event.summary or normalized_event.raw_content[:200],
+            normalized_event.raw_content,
+        )
+
+    print_info("消息处理开始")
+    report_pipeline_progress(
+        progress_callback,
+        "prepare_flow",
+        "准备流水线",
+        3,
+        "黑名单命中，正在启动分类、构图和风险评估流水线",
+    )
+    flow = SentinelPipelineFlow(
+        config,
+        normalized_event,
+        None,
+        stores,
+        stores.stashed_events,
+        id_numbers,
+        progress_callback,
+    )
+    await flow.kickoff_async()
+    dimension_scores = flow.state.get("risk_result", {}).get("dimension_scores", {})
+    trend_report = flow.state.get("trend_report", {})
+    report_pipeline_progress(
+        progress_callback,
+        "persist",
+        "写入分析结果",
+        12,
+        "正在保存风险评估、图谱和趋势分析结果",
+    )
+    await stores.events.upsert_analysis_result(
+        {
             "event_id": normalized_event.event_id,
             "status": "analyzed",
             "risk_level": normalized_event.risk_level,
@@ -1925,25 +2157,46 @@ async def process_message_detailed(
             "summary": normalized_event.summary,
             "event_type": normalized_event.event_type,
             "reasoning": normalized_event.reasoning,
-            "dimension_scores": flow.state.get("risk_result", {}).get(
-                "dimension_scores", {}
-            ),
-            "trend_report": flow.state.get("trend_report", {}),
+            "dimension_scores": dimension_scores,
+            "trend_report": trend_report,
             "blacklist": {
                 "decision": "PASS",
                 "matched_persons": blacklist_result.matched_persons,
                 "matched_keywords": blacklist_result.matched_keywords,
-                "event_similarity": blacklist_result.event_similarity.__dict__,
+                "event_similarity": event_similarity_payload(
+                    blacklist_result.event_similarity
+                ),
             },
-            "graph_result": flow.state.get("graph_result"),
-            "second_risk_applied": bool(flow.state.get("second_risk_applied")),
             "raw_content": normalized_event.raw_content,
             "title": normalized_event.title,
         }
-
-    finally:
-        if blacklist_redis_client is not None:
-            await blacklist_redis_client.aclose()
+    )
+    print_info(f"EVENT_ID: {normalized_event.event_id}")
+    print_info("消息处理完成")
+    return {
+        "event_id": normalized_event.event_id,
+        "status": "analyzed",
+        "risk_level": normalized_event.risk_level,
+        "risk_score": normalized_event.risk_score,
+        "summary": normalized_event.summary,
+        "event_type": normalized_event.event_type,
+        "reasoning": normalized_event.reasoning,
+        "dimension_scores": dimension_scores,
+        "trend_report": trend_report,
+        "blacklist": {
+            "decision": "PASS",
+            "matched_persons": blacklist_result.matched_persons,
+            "matched_keywords": blacklist_result.matched_keywords,
+            "event_similarity": event_similarity_payload(
+                blacklist_result.event_similarity
+            ),
+        },
+        "graph_result": flow.state.get("graph_result"),
+        "second_risk_applied": bool(flow.state.get("second_risk_applied")),
+        "storage": storage_summary,
+        "raw_content": normalized_event.raw_content,
+        "title": normalized_event.title,
+    }
 
 
 async def run_flow(config: dict):
