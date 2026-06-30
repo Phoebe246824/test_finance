@@ -1,0 +1,2285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基于交易时序数据和多智能体协同的银行风险预警系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;700;900&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* === THEME TOKENS === */
+        :root {
+            --stage-bg: #e8edf5;
+            --slide-bg: #f8fbff;
+            --ink: #10213d;
+            --muted: #5c6f88;
+            --subtle: #d8e2ef;
+            --panel: rgba(255, 255, 255, 0.86);
+            --panel-strong: #ffffff;
+            --blue: #1764d8;
+            --cyan: #22b8c7;
+            --green: #1e9b68;
+            --amber: #c98512;
+            --red: #d44949;
+            --violet: #5d5bd8;
+            --line: rgba(23, 100, 216, 0.22);
+            --shadow: 0 24px 70px rgba(30, 62, 105, 0.13);
+            --font-display: "Noto Serif SC", serif;
+            --font-body: "Noto Sans SC", sans-serif;
+            --font-mono: "IBM Plex Mono", monospace;
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --duration-normal: 0.48s;
+        }
+
+        /* === RESET === */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            color: var(--ink);
+            font-family: var(--font-body);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===========================================
+           FIXED 16:9 STAGE: MANDATORY BASE STYLES
+           Include this ENTIRE file in every presentation.
+           Slides are authored at 1920×1080 and scaled as a whole.
+           =========================================== */
+
+        /* 1. Lock the browser viewport */
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: var(--stage-bg, #000);
+        }
+
+        /* 2. Full-window deck viewport */
+        .deck-viewport {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            background: var(--stage-bg, #000);
+        }
+
+        /* 3. Fixed 16:9 design canvas.
+           JavaScript sets transform: translate(...) scale(...). */
+        .deck-stage {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            transform-origin: 0 0;
+            background: var(--slide-bg, #fff);
+        }
+
+        /* 4. Slides stack inside the fixed stage.
+           Content must be laid out at 1920×1080, not reflowed per device. */
+        .slide {
+            position: absolute;
+            inset: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            display: block;
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+            background: var(--slide-bg, #fff);
+        }
+
+        .slide.active,
+        .slide.visible {
+            visibility: visible;
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 1;
+        }
+
+        /* 5. Keep media inside authored slide bounds */
+        img,
+        video,
+        canvas,
+        svg {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* 6. Presentation chrome stays outside the slide design system */
+        .deck-controls {
+            position: fixed;
+            left: 50%;
+            bottom: 22px;
+            transform: translateX(-50%);
+            z-index: 1000;
+        }
+
+        /* 7. Print one fixed-size slide per page */
+        @media print {
+            html,
+            body {
+                width: 1920px;
+                height: auto;
+                overflow: visible;
+                background: #fff;
+            }
+
+            .deck-viewport {
+                position: static;
+                overflow: visible;
+                background: #fff;
+            }
+
+            .deck-stage {
+                position: static;
+                width: auto;
+                height: auto;
+                transform: none !important;
+                background: none;
+            }
+
+            .slide {
+                position: relative;
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+                width: 1920px;
+                height: 1080px;
+                break-after: page;
+                page-break-after: always;
+            }
+
+            .slide:last-child {
+                break-after: auto;
+                page-break-after: auto;
+            }
+
+            .deck-controls {
+                display: none !important;
+            }
+        }
+
+        /* 8. Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.2s !important;
+            }
+        }
+
+        /* === PRESENTATION BACKGROUND SYSTEM === */
+        .slide::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(90deg, rgba(23, 100, 216, 0.035) 1px, transparent 1px),
+                linear-gradient(rgba(23, 100, 216, 0.032) 1px, transparent 1px);
+            background-size: 96px 96px;
+            opacity: 0.85;
+        }
+
+        .slide::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 9% 14%, rgba(34, 184, 199, 0.12), transparent 22%),
+                radial-gradient(circle at 86% 7%, rgba(23, 100, 216, 0.13), transparent 26%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.7));
+            pointer-events: none;
+        }
+
+        .slide > * {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* === TYPOGRAPHY === */
+        .eyebrow {
+            color: var(--blue);
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        h1,
+        h2,
+        h3,
+        p {
+            margin: 0;
+        }
+
+        h1 {
+            max-width: 1140px;
+            font-family: var(--font-display);
+            font-size: 88px;
+            font-weight: 900;
+            line-height: 1.08;
+            letter-spacing: 0;
+        }
+
+        h2 {
+            font-family: var(--font-display);
+            font-size: 62px;
+            font-weight: 900;
+            line-height: 1.12;
+            letter-spacing: 0;
+        }
+
+        h3 {
+            font-size: 30px;
+            line-height: 1.25;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .lead {
+            max-width: 1060px;
+            color: var(--muted);
+            font-size: 32px;
+            line-height: 1.52;
+            font-weight: 500;
+        }
+
+        .body {
+            color: var(--muted);
+            font-size: 24px;
+            line-height: 1.52;
+            font-weight: 500;
+        }
+
+        .mono {
+            font-family: var(--font-mono);
+            letter-spacing: 0;
+        }
+
+        /* === LAYOUT PRIMITIVES === */
+        .canvas {
+            width: 100%;
+            height: 100%;
+            padding: 74px 88px 72px;
+        }
+
+        .section-kicker {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 34px;
+            color: var(--muted);
+            font-size: 21px;
+            font-weight: 700;
+        }
+
+        .section-kicker .rule {
+            flex: 1;
+            height: 1px;
+            margin: 0 26px;
+            background: linear-gradient(90deg, var(--line), transparent);
+        }
+
+        .footer {
+            position: absolute;
+            left: 88px;
+            right: 88px;
+            bottom: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: rgba(92, 111, 136, 0.86);
+            font-size: 19px;
+            font-weight: 700;
+        }
+
+        .footer .progress-line {
+            width: 360px;
+            height: 4px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(23, 100, 216, 0.13);
+        }
+
+        .footer .progress-fill {
+            width: var(--progress);
+            height: 100%;
+            background: linear-gradient(90deg, var(--blue), var(--cyan));
+        }
+
+        .footer span:last-child {
+            margin-left: auto;               /* 推到最右 */
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1.02fr 0.98fr;
+            gap: 52px;
+            align-items: stretch;
+        }
+
+        .three-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 28px;
+        }
+
+        .card {
+            min-height: 160px;
+            padding: 30px;
+            border: 1px solid rgba(23, 100, 216, 0.15);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+
+        .flat-card {
+            padding: 24px;
+            border: 1px solid rgba(16, 33, 61, 0.12);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.68);
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 34px;
+            padding: 0 12px;
+            border-radius: 4px;
+            background: rgba(23, 100, 216, 0.1);
+            color: var(--blue);
+            font-size: 17px;
+            font-weight: 900;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px;
+            border: 1px solid rgba(23, 100, 216, 0.18);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.72);
+            color: var(--ink);
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--blue);
+        }
+
+        .dot.red { background: var(--red); }
+        .dot.green { background: var(--green); }
+        .dot.amber { background: var(--amber); }
+        .dot.cyan { background: var(--cyan); }
+
+        .visual-panel {
+            display: flex;
+            min-height: 240px;
+            flex-direction: column;
+            justify-content: center;
+            gap: 18px;
+            padding: 28px;
+            border: 1px solid rgba(23, 100, 216, 0.18);
+            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(237, 246, 255, 0.8)),
+                linear-gradient(90deg, rgba(23, 100, 216, 0.04) 1px, transparent 1px);
+            background-size: auto, 48px 48px;
+            box-shadow: var(--shadow);
+        }
+
+        .visual-panel .label {
+            color: var(--blue);
+            font-size: 24px;
+            font-weight: 900;
+        }
+
+        .visual-panel .desc {
+            color: var(--muted);
+            font-size: 21px;
+            line-height: 1.5;
+            font-weight: 600;
+        }
+
+        .media-slot {
+            display: flex;
+            min-height: 180px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 24px;
+            border: 2px dashed rgba(23, 100, 216, 0.28);
+            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(231, 244, 255, 0.72)),
+                linear-gradient(90deg, rgba(23, 100, 216, 0.06) 1px, transparent 1px),
+                linear-gradient(rgba(23, 100, 216, 0.05) 1px, transparent 1px);
+            background-size: auto, 36px 36px, 36px 36px;
+            color: var(--blue);
+            text-align: center;
+        }
+
+        .media-slot .media-label {
+            font-size: 25px;
+            line-height: 1.25;
+            font-weight: 900;
+        }
+
+        .media-slot .media-sub {
+            max-width: 520px;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.42;
+            font-weight: 700;
+        }
+
+        .media-slot.has-image {
+            position: relative;
+            overflow: hidden;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border-style: solid;
+            background: #fff;
+        }
+
+        .media-slot.has-image .image-frame {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            width: 100%;
+            height: 100%;
+            padding: 30px;
+            box-sizing: border-box;
+        }
+
+        .media-slot.has-image img {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            object-fit: contain;
+            object-position: center center;
+            display: block;
+        }
+
+        .media-slot.has-image .image-caption {
+            position: static;
+            width: fit-content;
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 8px 12px;
+            border-radius: 5px;
+            background: rgba(16, 33, 61, 0.82);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 900;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .data-visual {
+            width: 100%;
+            height: 100%;
+            color: var(--ink);
+            text-align: left;
+        }
+
+        .data-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .data-title {
+            color: var(--ink);
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .data-badge {
+            flex-shrink: 0;
+            padding: 5px 9px;
+            border-radius: 999px;
+            background: rgba(201, 133, 18, 0.12);
+            color: #8a5c11;
+            font-size: 13px;
+            font-weight: 900;
+        }
+
+        .resource-rows,
+        .stage-rows,
+        .value-rows {
+            display: grid;
+            gap: 10px;
+        }
+
+        .resource-row,
+        .stage-row,
+        .value-row {
+            display: grid;
+            grid-template-columns: 96px 1fr 66px;
+            gap: 12px;
+            align-items: center;
+            color: var(--muted);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .stage-row {
+            grid-template-columns: 114px 1fr 64px;
+        }
+
+        .value-row {
+            grid-template-columns: 118px 1fr 72px;
+        }
+
+        .mini-track {
+            height: 14px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(23, 100, 216, 0.12);
+        }
+
+        .mini-fill {
+            width: var(--w);
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--blue), var(--cyan));
+        }
+
+        .mini-fill.green {
+            background: linear-gradient(90deg, var(--green), var(--cyan));
+        }
+
+        .mini-fill.amber {
+            background: linear-gradient(90deg, var(--amber), var(--green));
+        }
+
+        .sparkline {
+            width: 100%;
+            height: 62px;
+            margin-top: 14px;
+            border-radius: 6px;
+            background: rgba(23, 100, 216, 0.06);
+        }
+
+        .log-panel {
+            width: 100%;
+            min-height: 100%;
+            padding: 18px;
+            border-radius: 6px;
+            background: #11213c;
+            color: #d9e9ff;
+            font-family: var(--font-mono);
+            font-size: 14px;
+            line-height: 1.55;
+            text-align: left;
+        }
+
+        .log-panel .prompt {
+            color: #7edfe8;
+        }
+
+        .log-panel .ok {
+            color: #9be5b4;
+        }
+
+        .log-panel .warn {
+            color: #f2c46f;
+        }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .compare-card {
+            min-height: 104px;
+            padding: 14px;
+            border: 1px solid rgba(16, 33, 61, 0.1);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.82);
+        }
+
+        .compare-card strong {
+            display: block;
+            color: var(--blue);
+            font-family: var(--font-mono);
+            font-size: 24px;
+        }
+
+        .compare-card span {
+            display: block;
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.35;
+            font-weight: 800;
+        }
+
+        .mock-frame {
+            align-items: stretch !important;
+            justify-content: stretch !important;
+            overflow: hidden;
+            padding: 0;
+            background: #fff !important;
+            color: var(--ink) !important;
+            font-family: var(--font-body) !important;
+        }
+
+        .mini-screen {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            gap: 8px;
+            padding: 14px;
+            background: linear-gradient(180deg, #f8fbff, #edf5ff);
+        }
+
+        .mini-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .mini-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .mini-chip {
+            padding: 5px 7px;
+            border-radius: 999px;
+            background: rgba(23, 100, 216, 0.11);
+            color: var(--blue);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .mini-card-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 7px;
+        }
+
+        .mini-card {
+            padding: 9px;
+            border-radius: 6px;
+            background: #fff;
+            box-shadow: 0 6px 18px rgba(16, 33, 61, 0.08);
+        }
+
+        .mini-card strong {
+            display: block;
+            color: var(--ink);
+            font-family: var(--font-mono);
+            font-size: 19px;
+        }
+
+        .mini-card span {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .node-map {
+            position: relative;
+            min-height: 128px;
+            border-radius: 6px;
+            background: rgba(23, 100, 216, 0.06);
+        }
+
+        .node {
+            position: absolute;
+            width: 54px;
+            height: 54px;
+            display: grid;
+            place-items: center;
+            border: 2px solid rgba(23, 100, 216, 0.28);
+            border-radius: 999px;
+            background: #fff;
+            color: var(--blue);
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .node.red {
+            border-color: rgba(212, 73, 73, 0.32);
+            color: var(--red);
+        }
+
+        .node.green {
+            border-color: rgba(30, 155, 104, 0.32);
+            color: var(--green);
+        }
+
+        .node-line {
+            position: absolute;
+            height: 2px;
+            transform-origin: left center;
+            background: rgba(23, 100, 216, 0.24);
+        }
+
+        .privacy-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            width: 100%;
+        }
+
+        .privacy-box {
+            padding: 16px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid rgba(16, 33, 61, 0.1);
+        }
+
+        .privacy-box h4 {
+            margin: 0 0 12px;
+            color: var(--blue);
+            font-size: 17px;
+            font-weight: 900;
+        }
+
+        .field-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(16, 33, 61, 0.08);
+            color: var(--muted);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .field-line:last-child {
+            border-bottom: 0;
+        }
+
+        .field-line strong {
+            color: var(--ink);
+            font-family: var(--font-mono);
+        }
+
+        .title-media {
+            position: absolute;
+            inset: 46px;
+            min-height: auto;
+        }
+
+        .note {
+            padding: 16px 20px;
+            border-left: 5px solid var(--amber);
+            border-radius: 5px;
+            background: rgba(201, 133, 18, 0.1);
+            color: #7a5315;
+            font-size: 20px;
+            line-height: 1.48;
+            font-weight: 700;
+        }
+
+        .fine {
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1.4;
+        }
+
+        /* === ANIMATION SYSTEM === */
+        .reveal {
+            opacity: 0;
+            transform: translateY(26px);
+            transition:
+                opacity var(--duration-normal) var(--ease-out-expo),
+                transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .slide.visible .reveal {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .slide.visible .reveal:nth-child(1) { transition-delay: 0.05s; }
+        .slide.visible .reveal:nth-child(2) { transition-delay: 0.12s; }
+        .slide.visible .reveal:nth-child(3) { transition-delay: 0.19s; }
+        .slide.visible .reveal:nth-child(4) { transition-delay: 0.26s; }
+        .slide.visible .reveal:nth-child(5) { transition-delay: 0.33s; }
+
+        /* === TITLE SLIDE === */
+        .title-canvas {
+            padding: 86px 96px 72px;
+        }
+
+        .title-grid {
+            display: grid;
+            grid-template-columns: 1fr 620px;
+            gap: 70px;
+            align-items: center;
+            height: 820px;
+        }
+
+        .title-subtitle {
+            margin-top: 34px;
+            max-width: 980px;
+            color: var(--muted);
+            font-size: 34px;
+            line-height: 1.48;
+            font-weight: 600;
+        }
+
+        .title-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-top: 42px;
+        }
+
+        .signal-panel {
+            position: relative;
+            min-height: 680px;
+            padding: 38px;
+            overflow: hidden;
+        }
+
+        .network-orbit {
+            position: absolute;
+            inset: 46px;
+            border: 1px solid rgba(23, 100, 216, 0.18);
+            border-radius: 8px;
+            background:
+                radial-gradient(circle at 46% 48%, rgba(23, 100, 216, 0.13), transparent 16%),
+                linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(234, 243, 255, 0.72));
+        }
+
+        .network-orbit svg {
+            position: absolute;
+            inset: 24px;
+            width: calc(100% - 48px);
+            height: calc(100% - 48px);
+        }
+
+        .stat-strip {
+            position: absolute;
+            left: 38px;
+            right: 38px;
+            bottom: 38px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stat {
+            padding: 18px;
+            border: 1px solid rgba(23, 100, 216, 0.14);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.86);
+        }
+
+        .stat strong {
+            display: block;
+            color: var(--ink);
+            font-family: var(--font-mono);
+            font-size: 28px;
+        }
+
+        .stat span {
+            color: var(--muted);
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        /* === PAIN SLIDE === */
+        .pain-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 28px;
+            margin-top: 44px;
+        }
+
+        .pain-card {
+            min-height: 330px;
+            padding: 32px;
+            border-radius: 8px;
+            background: var(--panel-strong);
+            box-shadow: var(--shadow);
+            border-top: 8px solid var(--blue);
+        }
+
+        .pain-card:nth-child(2) { border-top-color: var(--red); }
+        .pain-card:nth-child(3) { border-top-color: var(--green); }
+
+        .pain-card .index {
+            color: rgba(23, 100, 216, 0.18);
+            font-family: var(--font-mono);
+            font-size: 84px;
+            font-weight: 900;
+            line-height: 0.85;
+        }
+
+        .pain-card h3 {
+            margin-top: 26px;
+        }
+
+        .pain-card p {
+            margin-top: 18px;
+        }
+
+        /* === ARCHITECTURE DIAGRAM === */
+        .arch-wrap {
+            margin-top: 36px;
+            padding: 30px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.78);
+            box-shadow: var(--shadow);
+        }
+
+        .pipeline {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 18px;
+            align-items: center;
+        }
+
+        .pipe-node {
+            min-height: 136px;
+            padding: 18px 16px;
+            border: 1px solid rgba(23, 100, 216, 0.2);
+            border-radius: 7px;
+            background: linear-gradient(180deg, #ffffff, #edf5ff);
+            text-align: center;
+        }
+
+        .pipe-node strong {
+            display: block;
+            color: var(--ink);
+            font-size: 23px;
+            font-weight: 900;
+        }
+
+        .pipe-node span {
+            display: block;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.35;
+            font-weight: 700;
+        }
+
+        .layer-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 14px;
+            margin-top: 24px;
+        }
+
+        .layer {
+            padding: 15px;
+            border-radius: 5px;
+            color: #fff;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 900;
+        }
+
+        .layer:nth-child(1) { background: var(--blue); }
+        .layer:nth-child(2) { background: var(--green); }
+        .layer:nth-child(3) { background: var(--violet); }
+        .layer:nth-child(4) { background: var(--cyan); }
+        .layer:nth-child(5) { background: #253b59; }
+
+        /* === INNOVATION SLIDE === */
+        .innovation-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 26px;
+            margin-top: 40px;
+        }
+
+        .innovation {
+            min-height: 228px;
+            padding: 28px;
+            border-left: 7px solid var(--blue);
+        }
+
+        .innovation:nth-child(2) { border-left-color: var(--green); }
+        .innovation:nth-child(3) { border-left-color: var(--amber); }
+        .innovation:nth-child(4) { border-left-color: var(--red); }
+
+        /* === SEQUENCE SLIDE === */
+        .sequence {
+            margin-top: 36px;
+            padding: 30px;
+        }
+
+        .seq-row {
+            display: grid;
+            grid-template-columns: 220px 1fr 250px;
+            gap: 22px;
+            align-items: center;
+            padding: 22px 0;
+            border-bottom: 1px solid rgba(16, 33, 61, 0.11);
+        }
+
+        .seq-row:last-child {
+            border-bottom: 0;
+        }
+
+        .seq-row .case {
+            font-family: var(--font-mono);
+            color: var(--blue);
+            font-size: 22px;
+            font-weight: 900;
+        }
+
+        .seq-row .action {
+            color: var(--ink);
+            font-size: 24px;
+            font-weight: 900;
+        }
+
+        .seq-row .evidence {
+            color: var(--muted);
+            font-size: 19px;
+            font-weight: 700;
+            text-align: right;
+        }
+
+        /* === HARDWARE SLIDE === */
+        .hardware-board {
+            display: grid;
+            grid-template-columns: 1.05fr 0.95fr;
+            gap: 34px;
+            margin-top: 32px;
+        }
+
+        .chip-map {
+            min-height: 540px;
+            padding: 34px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #ffffff, #eaf5ff);
+            box-shadow: var(--shadow);
+        }
+
+        .chip-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+            margin-top: 26px;
+        }
+
+        .chip {
+            min-height: 170px;
+            padding: 24px;
+            border: 1px solid rgba(23, 100, 216, 0.16);
+            border-radius: 7px;
+            background: rgba(255, 255, 255, 0.82);
+        }
+
+        .chip strong {
+            display: block;
+            font-family: var(--font-mono);
+            color: var(--ink);
+            font-size: 30px;
+        }
+
+        .chip span {
+            display: block;
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 19px;
+            line-height: 1.36;
+            font-weight: 700;
+        }
+
+        .evidence-stack {
+            display: grid;
+            gap: 20px;
+        }
+
+        /* === METRICS SLIDE === */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 0.95fr 1.05fr;
+            gap: 34px;
+            margin-top: 34px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            overflow: hidden;
+            border-radius: 6px;
+            background: #fff;
+            box-shadow: var(--shadow);
+        }
+
+        th,
+        td {
+            padding: 18px 20px;
+            border-bottom: 1px solid rgba(16, 33, 61, 0.1);
+            text-align: left;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        th {
+            color: var(--blue);
+            font-size: 18px;
+            font-weight: 900;
+        }
+
+        td:last-child,
+        th:last-child {
+            text-align: right;
+        }
+
+        .bar-chart {
+            display: grid;
+            gap: 18px;
+            padding: 30px;
+        }
+
+        .bar-line {
+            display: grid;
+            grid-template-columns: 150px 1fr 80px;
+            gap: 18px;
+            align-items: center;
+        }
+
+        .bar-name {
+            color: var(--ink);
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .bar-track {
+            height: 20px;
+            overflow: hidden;
+            border-radius: 4px;
+            background: rgba(23, 100, 216, 0.12);
+        }
+
+        .bar-fill {
+            width: var(--w);
+            height: 100%;
+            background: linear-gradient(90deg, var(--blue), var(--cyan));
+        }
+
+        .bar-value {
+            color: var(--muted);
+            font-family: var(--font-mono);
+            font-size: 18px;
+            font-weight: 900;
+            text-align: right;
+        }
+
+        /* === DEMO SLIDE === */
+        .demo-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 18px;
+            margin-top: 32px;
+        }
+
+        .demo-shot {
+            min-height: 418px;
+            padding: 22px;
+            border: 1px solid rgba(23, 100, 216, 0.18);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.75);
+            box-shadow: 0 16px 48px rgba(30, 62, 105, 0.08);
+        }
+
+        .demo-shot .frame {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 212px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(16, 33, 61, 0.12);
+            border-radius: 6px;
+            background: linear-gradient(135deg, rgba(23, 100, 216, 0.11), rgba(34, 184, 199, 0.08));
+            color: rgba(23, 100, 216, 0.55);
+            font-family: var(--font-mono);
+            font-size: 24px;
+            font-weight: 900;
+            line-height: 1.25;
+            text-align: center;
+        }
+
+        .demo-shot h3 {
+            font-size: 24px;
+        }
+
+        .demo-shot p {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1.42;
+            font-weight: 700;
+        }
+
+        .demo-shot.compact {
+            display: flex;
+            min-height: 342px;
+            flex-direction: column;
+            padding: 18px;
+        }
+
+        .demo-shot.compact .frame {
+            flex: 1 1 auto;
+            min-height: 210px;
+            height: auto;
+            margin-bottom: 14px;
+            font-family: var(--font-body);
+            font-size: 20px;
+        }
+
+        .demo-shot.compact h3 {
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+
+        .demo-shot.compact p {
+            flex-shrink: 0;
+            margin-top: 8px;
+            font-size: 16px;
+            line-height: 1.34;
+        }
+
+        /* === CLOSING SLIDE === */
+        .closing-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 34px;
+            margin-top: 38px;
+        }
+
+        .asset-list {
+            display: grid;
+            gap: 13px;
+            margin-top: 22px;
+        }
+
+        .asset-item {
+            display: grid;
+            grid-template-columns: 132px 1fr;
+            gap: 15px;
+            padding: 14px 16px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(16, 33, 61, 0.1);
+            color: var(--muted);
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .asset-item strong {
+            color: var(--blue);
+            font-family: var(--font-mono);
+            font-size: 17px;
+        }
+
+        .asset-list.compact {
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .asset-list.compact .asset-item {
+            grid-template-columns: 96px 1fr;
+            padding: 10px 12px;
+            font-size: 16px;
+        }
+
+        .asset-list.compact .asset-item strong {
+            font-size: 15px;
+        }
+
+        /* === DECK CONTROLS === */
+        .deck-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            border: 1px solid rgba(16, 33, 61, 0.14);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.84);
+            color: var(--ink);
+            box-shadow: 0 12px 34px rgba(16, 33, 61, 0.12);
+            font-family: var(--font-mono);
+            font-size: 14px;
+            font-weight: 700;
+            backdrop-filter: blur(12px);
+        }
+
+        .nav-button {
+            width: 32px;
+            height: 28px;
+            border: 0;
+            border-radius: 999px;
+            background: rgba(23, 100, 216, 0.12);
+            color: var(--blue);
+            font-family: var(--font-mono);
+            font-weight: 900;
+            cursor: pointer;
+        }
+
+        .nav-button:hover {
+            background: var(--blue);
+            color: #fff;
+        }
+
+        /* === INLINE EDITING === */
+        .edit-hotzone {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 84px;
+            height: 84px;
+            z-index: 10000;
+            cursor: pointer;
+        }
+
+        .edit-toggle {
+            position: fixed;
+            top: 18px;
+            left: 18px;
+            z-index: 10001;
+            opacity: 0;
+            pointer-events: none;
+            padding: 10px 14px;
+            border: 1px solid rgba(23, 100, 216, 0.24);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--blue);
+            font-family: var(--font-body);
+            font-size: 14px;
+            font-weight: 900;
+            box-shadow: 0 10px 30px rgba(16, 33, 61, 0.14);
+            transition: opacity 0.25s ease;
+            cursor: pointer;
+        }
+
+        .edit-toggle.show,
+        .edit-toggle.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .editing [data-editable="true"] {
+            outline: 2px dashed rgba(23, 100, 216, 0.48);
+            outline-offset: 4px;
+            cursor: text;
+        }
+
+        .save-toast {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            z-index: 10001;
+            opacity: 0;
+            transform: translateY(-10px);
+            padding: 12px 16px;
+            border-radius: 999px;
+            background: rgba(16, 33, 61, 0.9);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 800;
+            transition: opacity 0.24s ease, transform 0.24s ease;
+        }
+
+        .save-toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="deck-viewport">
+        <main class="deck-stage" id="deckStage">
+            <section class="slide title-slide active" style="--progress: 8%">
+                <div class="canvas title-canvas">
+                    <div class="section-kicker reveal">
+                        <span>赛题二： 金融垂直方向</span>
+                        <span class="rule"></span>
+                    </div>
+                    <div class="title-grid">
+                        <div>
+                            <div class="eyebrow reveal" data-editable="true">Sentinel Edge</div>
+                            <h1 class="reveal" data-editable="true">基于交易时序数据和多智能体协同的银行风险预警系统</h1>
+                            <p class="title-subtitle reveal" data-editable="true">面向反欺诈、反洗钱与贷前风控，形成事件研判、历史回捞、图谱证据与复核建议的端侧分析链路。</p>
+                            <div class="title-meta reveal">
+                                <span class="pill"><span class="dot"></span>端侧部署</span>
+                                <span class="pill"><span class="dot green"></span>多智能体研判</span>
+                                <span class="pill"><span class="dot red"></span>金融风控闭环</span>
+                            </div>
+                        </div>
+                        <div class="card signal-panel reveal">
+                            <div class="media-slot title-media has-image">
+                                <div class="image-frame">
+                                    <img src="assets/dashboard.png" alt="Sentinel Edge Dashboard 总览截图">
+                                    <div class="image-caption">Dashboard 总览</div>
+                                </div>
+                            </div>
+                            
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>银行零售反欺诈与反洗钱风险预警系统</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>01 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 15%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span class="rule"></span>
+                        <span>从问题到证据</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">基于五维证据链的端侧金融风控系统构建</h2>
+                    <p class="lead reveal" data-editable="true">以问题定义 → 系统闭环 → 异构承载 → 性能验证 → 价值落地为路径的技术实践</p>
+                    <div class="three-grid reveal" style="margin-top: 42px;">
+                        <div class="card"><span class="tag">01 问题</span><h3 style="margin-top:18px;">金融风控为什么需要端侧智能体</h3><p class="body" style="margin-top:12px;">组合风险、数据分散与隐私约束共同决定系统边界。</p></div>
+                        <div class="card"><span class="tag">02 方案</span><h3 style="margin-top:18px;">系统如何完成多步研判</h3><p class="body" style="margin-top:12px;">Agent、黑名单、向量回捞与图谱证据构成闭环。</p></div>
+                        <div class="card"><span class="tag">03 平台</span><h3 style="margin-top:18px;">AMD 端侧硬件如何承载主链路</h3><p class="body" style="margin-top:12px;">GPU、CPU 与统一内存分工支撑本地推理与检索。</p></div>
+                    </div>
+                    <div class="two-col reveal" style="margin-top: 24px; grid-template-columns: 1fr 1fr;">
+                        <div class="flat-card"><span class="tag">04 性能与安全证据</span><p class="body" style="margin-top:12px;">用延迟、吞吐、资源占用、量化策略、本地部署和脱敏机制说明端侧可用性。</p></div>
+                        <div class="flat-card"><span class="tag">05 演示用例与落地价值</span><p class="body" style="margin-top:12px;">用端到端回捞闭环、可扩展场景与真实验证材料说明业务价值。</p></div>
+                    </div>
+                    <div class="footer">
+                        <!-- <span>叙事顺序：痛点清楚 · 方案可跑 · 证据可验 · 价值可落地</span> -->
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>02 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 23%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>行业问题定义</span>
+                        <span class="rule"></span>
+                        <span>银行零售风控</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">银行风控真正难的是“组合风险”与“隐私约束”</h2>
+                    <p class="lead reveal" data-editable="true">单条规则可以拦截显性风险，但反洗钱、跑分收款、账户盗用往往由多条低风险线索在时间上拼接而成。</p>
+                    <div class="pain-cards reveal">
+                        <div class="pain-card">
+                            <div class="index">01</div>
+                            <h3 data-editable="true">数据分散</h3>
+                            <p class="body" data-editable="true">账户、流水、设备、客户资料、投诉线索分散在不同系统，人工串联耗时长。</p>
+                        </div>
+                        <div class="pain-card">
+                            <div class="index">02</div>
+                            <h3 data-editable="true">组合风险漏检</h3>
+                            <p class="body" data-editable="true">多笔历史低风险 + 当前单笔异常，传统阈值和关键词规则容易割裂上下文。</p>
+                        </div>
+                        <div class="pain-card">
+                            <div class="index">03</div>
+                            <h3 data-editable="true">敏感数据不能上云</h3>
+                            <p class="body" data-editable="true">客户身份、银行卡号、交易流水与设备指纹都要求内网留存、最小暴露。</p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>目标用户：反欺诈分析员 / AML 调查员 / 贷前风控专员</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>03 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 31%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>端侧必要性</span>
+                        <span class="rule"></span>
+                        <span>把人留在闭环里</span>
+                    </div>
+                    <div class="two-col">
+                        <div>
+                            <h2 class="reveal" data-editable="true">把“事件 → 历史串联 → 定级 → 调查摘要”自动化</h2>
+                            <p class="lead reveal" data-editable="true">系统不是替代监管判断，而是让分析员拿到结构化证据和可追溯上下文，只把最终处置留给人。</p>
+                            <div class="innovation-grid reveal" style="grid-template-columns: 1fr; gap: 18px;">
+                                <div class="flat-card"><span class="tag">隐私合规</span><p class="body" style="margin-top:12px;">推理、暂存、黑名单、图谱和日志默认在本机/内网完成。</p></div>
+                                <div class="flat-card"><span class="tag">弱网可用</span><p class="body" style="margin-top:12px;">网点、审计、专网场景不依赖公有云可用性。</p></div>
+                                <div class="flat-card"><span class="tag">低延迟处置</span><p class="body" style="margin-top:12px;">高风险交易需要即时解释、冻结建议与人工复核入口。</p></div>
+                            </div>
+                        </div>
+                        <div class="visual-panel reveal" style="min-height: 720px;">
+                            <div class="label">端侧闭环价值</div>
+                            <div class="desc" data-editable="true">在银行内网工作站上完成从事件接入、历史关联、风险解释到复核建议的闭环，减少敏感数据外流面，同时保留人工最终判断。</div>
+                            <div class="innovation-grid" style="grid-template-columns: 1fr; gap: 16px;">
+                                <div class="flat-card"><span class="tag">输入</span><p class="body" style="margin-top:10px;">交易、客户、设备、投诉等风险事件统一标准化。</p></div>
+                                <div class="flat-card"><span class="tag">研判</span><p class="body" style="margin-top:10px;">本地模型结合黑名单、向量回捞和图谱上下文完成风险分析。</p></div>
+                                <div class="flat-card"><span class="tag">复核</span><p class="body" style="margin-top:10px;">输出证据点、风险维度和处置建议，由风控人员确认。</p></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>定位：分析辅助 / 线索发现 / 人工复核，不替代最终监管判定</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>04 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 38%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>系统总体架构</span>
+                        <span class="rule"></span>
+                        <span>全栈本地 · 链路闭环</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">从事件输入到二次研判，形成可复现的本地流水线</h2>
+                    <div class="arch-wrap reveal">
+                        <div class="pipeline">
+                            <div class="pipe-node"><strong>输入</strong><span>Web / 文本事件<br>金融 Demo cases</span></div>
+                            <div class="pipe-node"><strong>标准化</strong><span>Normalizer Agent<br>Pydantic 模型</span></div>
+                            <div class="pipe-node"><strong>黑名单过滤</strong><span>人员 / 关键词<br>相似事件 OR</span></div>
+                            <div class="pipe-node"><strong>暂存与回捞</strong><span>低危入 Milvus<br>高危回捞历史</span></div>
+                            <div class="pipe-node"><strong>图谱与检索</strong><span>Graphiti + Neo4j<br>Hybrid Search</span></div>
+                            <div class="pipe-node"><strong>二次研判</strong><span>风险评分<br>摘要 / 复核</span></div>
+                        </div>
+                        <div class="layer-row">
+                            <div class="layer">CrewAI Flow</div>
+                            <div class="layer">Redis / Milvus</div>
+                            <div class="layer">Graphiti / Neo4j</div>
+                            <div class="layer">本地 LLM / Embedding</div>
+                            <div class="layer">FastAPI + Vue3</div>
+                        </div>
+                    </div>
+                    <div class="three-grid reveal" style="margin-top: 26px;">
+                        <div class="flat-card"><span class="tag">本地化</span><p class="body" style="margin-top:10px;">推理、检索、图谱和日志围绕本机/内网部署，降低数据外传风险。</p></div>
+                        <div class="flat-card"><span class="tag">可追溯</span><p class="body" style="margin-top:10px;">风险结论关联到历史事件、图谱关系和维度评分，便于复核。</p></div>
+                        <div class="flat-card"><span class="tag">可扩展</span><p class="body" style="margin-top:10px;">同一流水线可迁移到反欺诈、AML、贷前审查和贷后预警。</p></div>
+                    </div>
+                    <div class="footer">
+                        <span>工程侧重点：链路闭环、模块边界清晰、Web 与终端 pipeline 可复现</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>05 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 46%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>核心创新</span>
+                        <span class="rule"></span>
+                        <span>面向组合型金融风险</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">四个设计让系统不只“判单条文本”</h2>
+                    <div class="innovation-grid reveal">
+                        <div class="card innovation">
+                            <span class="tag">暂存 - 回捞机制</span>
+                            <h3 style="margin-top:18px;" data-editable="true">低风险线索不丢弃</h3>
+                            <p class="body" style="margin-top:12px;" data-editable="true">未命中事件进入行为基线；高风险事件触发同客户、同账户、语义相关历史回捞。</p>
+                        </div>
+                        <div class="card innovation">
+                            <span class="tag">多维风险评分</span>
+                            <h3 style="margin-top:18px;" data-editable="true">风险结果可解释</h3>
+                            <p class="body" style="margin-top:12px;" data-editable="true">身份、交易行为、对手方、金额速度、设备地理、历史上下文、合规信号共同加权。</p>
+                        </div>
+                        <div class="card innovation">
+                            <span class="tag">时序知识图谱</span>
+                            <h3 style="margin-top:18px;" data-editable="true">碎片线索织成关系网</h3>
+                            <p class="body" style="margin-top:12px;" data-editable="true">Graphiti + Neo4j 记录人、账户、设备、事件、因果和参与关系，支持追溯。</p>
+                        </div>
+                        <div class="card innovation">
+                            <span class="tag">二次研判闭环</span>
+                            <h3 style="margin-top:18px;" data-editable="true">先评估，再补图，再复评</h3>
+                            <p class="body" style="margin-top:12px;" data-editable="true">高风险事件汇入历史上下文后重新检索和评分，输出证据点与处置建议。</p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>创新侧重点：低风险不丢弃，高风险有上下文，结论可解释</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>06 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 54%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>智能体与 Demo 主线</span>
+                        <span class="rule"></span>
+                        <span>以 finance_04 串起多步任务</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">多 Agent 协作 = 任务分解 + 工具调用 + 多步研判</h2>
+                    <div class="sequence card reveal">
+                        <div class="seq-row">
+                            <div class="case">Step 1</div>
+                            <div class="action" data-editable="true">finance_01 工资入账：未命中风险，写入历史基线</div>
+                            <div class="evidence">Milvus 暂存</div>
+                        </div>
+                        <div class="seq-row">
+                            <div class="case">Step 2</div>
+                            <div class="action" data-editable="true">finance_04 疑似洗钱分拆：命中关键词，进入完整 pipeline</div>
+                            <div class="evidence">Classifier + Graph</div>
+                        </div>
+                        <div class="seq-row">
+                            <div class="case">Step 3</div>
+                            <div class="action" data-editable="true">首评风险超过阈值：按 P102 回捞历史可疑转账</div>
+                            <div class="evidence">Recall + batch graph</div>
+                        </div>
+                        <div class="seq-row">
+                            <div class="case">Step 4</div>
+                            <div class="action" data-editable="true">补图后二次研判：生成 AML 调查摘要与人工复核建议</div>
+                            <div class="evidence">Dashboard Agent</div>
+                        </div>
+                    </div>
+                    <div class="two-col reveal" style="margin-top: 24px; grid-template-columns: 1fr 1fr;">
+                        <div class="visual-panel" style="min-height: 180px;">
+                            <div class="label">任务分解</div>
+                            <div class="desc">Normalizer、Classifier、Graph/Retrieval 与 Dashboard Agent 分别处理结构化、判别、证据召回和复核摘要。</div>
+                        </div>
+                        <div class="visual-panel" style="min-height: 180px;">
+                            <div class="label">工具调用</div>
+                            <div class="desc">Redis、Milvus、Graphiti/Neo4j 和本地 LLM 作为 Agent 工具链，支撑多步上下文研判。</div>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>Demo 主线：低风险沉淀基线，高风险触发回捞，二次研判输出复核建议</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>07 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 62%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>AMD 硬件利用</span>
+                        <span class="rule"></span>
+                        <span>GPU 必达 · NPU 规划标注</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">异构分工要讲清“谁在跑核心推理”</h2>
+                    <div class="hardware-board reveal">
+                        <div class="chip-map">
+                            <span class="tag">AMD Ryzen AI MAX+ 395 Mini AI Workstation</span>
+                            <div class="chip-grid">
+                                <div class="chip"><strong>GPU</strong><span>Radeon 8060S + ROCm / llama.cpp：核心 LLM 推理、Embedding、向量相关高吞吐任务。</span></div>
+                                <div class="chip"><strong>NPU</strong><span>Ryzen AI：适合轻量预筛、后台监控和低功耗常驻任务，作为下一阶段扩展方向。</span></div>
+                                <div class="chip"><strong>CPU</strong><span>CrewAI 调度、规则过滤、Redis/Milvus/Neo4j 访问、日志与报告生成。</span></div>
+                                <div class="chip"><strong>UMA</strong><span>统一内存承载 LLM、Embedding、图谱和向量库同机并发，降低显存瓶颈。</span></div>
+                            </div>
+                        </div>
+                        <div class="evidence-stack">
+                            <div class="media-slot" style="min-height: 250px;">
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">GPU 资源预期曲线</div>
+                                        <div class="data-badge">目标区间</div>
+                                    </div>
+                                    <div class="resource-rows">
+                                        <div class="resource-row"><span>GPU 利用</span><div class="mini-track"><div class="mini-fill" style="--w: 86%;"></div></div><strong>86%</strong></div>
+                                        <div class="resource-row"><span>统一内存</span><div class="mini-track"><div class="mini-fill green" style="--w: 56%;"></div></div><strong>54G</strong></div>
+                                        <div class="resource-row"><span>峰值功耗</span><div class="mini-track"><div class="mini-fill amber" style="--w: 68%;"></div></div><strong>105W</strong></div>
+                                    </div>
+                                    <svg class="sparkline" viewBox="0 0 520 90" aria-label="推理阶段 GPU 利用率预期走势">
+                                        <polyline points="0,72 74,58 148,36 222,20 296,26 370,14 444,24 520,18" fill="none" stroke="#1764d8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polyline points="0,78 74,70 148,56 222,42 296,48 370,36 444,46 520,38" fill="none" stroke="#22b8c7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.72"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="media-slot" style="min-height: 250px;">
+                                <div class="log-panel">
+                                    <div><span class="prompt">$</span> llama-server -m Qwen3.6-35B-A3B-UD-Q6_K.gguf -ngl 99 -c 256000</div>
+                                    <div><span class="ok">OK</span> ROCm0: AMD Radeon Graphics · 49136 MiB</div>
+                                    <div><span class="ok">OK</span> n_ctx = 256000 / train 262144</div>
+                                    <div><span class="ok">OK</span> prompt cache 8192 MiB · slots = 1</div>
+                                    <div><span class="ok">OK</span> model loaded · listening on :8080</div>
+                                </div>
+                            </div>
+                            <div class="note">启动证据：当前实际命令使用 Q6_K GGUF、ROCm GPU offload 与 256k 上下文；P9 再展示 INT4/Q4_K_M 等量化方案的性能取舍。</div>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>硬件口径：核心推理优先使用 Radeon GPU，NPU 作为低功耗预筛扩展方向</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>08 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 69%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>性能、能效与证据</span>
+                        <span class="rule"></span>
+                        <span>性能 · 精度 · 能效</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">实验设计围绕“端侧可用性”而不是单点跑分</h2>
+                    <div class="metrics-grid reveal">
+                        <div>
+                            <table>
+                                <thead>
+                                    <tr><th>评价维度</th><th>说明</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>响应性能</td><td>端到端延迟、P95、TTFT、生成吞吐</td></tr>
+                                    <tr><td>资源利用</td><td>GPU 利用率、显存占用、CPU 调度开销</td></tr>
+                                    <tr><td>任务效果</td><td>风险等级一致率、历史回捞命中、证据覆盖</td></tr>
+                                    <tr><td>能效表现</td><td>单条事件平均功耗、峰值功耗、INT4/Q4_K_M 量化收益</td></tr>
+                                    <tr><td>稳定性</td><td>多轮重复运行的耗时方差与结论一致性</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="note" style="margin-top: 22px;">对比对象采用原始模型/云端基线与本地量化模型，说明精度损失、上下文容量、吞吐和能效之间的权衡。</div>
+                        </div>
+                        <div class="card bar-chart">
+                            <h3 data-editable="true">阶段耗时拆解</h3>
+                            <div class="media-slot" style="min-height: 320px;">
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">阶段耗时拆解</div>
+                                        <div class="data-badge">预期数据</div>
+                                    </div>
+                                    <div class="stage-rows">
+                                        <div class="stage-row"><span>标准化</span><div class="mini-track"><div class="mini-fill green" style="--w: 6%;"></div></div><strong>20s</strong></div>
+                                        <div class="stage-row"><span>黑名单</span><div class="mini-track"><div class="mini-fill green" style="--w: 1%;"></div></div><strong>&lt;1s</strong></div>
+                                        <div class="stage-row"><span>分类评级</span><div class="mini-track"><div class="mini-fill" style="--w: 17%;"></div></div><strong>60s</strong></div>
+                                        <div class="stage-row"><span>回捞检索</span><div class="mini-track"><div class="mini-fill" style="--w: 11%;"></div></div><strong>40s</strong></div>
+                                        <div class="stage-row"><span>批量构图</span><div class="mini-track"><div class="mini-fill amber" style="--w: 100%;"></div></div><strong>360s+</strong></div>
+                                        <div class="stage-row"><span>二次研判</span><div class="mini-track"><div class="mini-fill amber" style="--w: 67%;"></div></div><strong>240s</strong></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="media-slot" style="min-height: 240px;">
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">原始模型 vs INT4/Q4_K_M</div>
+                                        <div class="data-badge">预期对比</div>
+                                    </div>
+                                    <div class="compare-grid">
+                                        <div class="compare-card"><strong>0.42x</strong><span>端到端延迟，较原始模型降低</span></div>
+                                        <div class="compare-card"><strong>2.6x</strong><span>生成吞吐，目标提升倍数</span></div>
+                                        <div class="compare-card"><strong>0.72x</strong><span>单条事件平均功耗</span></div>
+                                        <div class="compare-card"><strong>96%</strong><span>风险等级一致率目标</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>证据口径：端到端延迟、吞吐、资源占用、能效与结论一致性一起看</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>09 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 77%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>端到端 Demo 演示</span>
+                        <span class="rule"></span>
+                        <span>四段画面串起闭环</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">从系统状态到二次研判，展示一条可讲清的风控闭环</h2>
+                    <div class="closing-grid reveal" style="margin-top: 28px;">
+                        <div>
+                            <div class="demo-grid" style="grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 0;">
+                                <div class="demo-shot compact">
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>System Status</span><span>local</span></div>
+                                            <div class="mini-card-row">
+                                                <div class="mini-card"><strong>GPU</strong><span>HIP ready</span></div>
+                                                <div class="mini-card"><strong>LLM</strong><span>Q4_K_M</span></div>
+                                                <div class="mini-card"><strong>API</strong><span>127.0.0.1</span></div>
+                                            </div>
+                                            <div class="resource-rows">
+                                                <div class="resource-row"><span>GPU</span><div class="mini-track"><div class="mini-fill" style="--w: 78%;"></div></div><strong>78%</strong></div>
+                                                <div class="resource-row"><span>MEM</span><div class="mini-track"><div class="mini-fill green" style="--w: 52%;"></div></div><strong>50G</strong></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <h3>系统状态</h3>
+                                    <p>本地 endpoint、模型、GPU/NPU 后端、硬件报告。</p>
+                                </div>
+                                <div class="demo-shot compact">
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>finance_01</span><span>low risk</span></div>
+                                            <div class="mini-chip-row">
+                                                <span class="mini-chip">未命中黑名单</span>
+                                                <span class="mini-chip">风险 0.22</span>
+                                                <span class="mini-chip">Milvus 暂存</span>
+                                            </div>
+                                            <div class="node-map">
+                                                <div class="node green" style="left: 22px; top: 38px;">P101</div>
+                                                <div class="node" style="left: 116px; top: 18px;">事件</div>
+                                                <div class="node" style="right: 22px; top: 50px;">向量库</div>
+                                                <div class="node-line" style="left: 76px; top: 66px; width: 54px; transform: rotate(-18deg);"></div>
+                                                <div class="node-line" style="left: 170px; top: 62px; width: 64px; transform: rotate(16deg);"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <h3>低风险暂存</h3>
+                                    <p>finance_01 未命中，写入 Milvus 行为基线。</p>
+                                </div>
+                                <div class="demo-shot compact">
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>finance_04</span><span>high risk</span></div>
+                                            <div class="mini-chip-row">
+                                                <span class="mini-chip">P102</span>
+                                                <span class="mini-chip">回捞 3 条</span>
+                                                <span class="mini-chip">补图</span>
+                                            </div>
+                                            <div class="node-map">
+                                                <div class="node red" style="left: 100px; top: 36px;">P102</div>
+                                                <div class="node" style="left: 22px; top: 18px;">账户</div>
+                                                <div class="node" style="right: 24px; top: 18px;">设备</div>
+                                                <div class="node" style="left: 54px; bottom: 14px;">历史</div>
+                                                <div class="node red" style="right: 58px; bottom: 14px;">AML</div>
+                                                <div class="node-line" style="left: 76px; top: 52px; width: 54px; transform: rotate(15deg);"></div>
+                                                <div class="node-line" style="left: 154px; top: 52px; width: 72px; transform: rotate(-14deg);"></div>
+                                                <div class="node-line" style="left: 100px; top: 92px; width: 62px; transform: rotate(132deg);"></div>
+                                                <div class="node-line" style="left: 154px; top: 92px; width: 62px; transform: rotate(48deg);"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <h3>高风险回捞</h3>
+                                    <p>finance_04 触发 P102 历史回捞与批量补图。</p>
+                                </div>
+                                <div class="demo-shot compact">
+                                    <div class="frame mock-frame">
+                                        <div class="mini-screen">
+                                            <div class="mini-top"><span>Risk Review</span><span>AML</span></div>
+                                            <div class="mini-card-row">
+                                                <div class="mini-card"><strong>0.86</strong><span>风险分</span></div>
+                                                <div class="mini-card"><strong>3</strong><span>证据点</span></div>
+                                                <div class="mini-card"><strong>P95</strong><span>目标&lt;10s</span></div>
+                                            </div>
+                                            <div class="resource-rows">
+                                                <div class="resource-row"><span>交易异常</span><div class="mini-track"><div class="mini-fill amber" style="--w: 88%;"></div></div><strong>高</strong></div>
+                                                <div class="resource-row"><span>历史关联</span><div class="mini-track"><div class="mini-fill" style="--w: 76%;"></div></div><strong>强</strong></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <h3>二次研判</h3>
+                                    <p>图谱上下文、风险维度、AML 摘要、人工复核建议。</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card" style="padding: 26px; min-height: 520px;">
+                            <span class="tag">演示主线</span>
+                            <div class="asset-list compact">
+                                <div class="asset-item"><strong>进入</strong><span>先展示本地服务、模型后端和资源观测入口。</span></div>
+                                <div class="asset-item"><strong>沉淀</strong><span>低风险事件不立即丢弃，进入历史行为基线。</span></div>
+                                <div class="asset-item"><strong>触发</strong><span>疑似洗钱分拆事件触发分类、构图和首轮风险判断。</span></div>
+                                <div class="asset-item"><strong>复核</strong><span>回捞 P102 历史线索，补图后形成摘要与处置建议。</span></div>
+                            </div>
+                            <p class="body" style="margin-top:18px; font-size:22px;" data-editable="true">演示重点不是单次模型调用，而是端侧系统如何把事件、历史线索、图谱证据与人工复核串成一个连续工作流。</p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>演示目标：让观众看见输入、回捞、补图、复评和复核建议的完整链路</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>10 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 85%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>隐私与安全</span>
+                        <span class="rule"></span>
+                        <span>端侧部署的金融边界</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true">本地部署是隐私底座，脱敏与复核是工程兜底</h2>
+                    <p class="lead reveal" data-editable="true">金融风控面对客户身份、账户流水和调查线索，系统设计必须默认减少数据外流面，并让处置责任保留在人。</p>
+                    <div class="three-grid reveal" style="margin-top: 44px;">
+                        <div class="card">
+                            <span class="tag">本地部署护隐私</span>
+                            <h3 style="margin-top:20px;" data-editable="true">核心数据留在银行内网</h3>
+                            <p class="body" style="margin-top:14px;" data-editable="true">推理、黑名单、暂存、图谱、检索和日志围绕端侧工作站部署，客户数据不依赖公有云传输。</p>
+                        </div>
+                        <div class="card">
+                            <span class="tag">脱敏 + 最小权限</span>
+                            <h3 style="margin-top:20px;" data-editable="true">Demo 用 P101 / P102 编号表达客户</h3>
+                            <p class="body" style="margin-top:14px;" data-editable="true">展示链路用脱敏编号替代真实身份字段；接口、日志和复核入口只暴露完成任务所需的信息。</p>
+                        </div>
+                        <div class="card">
+                            <span class="tag">合规 + 人工复核</span>
+                            <h3 style="margin-top:20px;" data-editable="true">系统只做分析辅助和线索发现</h3>
+                            <p class="body" style="margin-top:14px;" data-editable="true">风险等级、证据点和处置建议进入复核流程，最终冻结、上报或放行由授权人员确认。</p>
+                        </div>
+                    </div>
+                    <div class="two-col reveal" style="margin-top: 28px; grid-template-columns: 1fr 1fr;">
+                        <div class="media-slot" style="min-height: 250px;">
+                            <div class="data-visual">
+                                <div class="data-head">
+                                    <div class="data-title">字段脱敏展示</div>
+                                    <div class="data-badge">示例字段</div>
+                                </div>
+                                <div class="privacy-grid">
+                                    <div class="privacy-box">
+                                        <h4>接入侧字段</h4>
+                                        <div class="field-line"><span>客户</span><strong>P102#客户B</strong></div>
+                                        <div class="field-line"><span>账户</span><strong>****4821</strong></div>
+                                        <div class="field-line"><span>证件</span><strong>ID-901X</strong></div>
+                                        <div class="field-line"><span>联系标识</span><strong>C-4821</strong></div>
+                                    </div>
+                                    <div class="privacy-box">
+                                        <h4>展示侧字段</h4>
+                                        <div class="field-line"><span>主体</span><strong>P102</strong></div>
+                                        <div class="field-line"><span>账户组</span><strong>A-4821</strong></div>
+                                        <div class="field-line"><span>设备</span><strong>D-07</strong></div>
+                                        <div class="field-line"><span>权限</span><strong>复核员</strong></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="visual-panel" style="min-height: 250px;">
+                            <div class="label">审计友好</div>
+                            <div class="desc">每次风险结论关联到触发规则、历史事件、图谱关系和复核动作，便于事后追溯。</div>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>安全口径：客户数据本地化、展示字段脱敏化、处置结论人工确认</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>11 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 92%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>落地价值与扩展性</span>
+                        <span class="rule"></span>
+                        <span>从能力复用到业务验证</span>
+                    </div>
+                    <h2 class="reveal" data-editable="true" style="font-size: 56px;">把当前风控闭环转化为可验证的业务价值</h2>
+                    <div class="two-col reveal" style="margin-top: 28px; grid-template-columns: 0.93fr 1.07fr; gap: 34px;">
+                        <div class="card" style="min-height: 548px; padding: 26px;">
+                            <span class="tag">价值指标</span>
+                            <h3 style="margin-top:16px;" data-editable="true">同一批事件同时看效率、发现和质量</h3>
+                            <p class="body" style="margin-top:12px; font-size:20px;" data-editable="true">落地价值不只看模型单次回答，而要看系统是否缩短人工研判、扩大历史线索召回，并保持可解释的风险等级输出。</p>
+                            <div class="media-slot" style="min-height: 310px; margin-top: 20px;">
+                                <div class="data-visual">
+                                    <div class="data-head">
+                                        <div class="data-title">业务价值预期指标</div>
+                                        <div class="data-badge">目标数据</div>
+                                    </div>
+                                    <div class="value-rows">
+                                        <div class="value-row"><span>闭环耗时</span><div class="mini-track"><div class="mini-fill green" style="--w: 60%;"></div></div><strong>12min+</strong></div>
+                                        <div class="value-row"><span>线索召回</span><div class="mini-track"><div class="mini-fill" style="--w: 92%;"></div></div><strong>92%</strong></div>
+                                        <div class="value-row"><span>等级一致</span><div class="mini-track"><div class="mini-fill" style="--w: 96%;"></div></div><strong>96%</strong></div>
+                                        <div class="value-row"><span>复核命中</span><div class="mini-track"><div class="mini-fill amber" style="--w: 84%;"></div></div><strong>84%</strong></div>
+                                    </div>
+                                    <div class="compare-grid" style="margin-top: 14px;">
+                                        <div class="compare-card"><strong>12min+</strong><span>当前闭环预期</span></div>
+                                        <div class="compare-card"><strong>600s+</strong><span>构图 + 二次研判</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="visual-panel" style="min-height: 548px; padding: 26px;">
+                            <div class="label">场景迁移矩阵</div>
+                            <div class="desc" style="font-size: 20px;" data-editable="true">复用的是事件标准化、黑名单过滤、历史回捞、图谱证据、二次研判与人工复核闭环。</div>
+                            <div class="asset-list compact" style="margin-top: 10px;">
+                                <div class="asset-item"><strong>信用卡</strong><span>设备、账户、短时交易异常 → 黑名单命中 + 相似事件回捞 + 处置建议。</span></div>
+                                <div class="asset-item"><strong>对公账户</strong><span>主体、账户、交易对手关系 → 图谱追溯 + 关联风险提示。</span></div>
+                                <div class="asset-item"><strong>保险理赔</strong><span>理赔文本、主体、历史案件 → 相似材料检索 + 证据链核验。</span></div>
+                                <div class="asset-item"><strong>贷后预警</strong><span>还款行为、担保关系、历史风险事件 → 趋势提示 + 复核任务。</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="three-grid reveal" style="margin-top: 24px;">
+                        <div class="flat-card">
+                            <span class="tag">当前可复用</span>
+                            <p class="body" style="margin-top:10px; font-size:19px;">统一事件模型、Redis 暂存回捞、Graphiti 图谱、混合检索和人工复核入口。</p>
+                        </div>
+                        <div class="flat-card">
+                            <span class="tag">接入边界</span>
+                            <p class="body" style="margin-top:10px; font-size:19px;">业务侧需要定义事件字段、风险标签、复核权限、评价指标和处置流程。</p>
+                        </div>
+                        <div class="flat-card">
+                            <span class="tag">证据形态</span>
+                            <p class="body" style="margin-top:10px; font-size:19px;">用真实系统截图、指标图表、反馈材料或合作意向支撑价值判断。</p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>落地口径：先明确可复用能力和评价指标，再用真实业务材料支撑价值结论</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>12 / 13</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="slide" style="--progress: 100%">
+                <div class="canvas">
+                    <div class="section-kicker reveal">
+                        <span>总结 / 致谢 / Q&A</span>
+                        <span class="rule"></span>
+                        <span>Sentinel Edge</span>
+                    </div>
+                    <div class="two-col" style="align-items: center; min-height: 760px;">
+                        <div>
+                            <div class="eyebrow reveal" data-editable="true">Q&A</div>
+                            <h2 class="reveal" data-editable="true" style="font-size: 58px;">基于端侧 AI 的银行零售反欺诈与反洗钱风险多智能体预警系统</h2>
+                            <p class="lead reveal" data-editable="true" style="margin-top: 28px;">Sentinel Edge 把组合风险发现、图谱证据和人工复核带到可控的端侧金融环境中。</p>
+                            <div class="asset-list compact reveal" style="max-width: 780px;">
+                                <div class="asset-item"><strong>隐私</strong><span>客户身份、交易流水、图谱证据和日志留在银行内网。</span></div>
+                                <div class="asset-item"><strong>发现</strong><span>低风险历史线索与当前高风险事件联合研判，覆盖组合风险。</span></div>
+                                <div class="asset-item"><strong>下一步</strong><span>增强低功耗预筛、多模态凭证输入和真实业务验证。</span></div>
+                            </div>
+                            <div class="title-meta reveal">
+                                <span class="pill"><span class="dot"></span>Sentinel Edge</span>
+                                <span class="pill"><span class="dot green"></span>Q&A</span>
+                            </div>
+                        </div>
+                        <div class="card reveal" style="padding: 34px; min-height: 560px;">
+                            <span class="tag">致谢</span>
+                            <div class="asset-list" style="margin-top: 28px;">
+                                <div class="asset-item"><strong>平台</strong><span>感谢 AMD 平台与赛事提供端侧 AI 创新应用的实践场景。</span></div>
+                                <div class="asset-item"><strong>生态</strong><span>感谢 CrewAI、Graphiti、Neo4j、llama.cpp、Vue 与 FastAPI 等开源生态。</span></div>
+                                <div class="asset-item"><strong>工程</strong><span>感谢项目协作中围绕算法、系统、演示与材料整理形成的工程积累。</span></div>
+                                <div class="asset-item"><strong>交流</strong><span>欢迎围绕端侧部署、金融场景适配、隐私安全和硬件利用继续讨论。</span></div>
+                            </div>
+                            <p class="body" style="margin-top: 30px;" data-editable="true">欢迎围绕端侧部署、金融场景适配、隐私安全、硬件利用和 Demo 链路提问。</p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>Sentinel Edge · 银行零售反欺诈与反洗钱风险预警系统</span>
+                        <!-- <span class="progress-line"><span class="progress-fill"></span></span> -->
+                        <span>13 / 13</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="deck-controls" aria-label="Slide controls">
+        <button class="nav-button" id="prevSlide" aria-label="Previous slide">&lt;</button>
+        <span id="slideCounter">01 / 13</span>
+        <button class="nav-button" id="nextSlide" aria-label="Next slide">&gt;</button>
+    </div>
+
+    <div class="edit-hotzone" aria-hidden="true"></div>
+    <button class="edit-toggle" id="editToggle" type="button" title="Edit mode (E)">Edit</button>
+    <div class="save-toast" id="saveToast">Saved locally</div>
+
+    <script>
+        /* === SLIDE PRESENTATION CONTROLLER === */
+        class SlidePresentation {
+            constructor() {
+                this.slides = Array.from(document.querySelectorAll(".slide"));
+                this.currentSlide = 0;
+                this.stage = document.getElementById("deckStage");
+                this.counter = document.getElementById("slideCounter");
+                this.setupStageScale();
+                this.setupKeyboardNav();
+                this.setupTouchNav();
+                this.setupWheelNav();
+                this.setupButtons();
+                this.showSlide(0);
+            }
+
+            setupStageScale() {
+                const scale = () => {
+                    const factor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+                    const x = (window.innerWidth - 1920 * factor) / 2;
+                    const y = (window.innerHeight - 1080 * factor) / 2;
+                    this.stage.style.transform = `translate(${x}px, ${y}px) scale(${factor})`;
+                };
+                scale();
+                window.addEventListener("resize", scale);
+            }
+
+            setupButtons() {
+                document.getElementById("prevSlide").addEventListener("click", () => this.prev());
+                document.getElementById("nextSlide").addEventListener("click", () => this.next());
+            }
+
+            setupKeyboardNav() {
+                document.addEventListener("keydown", (event) => {
+                    if (event.target && event.target.getAttribute("contenteditable") === "true") return;
+                    if (["ArrowRight", " ", "PageDown"].includes(event.key)) {
+                        event.preventDefault();
+                        this.next();
+                    }
+                    if (["ArrowLeft", "PageUp"].includes(event.key)) {
+                        event.preventDefault();
+                        this.prev();
+                    }
+                    if (event.key === "Home") this.showSlide(0);
+                    if (event.key === "End") this.showSlide(this.slides.length - 1);
+                });
+            }
+
+            setupTouchNav() {
+                let startX = 0;
+                let startY = 0;
+                window.addEventListener("touchstart", (event) => {
+                    startX = event.touches[0].clientX;
+                    startY = event.touches[0].clientY;
+                }, { passive: true });
+                window.addEventListener("touchend", (event) => {
+                    const touch = event.changedTouches[0];
+                    const dx = touch.clientX - startX;
+                    const dy = touch.clientY - startY;
+                    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy)) {
+                        dx < 0 ? this.next() : this.prev();
+                    }
+                }, { passive: true });
+            }
+
+            setupWheelNav() {
+                let lock = false;
+                window.addEventListener("wheel", (event) => {
+                    if (lock) return;
+                    if (Math.abs(event.deltaY) < 20) return;
+                    lock = true;
+                    event.deltaY > 0 ? this.next() : this.prev();
+                    setTimeout(() => { lock = false; }, 520);
+                }, { passive: true });
+            }
+
+            showSlide(index) {
+                const clamped = Math.max(0, Math.min(index, this.slides.length - 1));
+                this.currentSlide = clamped;
+                this.slides.forEach((slide, i) => {
+                    slide.classList.toggle("active", i === clamped);
+                    slide.classList.toggle("visible", i === clamped);
+                });
+                const current = String(clamped + 1).padStart(2, "0");
+                const total = String(this.slides.length).padStart(2, "0");
+                this.counter.textContent = `${current} / ${total}`;
+            }
+
+            next() {
+                this.showSlide(this.currentSlide + 1);
+            }
+
+            prev() {
+                this.showSlide(this.currentSlide - 1);
+            }
+        }
+
+        /* === INLINE EDITING CONTROLLER === */
+        class InlineEditor {
+            constructor() {
+                this.isActive = false;
+                this.storageKey = "sentinel-edge-competition-demo-edits-v2-public";
+                this.editables = Array.from(document.querySelectorAll("[data-editable='true']"));
+                this.toast = document.getElementById("saveToast");
+                this.load();
+                this.bindSaveHandlers();
+            }
+
+            toggleEditMode() {
+                this.isActive = !this.isActive;
+                document.body.classList.toggle("editing", this.isActive);
+                document.getElementById("editToggle").classList.toggle("active", this.isActive);
+                this.editables.forEach((element) => {
+                    element.setAttribute("contenteditable", this.isActive ? "true" : "false");
+                });
+            }
+
+            bindSaveHandlers() {
+                this.editables.forEach((element, index) => {
+                    element.dataset.editIndex = String(index);
+                    element.addEventListener("input", () => this.save());
+                });
+                document.addEventListener("keydown", (event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+                        event.preventDefault();
+                        this.save(true);
+                    }
+                });
+            }
+
+            save(showToast = false) {
+                const payload = {};
+                this.editables.forEach((element) => {
+                    payload[element.dataset.editIndex] = element.innerHTML;
+                });
+                localStorage.setItem(this.storageKey, JSON.stringify(payload));
+                if (showToast) this.flashToast();
+            }
+
+            load() {
+                const raw = localStorage.getItem(this.storageKey);
+                if (!raw) return;
+                try {
+                    const payload = JSON.parse(raw);
+                    this.editables.forEach((element, index) => {
+                        if (payload[String(index)]) element.innerHTML = payload[String(index)];
+                    });
+                } catch (error) {
+                    console.warn("Could not load local edits", error);
+                }
+            }
+
+            flashToast() {
+                this.toast.classList.add("show");
+                setTimeout(() => this.toast.classList.remove("show"), 1300);
+            }
+        }
+
+        const deck = new SlidePresentation();
+        const editor = new InlineEditor();
+
+        /* === EDIT TOGGLE VISIBILITY === */
+        const hotzone = document.querySelector(".edit-hotzone");
+        const editToggle = document.getElementById("editToggle");
+        let hideTimeout = null;
+
+        hotzone.addEventListener("mouseenter", () => {
+            clearTimeout(hideTimeout);
+            editToggle.classList.add("show");
+        });
+        hotzone.addEventListener("mouseleave", () => {
+            hideTimeout = setTimeout(() => {
+                if (!editor.isActive) editToggle.classList.remove("show");
+            }, 400);
+        });
+        editToggle.addEventListener("mouseenter", () => clearTimeout(hideTimeout));
+        editToggle.addEventListener("mouseleave", () => {
+            hideTimeout = setTimeout(() => {
+                if (!editor.isActive) editToggle.classList.remove("show");
+            }, 400);
+        });
+        editToggle.addEventListener("click", () => editor.toggleEditMode());
+        hotzone.addEventListener("click", () => editor.toggleEditMode());
+        document.addEventListener("keydown", (event) => {
+            if ((event.key === "e" || event.key === "E") && event.target.getAttribute("contenteditable") !== "true") {
+                editor.toggleEditMode();
+            }
+        });
+    </script>
+</body>
+</html>
